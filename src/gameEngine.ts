@@ -27,7 +27,52 @@ import {
   logEvent,
   validateBoardStateInvariants,
   countLivingCharacters,
+  getPowerCardHandCounts,
 } from './gameState';
+
+function resolveKingTerritoryDraw(
+  state: GameState,
+  controller: Controller,
+  logDetails: Record<string, unknown>,
+): GameState {
+  if (state.powerCardDeck.length === 0) {
+    return logEvent(state, 'King Territory Draw - No Power Cards Remaining', {
+      ...logDetails,
+      controller,
+      remainingPowerCardDeckCount: 0,
+    });
+  }
+
+  const drawnCard = state.powerCardDeck[0];
+  const remainingPowerCardDeck = state.powerCardDeck.slice(1);
+  const nextHand = [...state.powerCardHands[controller], drawnCard];
+
+  let newState: GameState = {
+    ...state,
+    powerCardDeck: remainingPowerCardDeck,
+    powerCardHands: {
+      ...state.powerCardHands,
+      [controller]: nextHand,
+    },
+    drawCount: {
+      ...state.drawCount,
+      [controller]: state.drawCount[controller] + 1,
+    },
+  };
+
+  const handCounts = getPowerCardHandCounts(newState);
+
+  newState = logEvent(newState, 'King Territory Draw', {
+    ...logDetails,
+    controller,
+    drawnPowerCardAuditInstanceId: drawnCard.instanceId,
+    remainingPowerCardDeckCount: newState.powerCardDeck.length,
+    newDrawCount: newState.drawCount[controller],
+    newPowerCardHandCount: handCounts[controller],
+  });
+
+  return newState;
+}
 
 /**
  * VALIDATION: Check if a Move Forward action is legal.
@@ -241,25 +286,10 @@ export function executeMoveForward(state: GameState, characterId: string): GameS
     const destTerritory = getSpaceTerritory(forwardSpace);
 
     if (originTerritory !== destTerritory) {
-      // King crossed territory boundary
-      newState = {
-        ...newState,
-        drawCount: {
-          ...newState.drawCount,
-          [character.controller]: newState.drawCount[character.controller] + 1,
-        },
-        powerCardHandCount: {
-          ...newState.powerCardHandCount,
-          [character.controller]: newState.powerCardHandCount[character.controller] + 1,
-        },
-      };
-
-      newState = logEvent(newState, 'King Territory Draw', {
+      newState = resolveKingTerritoryDraw(newState, character.controller, {
         characterId: character.id,
         fromSpace: character.boardPosition,
         toSpace: forwardSpace,
-        newDrawCount: newState.drawCount[character.controller],
-        newPowerCardHandCount: newState.powerCardHandCount[character.controller],
       });
     }
   }
@@ -335,23 +365,9 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
       const destTerritory = getSpaceTerritory(forwardSpace);
 
       if (originTerritory !== destTerritory) {
-        newState = {
-          ...newState,
-          drawCount: {
-            ...newState.drawCount,
-            [attacker.controller]: newState.drawCount[attacker.controller] + 1,
-          },
-          powerCardHandCount: {
-            ...newState.powerCardHandCount,
-            [attacker.controller]: newState.powerCardHandCount[attacker.controller] + 1,
-          },
-        };
-
-        newState = logEvent(newState, 'King Territory Draw', {
+        newState = resolveKingTerritoryDraw(newState, attacker.controller, {
           characterId: attacker.id,
           reason: 'Attack Forward Win',
-          newDrawCount: newState.drawCount[attacker.controller],
-          newPowerCardHandCount: newState.powerCardHandCount[attacker.controller],
         });
       }
     }

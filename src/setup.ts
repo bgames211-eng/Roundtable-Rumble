@@ -5,8 +5,15 @@ import {
   type CharacterDeckCard,
   type Controller,
   type GameState,
+  getPowerCardHandCounts,
   initializeGameState,
 } from './gameState';
+import {
+  type PowerCardInstance,
+  buildFirstAlphaPowerCardDeck,
+  getPrivateHandForPlayer,
+  shufflePowerCardInstances,
+} from './powerCards';
 
 export type RandomFn = () => number;
 
@@ -38,6 +45,11 @@ export interface PlayerSafeGameView {
   kingSpots: BoardSpace[];
   drawCount: { Y: number; A: number };
   powerCardHandCount: { Y: number; A: number };
+  powerCards: {
+    remainingDeckCount: number;
+    usedPileCount: number;
+    usedPileDefinitionIds: string[];
+  };
   characterDeck: { remainingCount: number };
   boardCards: PlayerSafeCardView[];
   graveyard: Array<{
@@ -101,6 +113,11 @@ export function createStandardGameSetup(firstPlayer: Controller, randomFn: Rando
   const aDealt = shuffled.slice(5, 10);
   const hiddenDeck = shuffled.slice(10);
 
+  const shuffledPowerDeck = shufflePowerCardInstances(buildFirstAlphaPowerCardDeck(), randomFn);
+  const yPowerCards = shuffledPowerDeck.slice(0, 3);
+  const aPowerCards = shuffledPowerDeck.slice(3, 6);
+  const remainingPowerDeck = shuffledPowerDeck.slice(6);
+
   const dealtCharacters: Character[] = [];
 
   for (let i = 0; i < 5; i += 1) {
@@ -149,12 +166,15 @@ export function createStandardGameSetup(firstPlayer: Controller, randomFn: Rando
     ...baseState,
     activePlayer: firstPlayer,
     characterDeck: hiddenDeck,
-    powerCardHandCount: { Y: 3, A: 3 },
+    powerCardDeck: remainingPowerDeck,
+    powerCardHands: { Y: yPowerCards, A: aPowerCards },
+    usedPowerCardPile: [],
   };
 }
 
 export function getPlayerGameView(state: GameState): PlayerSafeGameView {
   const boardCards: PlayerSafeCardView[] = [];
+  const powerCardHandCount = getPowerCardHandCounts(state);
 
   for (const space of ALL_SETUP_SPACES) {
     const card = state.characters.find(ch => ch.alive && ch.boardPosition === space);
@@ -190,7 +210,12 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
     gameStatus: state.gameStatus,
     kingSpots: [...KING_SPOTS],
     drawCount: { ...state.drawCount },
-    powerCardHandCount: { ...state.powerCardHandCount },
+    powerCardHandCount,
+    powerCards: {
+      remainingDeckCount: state.powerCardDeck.length,
+      usedPileCount: state.usedPowerCardPile.length,
+      usedPileDefinitionIds: state.usedPowerCardPile.map(card => card.definitionId),
+    },
     characterDeck: {
       remainingCount: state.characterDeck.length,
     },
@@ -210,4 +235,23 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
       action: event.action,
     })),
   };
+}
+
+export interface PrivatePowerCardView {
+  instanceId: string;
+  definitionId: string;
+}
+
+/**
+ * Returns only the requested player's own power-card hand.
+ */
+export function getPrivatePowerCardHand(
+  state: GameState,
+  player: Controller,
+): PrivatePowerCardView[] {
+  const privateHand: PowerCardInstance[] = getPrivateHandForPlayer(state.powerCardHands, player);
+  return privateHand.map(card => ({
+    instanceId: card.instanceId,
+    definitionId: card.definitionId,
+  }));
 }

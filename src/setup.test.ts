@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { ALPHA_1_CHARACTER_DEFINITIONS } from './cardDefinitions';
-import { createStandardGameSetup, getPlayerGameView } from './setup';
+import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, buildFirstAlphaPowerCardDeck } from './powerCards';
+import {
+  createStandardGameSetup,
+  getPlayerGameView,
+  getPrivatePowerCardHand,
+} from './setup';
 
 function sequenceRandom(values: number[]): () => number {
   let idx = 0;
@@ -71,12 +76,22 @@ describe('Phase 3A Standard Setup', () => {
     const state = createStandardGameSetup('Y', sequenceRandom([0.5]));
     expect(state.characters).toHaveLength(10);
     expect(state.characterDeck).toHaveLength(6);
+    expect(state.powerCardHands.Y).toHaveLength(3);
+    expect(state.powerCardHands.A).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(13);
 
     const allInstanceIds = new Set([
       ...state.characters.map(ch => ch.id),
       ...state.characterDeck.map(card => card.instanceId),
     ]);
     expect(allInstanceIds.size).toBe(16);
+
+    const allPowerIds = new Set([
+      ...state.powerCardHands.Y.map(card => card.instanceId),
+      ...state.powerCardHands.A.map(card => card.instanceId),
+      ...state.powerCardDeck.map(card => card.instanceId),
+    ]);
+    expect(allPowerIds.size).toBe(19);
   });
 
   it('fills every standard board setup space at setup', () => {
@@ -111,6 +126,9 @@ describe('Phase 3A Standard Setup', () => {
     expect(view.characterDeck.remainingCount).toBe(6);
     expect('cards' in view.characterDeck).toBe(false);
     expect('characterDeckOrder' in view).toBe(false);
+    expect(view.powerCardHandCount).toEqual({ Y: 3, A: 3 });
+    expect(view.powerCards.remainingDeckCount).toBe(13);
+    expect(view.powerCards.usedPileCount).toBe(0);
 
     for (const card of view.boardCards) {
       expect(card.revealed).toBe(false);
@@ -120,6 +138,13 @@ describe('Phase 3A Standard Setup', () => {
       expect('definitionId' in card).toBe(false);
       expect('ability' in card).toBe(false);
     }
+
+    const serializedView = JSON.stringify(view);
+    expect(serializedView).not.toContain('power-');
+    expect(serializedView).not.toContain('power-alpha-');
+    expect(serializedView).not.toContain('SUPER BAT');
+    expect('powerCardDeck' in (view as unknown as Record<string, unknown>)).toBe(false);
+    expect('powerCardHands' in (view as unknown as Record<string, unknown>)).toBe(false);
   });
 
   it('player-safe view reveals identity and stats when a card is revealed', () => {
@@ -141,10 +166,28 @@ describe('Phase 3A Standard Setup', () => {
     expect(target?.definitionId).toBeDefined();
   });
 
-  it('starts each player with 3 Power Card placeholders and drawCount preserved at 0', () => {
+  it('starts each player with 3 actual Power Cards and drawCount preserved at 0', () => {
     const state = createStandardGameSetup('Y', sequenceRandom([0.22]));
-    expect(state.powerCardHandCount).toEqual({ Y: 3, A: 3 });
+    expect(state.powerCardHands.Y).toHaveLength(3);
+    expect(state.powerCardHands.A).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(13);
+    expect(state.usedPowerCardPile).toHaveLength(0);
     expect(state.drawCount).toEqual({ Y: 0, A: 0 });
+  });
+
+  it('exposes only the requested player private hand', () => {
+    const state = createStandardGameSetup('Y', sequenceRandom([0.12, 0.61, 0.28, 0.94]));
+    const yHand = getPrivatePowerCardHand(state, 'Y');
+    const aHand = getPrivatePowerCardHand(state, 'A');
+
+    expect(yHand).toHaveLength(3);
+    expect(aHand).toHaveLength(3);
+
+    const yIds = new Set(yHand.map(card => card.instanceId));
+    const aIds = new Set(aHand.map(card => card.instanceId));
+    for (const id of yIds) {
+      expect(aIds.has(id)).toBe(false);
+    }
   });
 
   it('respects explicitly chosen first player', () => {
@@ -152,5 +195,46 @@ describe('Phase 3A Standard Setup', () => {
     const aFirst = createStandardGameSetup('A', sequenceRandom([0.15]));
     expect(yFirst.activePlayer).toBe('Y');
     expect(aFirst.activePlayer).toBe('A');
+  });
+});
+
+describe('Phase 4A Power Card Deck', () => {
+  it('builds exactly 19 power-card instances with approved Alpha definition counts', () => {
+    const deck = buildFirstAlphaPowerCardDeck();
+    expect(deck).toHaveLength(19);
+
+    const byDefinition = new Map<string, number>();
+    for (const card of deck) {
+      byDefinition.set(card.definitionId, (byDefinition.get(card.definitionId) ?? 0) + 1);
+    }
+
+    expect(FIRST_ALPHA_POWER_CARD_DEFINITIONS).toHaveLength(10);
+    for (const definition of FIRST_ALPHA_POWER_CARD_DEFINITIONS) {
+      if (definition.displayName === 'POWER STONE') {
+        expect(byDefinition.get(definition.definitionId)).toBe(1);
+      } else {
+        expect(byDefinition.get(definition.definitionId)).toBe(2);
+      }
+    }
+  });
+
+  it('dealing order is repeatable under deterministic shuffle and instance IDs stay unique', () => {
+    const rngValues = [0.03, 0.91, 0.41, 0.87, 0.22, 0.63, 0.15, 0.74, 0.39, 0.52, 0.68];
+    const stateA = createStandardGameSetup('Y', sequenceRandom(rngValues));
+    const stateB = createStandardGameSetup('Y', sequenceRandom(rngValues));
+
+    const yHandA = stateA.powerCardHands.Y.map(card => card.instanceId);
+    const yHandB = stateB.powerCardHands.Y.map(card => card.instanceId);
+    const aHandA = stateA.powerCardHands.A.map(card => card.instanceId);
+    const aHandB = stateB.powerCardHands.A.map(card => card.instanceId);
+    expect(yHandA).toEqual(yHandB);
+    expect(aHandA).toEqual(aHandB);
+
+    const allIds = [
+      ...stateA.powerCardHands.Y.map(card => card.instanceId),
+      ...stateA.powerCardHands.A.map(card => card.instanceId),
+      ...stateA.powerCardDeck.map(card => card.instanceId),
+    ];
+    expect(new Set(allIds).size).toBe(19);
   });
 });

@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { type Controller, type GameState } from './gameState';
-import { createStandardGameSetup, getPlayerGameView } from './setup';
+import {
+  createStandardGameSetup,
+  getPlayerGameView,
+  getPrivatePowerCardHand,
+} from './setup';
+import { getPowerCardDefinition } from './powerCards';
 import { Board } from './ui/Board';
 import { StartScreen } from './ui/StartScreen';
 import { MatchStatus } from './ui/MatchStatus';
@@ -15,10 +20,13 @@ import {
 import { getCharacter } from './gameState';
 import {
   acknowledgeBattleHandoff,
+  getBattlePrivateHandView,
   getBattlePublicView,
   passBattlePriority,
+  playBattlePowerCard,
   resolvePendingBattle,
   startBattle,
+  type PlayBattlePowerCardInput,
 } from './battleFlow';
 
 function toPublicEventText(events: Array<{ turn: number; activePlayer: Controller; action: string }>): string[] {
@@ -36,7 +44,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [firstPlayer, setFirstPlayer] = useState<Controller>('Y');
   const [state, setState] = useState<GameState | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [viewBoardDuringBattle, setViewBoardDuringBattle] = useState(false);
+  const [boardHandoffRequiredFor, setBoardHandoffRequiredFor] = useState<Controller | null>(null);
+  const [boardHandVisibleFor, setBoardHandVisibleFor] = useState<Controller | null>(null);
 
   const safeView = useMemo(() => (state ? getPlayerGameView(state) : null), [state]);
   const battleView = useMemo(() => {
@@ -45,7 +54,51 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     return getBattlePublicView(state);
   }, [state]);
+
+  const battlePrivateHand = useMemo(() => {
+    if (!state?.pendingBattle || state.pendingBattle.handoffRequiredFor !== null) {
+      return null;
+    }
+
+    return getBattlePrivateHandView(state, state.pendingBattle.currentPriorityPlayer);
+  }, [state]);
+
+  const boardPhasePrivateHand = useMemo(() => {
+    if (!state || state.pendingBattle || boardHandoffRequiredFor !== null) {
+      return null;
+    }
+
+    if (boardHandVisibleFor !== state.activePlayer) {
+      return null;
+    }
+
+    const privateCards = getPrivatePowerCardHand(state, state.activePlayer);
+    return privateCards.map(card => {
+      const definition = getPowerCardDefinition(card.definitionId);
+      return {
+        instanceId: card.instanceId,
+        displayName: definition.displayName,
+        rulesText: definition.rulesText,
+      };
+    });
+  }, [state, boardHandVisibleFor, boardHandoffRequiredFor]);
+
   const publicEventLog = useMemo(() => (safeView ? toPublicEventText(safeView.eventLog) : []), [safeView]);
+
+  useEffect(() => {
+    if (!state || state.pendingBattle || state.gameStatus !== 'active') {
+      return;
+    }
+
+    if (boardHandVisibleFor !== state.activePlayer) {
+      if (boardHandoffRequiredFor !== state.activePlayer) {
+        setBoardHandoffRequiredFor(state.activePlayer);
+      }
+      if (boardHandVisibleFor !== null) {
+        setBoardHandVisibleFor(null);
+      }
+    }
+  }, [state, boardHandVisibleFor, boardHandoffRequiredFor]);
 
   const startNewGame = (): void => {
     const next = createGameState
@@ -53,7 +106,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       : createStandardGameSetup(firstPlayer, Math.random);
     setState(next);
     setSelectedCardId(null);
-    setViewBoardDuringBattle(false);
+    setBoardHandVisibleFor(null);
+    setBoardHandoffRequiredFor(firstPlayer);
     setScreen('match');
   };
 
@@ -182,8 +236,26 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     const next = resolvePendingBattle(state);
     setState(next);
-    setViewBoardDuringBattle(false);
     setSelectedCardId(null);
+  };
+
+  const handlePlayBattleCard = (input: PlayBattlePowerCardInput): void => {
+    if (!state?.pendingBattle) {
+      return;
+    }
+
+    const actor = state.pendingBattle.currentPriorityPlayer;
+    const next = playBattlePowerCard(state, actor, input);
+    setState(next);
+  };
+
+  const handleAcknowledgeBoardHandoff = (): void => {
+    if (!state || !boardHandoffRequiredFor) {
+      return;
+    }
+
+    setBoardHandVisibleFor(boardHandoffRequiredFor);
+    setBoardHandoffRequiredFor(null);
   };
 
   if (screen === 'start' || !safeView) {
@@ -194,45 +266,23 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     });
   }
 
-  if (state?.pendingBattle && battleView && !viewBoardDuringBattle) {
+  if (state?.pendingBattle && battleView) {
+    const battleIntroKey = `${state.turnNumber}-${state.pendingBattle.battleType}-${state.pendingBattle.initiatorId}-${state.pendingBattle.opponentId}`;
+
     return React.createElement(
       'main',
       { className: 'app-shell battle-shell', 'data-testid': 'match-screen' },
       React.createElement(BattleScreen, {
         battle: battleView,
+        boardView: battleView.boardView,
+        privateHand: battlePrivateHand,
         handoffRequiredFor: state.pendingBattle.handoffRequiredFor,
+        battleIntroKey,
         onAcknowledgeHandoff: handleAcknowledgeHandoff,
         onPassPriority: handlePassPriority,
+        onPlayCard: handlePlayBattleCard,
         onResolveBattle: handleResolveBattle,
-        onViewBoard: () => setViewBoardDuringBattle(true),
       }),
-    );
-  }
-
-  if (state?.pendingBattle && battleView && viewBoardDuringBattle) {
-    return React.createElement(
-      'main',
-      { className: 'app-shell', 'data-testid': 'match-screen' },
-      React.createElement('section', { className: 'center-board battle-board-readonly' },
-        React.createElement('div', { className: 'battle-banner', 'data-testid': 'battle-in-progress-banner' },
-          'Battle In Progress: Board is read-only.',
-        ),
-        React.createElement(Board, {
-          view: battleView.boardView,
-          selectedCardId: null,
-          onCardClick: () => undefined,
-          readOnly: true,
-        }),
-        React.createElement(
-          'button',
-          {
-            type: 'button',
-            onClick: () => setViewBoardDuringBattle(false),
-            'data-testid': 'return-to-battle',
-          },
-          'Return to Battle',
-        ),
-      ),
     );
   }
 
@@ -244,6 +294,52 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         view: safeView,
         side: 'Y',
       }),
+      React.createElement('div', { className: 'status-block', 'data-testid': 'board-phase-hand-panel' },
+        React.createElement('h3', null, 'Your Power Cards'),
+        boardHandoffRequiredFor
+          ? React.createElement(
+              'div',
+              { 'data-testid': 'board-phase-handoff' },
+              React.createElement('p', null, `Pass device to ${boardHandoffRequiredFor}. ${boardHandoffRequiredFor} may view their hand.`),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: handleAcknowledgeBoardHandoff,
+                  'data-testid': 'board-phase-handoff-acknowledge',
+                },
+                'Acknowledge',
+              ),
+            )
+          : null,
+        boardPhasePrivateHand
+          ? React.createElement(
+              'div',
+              { className: 'board-hand-list', 'data-testid': 'board-phase-private-hand' },
+              boardPhasePrivateHand.map(card =>
+                React.createElement(
+                  'div',
+                  { className: 'board-hand-card', key: card.instanceId, 'data-testid': `board-phase-card-${card.instanceId}` },
+                  React.createElement('p', { className: 'status-label' }, card.displayName),
+                  React.createElement('p', { className: 'status-label' }, card.rulesText),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      disabled: true,
+                      'data-testid': `board-phase-card-disabled-${card.instanceId}`,
+                    },
+                    'Battle card - playable only during a battle',
+                  ),
+                ),
+              ),
+            )
+          : React.createElement(
+              'p',
+              { className: 'status-label', 'data-testid': 'board-phase-hand-placeholder' },
+              `Hidden card backs: ${safeView.powerCardHandCount[safeView.activePlayer]}`,
+            ),
+      ),
     ),
     React.createElement('section', { className: 'center-board' },
       React.createElement(Board, {

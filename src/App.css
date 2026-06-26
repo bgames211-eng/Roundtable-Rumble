@@ -144,6 +144,19 @@ input:focus-visible {
   margin: 0.2rem 0;
 }
 
+.board-hand-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+
+.board-hand-card {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 0.45rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
 .event-log {
   max-height: 38vh;
   overflow-y: auto;

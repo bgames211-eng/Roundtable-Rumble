@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
 import { initializeGameState, type Character, type Controller } from '../gameState';
@@ -212,6 +212,9 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    expect(screen.getByTestId('battle-intro')).toBeInTheDocument();
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getAllByTestId('card-revealed').length).toBeGreaterThan(0);
     expect(screen.getByTestId('battle-type')).toHaveTextContent('Attack Forward');
@@ -334,6 +337,8 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getByTestId('battle-type')).toHaveTextContent('Attack Forward');
     expect(screen.queryByTestId('battle-resolve-button')).not.toBeInTheDocument();
@@ -357,6 +362,8 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y4'));
     await user.click(screen.getByTestId('action-defend'));
 
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getByTestId('battle-type')).toHaveTextContent('Self-Defend');
     expect(screen.queryByTestId('battle-resolve-button')).not.toBeInTheDocument();
@@ -379,9 +386,11 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     expect(screen.getAllByTestId('card-revealed').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('Y-ATTACKER-NAME')).toBeInTheDocument();
-    expect(screen.getByText('A-DEFENDER-NAME')).toBeInTheDocument();
+    expect(screen.getAllByText('Y-ATTACKER-NAME').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('A-DEFENDER-NAME').length).toBeGreaterThan(0);
   });
 
   it('initiator gets first priority and first pass creates privacy handoff', async () => {
@@ -401,15 +410,18 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    expect(await screen.findByTestId('battle-handoff')).toBeInTheDocument();
+    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+
     expect(screen.getByTestId('battle-priority')).toHaveTextContent('Y');
-    expect(screen.getByTestId('battle-hand-visible')).toHaveTextContent('Visible Actual Hand: Y');
+    expect(screen.getByTestId('battle-private-hand-Y')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('battle-pass-button'));
     expect(screen.getByTestId('battle-handoff')).toHaveTextContent('Pass device to A');
 
     await user.click(screen.getByTestId('battle-handoff-acknowledge'));
     expect(screen.getByTestId('battle-priority')).toHaveTextContent('A');
-    expect(screen.getByTestId('battle-hand-visible')).toHaveTextContent('Visible Actual Hand: A');
+    expect(screen.getByTestId('battle-private-hand-A')).toBeInTheDocument();
   });
 
   it('two consecutive passes create ReadyToResolve and no outcome occurs before Resolve Battle', async () => {
@@ -429,6 +441,8 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     await user.click(screen.getByTestId('battle-pass-button'));
     await user.click(screen.getByTestId('battle-handoff-acknowledge'));
     await user.click(screen.getByTestId('battle-pass-button'));
@@ -439,7 +453,7 @@ describe('Phase 3B Step 2 UI', () => {
     expect(screen.queryByText(/wins/)).not.toBeInTheDocument();
   });
 
-  it('board actions are blocked and View Board is read-only while battle is pending', async () => {
+  it('Battle Screen contains a read-only embedded board and normal board actions stay blocked', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
@@ -456,17 +470,14 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(screen.getByTestId('battle-view-board'));
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
 
-    expect(screen.getByTestId('battle-in-progress-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
     expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
     expect(screen.queryByTestId('skip-turn-button')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('space-Y3'));
     expect(screen.queryByTestId('selected-Y3')).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId('return-to-battle'));
-    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
   });
 
   it('Resolve Battle clears pending battle and applies final resolver outcome', async () => {
@@ -485,6 +496,8 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('new-game-button'));
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
 
     await user.click(screen.getByTestId('battle-pass-button'));
     await user.click(screen.getByTestId('battle-handoff-acknowledge'));
@@ -515,11 +528,248 @@ describe('Phase 3B Step 2 UI', () => {
     await user.click(screen.getByTestId('space-Y3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
     const html = container.innerHTML;
     expect(html).toContain('Y-ATTACKER');
     expect(html).toContain('A-DEFENDER');
     expect(html).not.toContain('SECRET-UNINVOLVED-A1');
     expect(html).not.toContain('definitionId');
     expect(html).not.toContain('ability');
+  });
+
+  it('private hand is hidden until acknowledgment and reveals only after handoff accept', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'Y',
+        powerCardHands: {
+          Y: [
+            { instanceId: 'power-y-001', definitionId: 'power-alpha-006' },
+            { instanceId: 'power-y-002', definitionId: 'power-alpha-004' },
+          ],
+          A: [
+            { instanceId: 'power-a-001', definitionId: 'power-alpha-005' },
+          ],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    expect(await screen.findByTestId('battle-handoff')).toHaveTextContent('Pass device to Y. Y may view their hand.');
+    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    expect(screen.getByText('POWER STONE')).toBeInTheDocument();
+  });
+
+  it('both real hands are never in the DOM together during battle privacy flow', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'Y',
+        powerCardHands: {
+          Y: [
+            { instanceId: 'power-y-010', definitionId: 'power-alpha-006' },
+          ],
+          A: [
+            { instanceId: 'power-a-010', definitionId: 'power-alpha-005' },
+          ],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    expect(screen.getByText('POWER STONE')).toBeInTheDocument();
+    expect(screen.queryByText('LOW BLOW!')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-pass-button'));
+    expect(screen.getByTestId('battle-handoff')).toHaveTextContent('Pass device to A. A may view their hand.');
+    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    expect(screen.getByText('LOW BLOW!')).toBeInTheDocument();
+    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
+  });
+
+  it('battle intro renders card backs first and then exposes battle controls', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+      return { ...base, activePlayer: 'Y' };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    expect(screen.getByTestId('battle-intro')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-intro-initiator-back')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-intro-opponent-back')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-pass-button')).not.toBeInTheDocument();
+
+    await screen.findByTestId('battle-handoff-acknowledge');
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+  });
+
+  it('reduced-motion mode skips intro timing delays', async () => {
+    const user = userEvent.setup();
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+      return { ...base, activePlayer: 'Y' };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+    });
+
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('battle intro does not replay when toggling board expansion', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+      return { ...base, activePlayer: 'Y' };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-toggle-board-size'));
+    await user.click(screen.getByTestId('battle-toggle-board-size'));
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+  });
+
+  it('board-phase hand stays visible for acknowledged player and unimplemented cards are disabled', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    expect(screen.getByTestId('board-phase-handoff')).toBeInTheDocument();
+    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+
+    expect(screen.getByTestId('board-phase-private-hand')).toBeInTheDocument();
+    const disabledButtons = screen.getAllByRole('button', { name: 'Battle card - playable only during a battle' });
+    for (const button of disabledButtons) {
+      expect(button).toBeDisabled();
+    }
+  });
+
+  it('hand hides and handoff appears when board-phase turn changes', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-move', 'Y', 5, 5, false, 'Y3', 'Y-MOVE'),
+        createChar('a-safe', 'A', 5, 5, true, 'A3', 'A-SAFE'),
+      ]);
+      return { ...base, activePlayer: 'Y' };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+
+    expect(screen.getByTestId('board-phase-private-hand')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-move'));
+
+    expect(screen.queryByTestId('board-phase-private-hand')).not.toBeInTheDocument();
+    expect(screen.getByTestId('board-phase-handoff')).toHaveTextContent('Pass device to A. A may view their hand.');
+  });
+
+  it('all implemented battle cards show enabled Play control when legal', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
+        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
+        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
+        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'Y',
+        powerCardHands: {
+          Y: [{ instanceId: 'power-y-unimpl', definitionId: 'power-alpha-001' }],
+          A: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
+    expect(screen.queryByText('Not playable in this build yet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-play-card-power-y-unimpl')).toBeEnabled();
   });
 });

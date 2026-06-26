@@ -27,6 +27,16 @@ import {
   skipTurn,
 } from '../src/gameEngine';
 import { getForwardSpace, getBackwardSpace } from '../src/board';
+import { createStandardGameSetup } from './setup';
+
+function sequenceRandom(values: number[]): () => number {
+  let idx = 0;
+  return () => {
+    const next = values[idx % values.length];
+    idx += 1;
+    return next;
+  };
+}
 
 // ==============================================================================
 // HELPER FUNCTIONS FOR TESTS
@@ -947,6 +957,65 @@ describe('[P2-61] Power Card Count: No Draw on Defeat', () => {
 
     const newState = executeAttackForward(state, 'y-king');
     expect(newState.drawCount.Y).toBe(0); // Defeated, no draw
+  });
+});
+
+describe('Phase 4A King Territory Draw: Real Power Card Transfer', () => {
+  it('successful King territory crossing draws exactly one real card into that controller hand', () => {
+    const base = createStandardGameSetup('Y', sequenceRandom([0.11, 0.37, 0.92, 0.56, 0.24]));
+    const moveReadyState = {
+      ...base,
+      activePlayer: 'Y' as const,
+      characters: [
+        createChar('y-king', 'Y', 5, 5, true, false, 'Y5'),
+        createChar('y-helper', 'Y', 4, 4, false, false, 'Y2'),
+        createChar('a-king', 'A', 5, 5, true, false, 'A3'),
+        createChar('a-helper', 'A', 4, 4, false, false, 'A1'),
+      ],
+    };
+
+    const yBefore = moveReadyState.powerCardHands.Y.map(card => card.instanceId);
+    const aBefore = moveReadyState.powerCardHands.A.map(card => card.instanceId);
+    const deckBefore = moveReadyState.powerCardDeck.map(card => card.instanceId);
+
+    const newState = executeMoveForward(moveReadyState, 'y-king');
+
+    expect(newState.powerCardDeck.length).toBe(deckBefore.length - 1);
+    expect(newState.powerCardHands.Y.length).toBe(yBefore.length + 1);
+    expect(newState.powerCardHands.A.map(card => card.instanceId)).toEqual(aBefore);
+    expect(newState.drawCount.Y).toBe(moveReadyState.drawCount.Y + 1);
+
+    const drawnId = newState.powerCardHands.Y[newState.powerCardHands.Y.length - 1].instanceId;
+    expect(deckBefore[0]).toBe(drawnId);
+    expect(yBefore.includes(drawnId)).toBe(false);
+  });
+
+  it('deck-empty King Territory Draw keeps hand/deck unchanged and logs a no-cards event', () => {
+    const chars: Character[] = [
+      createChar('y-king', 'Y', 5, 5, true, false, 'Y5'),
+      createChar('a-king', 'A', 5, 5, true, false, 'A3'),
+      createChar('y-helper', 'Y', 4, 4, false, false, 'Y2'),
+      createChar('a-helper', 'A', 4, 4, false, false, 'A1'),
+    ];
+    const state = {
+      ...initializeGameState(chars),
+      activePlayer: 'Y' as const,
+      powerCardDeck: [],
+      powerCardHands: { Y: [], A: [] },
+      usedPowerCardPile: [],
+    };
+
+    const newState = executeMoveForward(state, 'y-king');
+
+    expect(newState.powerCardDeck).toHaveLength(0);
+    expect(newState.powerCardHands.Y).toHaveLength(0);
+    expect(newState.powerCardHands.A).toHaveLength(0);
+    expect(newState.drawCount.Y).toBe(0);
+
+    const noCardsLog = newState.eventLog.find(
+      entry => entry.action === 'King Territory Draw - No Power Cards Remaining',
+    );
+    expect(noCardsLog).toBeDefined();
   });
 });
 

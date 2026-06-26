@@ -6,6 +6,12 @@
  */
 
 import { getForwardSpace, getBackwardSpace, getTerritory } from './board';
+import {
+  type PowerCardInstance,
+  type UsedPowerCardEntry,
+  buildFirstAlphaPowerCardDeck,
+  countPowerCardsByController,
+} from './powerCards';
 
 export type BoardSpace = 'Y1' | 'Y2' | 'Y3' | 'Y4' | 'Y5' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
 export type Controller = 'Y' | 'A';
@@ -61,7 +67,26 @@ export interface PendingBattle {
   currentPriorityPlayer: Controller;
   consecutivePassCount: number;
   handoffRequiredFor: Controller | null;
+  comparisonStatOverrides: Partial<Record<Controller, 'ATK' | 'DEF'>>;
+  temporaryModifiers: BattleTemporaryModifier[];
   eventHistory: string[];
+}
+
+export interface BattleTemporaryModifier {
+  sourceInstanceId: string;
+  sourceDefinitionId: string;
+  sourceDisplayName: string;
+  controller: Controller;
+  targetCharacterId: string;
+  stat: 'ATK' | 'DEF';
+  amount: number;
+  effectSummary: string;
+  selectedChoice: 'ATK' | 'DEF' | null;
+}
+
+export interface PersistentCharacterModifier {
+  ATK: number;
+  DEF: number;
 }
 
 export interface GameState {
@@ -69,9 +94,12 @@ export interface GameState {
   turnNumber: number;
   characters: Character[];
   characterDeck: CharacterDeckCard[];
+  powerCardDeck: PowerCardInstance[];
+  powerCardHands: { Y: PowerCardInstance[]; A: PowerCardInstance[] };
+  usedPowerCardPile: UsedPowerCardEntry[];
+  persistentCharacterModifiers: Record<string, PersistentCharacterModifier>;
   graveyard: Character[];
   drawCount: { Y: number; A: number };
-  powerCardHandCount: { Y: number; A: number };
   gameStatus: GameStatus;
   eventLog: ActionEvent[];
   pendingBattle: PendingBattle | null;
@@ -87,9 +115,12 @@ export function initializeGameState(initialCharacters: Character[]): GameState {
     turnNumber: 1,
     characters: initialCharacters.map(ch => ({ ...ch, alive: true })),
     characterDeck: [],
+    powerCardDeck: buildFirstAlphaPowerCardDeck(),
+    powerCardHands: { Y: [], A: [] },
+    usedPowerCardPile: [],
+    persistentCharacterModifiers: {},
     graveyard: [],
     drawCount: { Y: 0, A: 0 },
-    powerCardHandCount: { Y: 0, A: 0 },
     gameStatus: 'active',
     pendingBattle: null,
     eventLog: [
@@ -331,4 +362,11 @@ export function getLivingCharacterCounts(state: GameState): { Y: number; A: numb
     Y: state.characters.filter(ch => ch.controller === 'Y' && ch.alive).length,
     A: state.characters.filter(ch => ch.controller === 'A' && ch.alive).length,
   };
+}
+
+/**
+ * Derive public power-card hand counts from authoritative private hands.
+ */
+export function getPowerCardHandCounts(state: GameState): { Y: number; A: number } {
+  return countPowerCardsByController(state.powerCardHands);
 }
