@@ -91,6 +91,28 @@
   gap: 0.3rem;
 }
 
+.board-space.selectable {
+  cursor: pointer;
+}
+
+.board-space.selectable:hover {
+  box-shadow: inset 0 0 0 2px #14372a;
+}
+
+.board-space.selected {
+  outline: 3px solid #e6c16f;
+  outline-offset: 1px;
+}
+
+.selected-chip {
+  font-size: 0.72rem;
+  background: #14372a;
+  color: #f5eddc;
+  border-radius: 999px;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid #0f2c21;
+}
+
 .king-start {
   border: 3px solid #e6c16f;
   box-shadow: inset 0 0 0 2px #5b3a29;
