@@ -1,0 +1,1283 @@
+[Page 1]
+BRENDANMON - CONSOLIDATED RULEBOOK
+
+
+                                           BRENDANMON
+                                    Consolidated Official Rulebook
+             Current through Gabriel - compiled from the original official rulebook and the later finalized card work.
+
+    Scope note: This version includes cards and rules that were already official or were finalized in the conversation
+    through Gabriel. Planned ideas, unfinished cards, and explicitly unfinished cards are excluded. Daryl's Crossbow is not
+    included because it has not been made yet.
+
+
+
+
+Contents
+      1. Objective and Setup
+      2. Board, Turns, Battles, and Kings
+      3. Attachments, Power Cards, Flying, and Sessions
+      4. Official Character Card Registry
+      5. Official Power Card Registry
+      6. Locations, Vehicles, Weapons, and Side Cards
+      7. Current exclusions / cards not yet finalized
+
+
+
+1. Objective and Setup
+Kill the opponent's King before they kill yours. Each player has one King. If your King dies, you lose immediately unless
+an effect saves it, such as Second Life.
+
+Setup
+      Shuffle the Character Card deck and place 5 face-down Character Cards on each player's side.
+      The middle card on each side is that player's King. The King spot is known, but the Character Card remains face
+       down.
+      Do not look at face-down Character Cards, including your own King.
+      Shuffle the Power Card deck. Each player draws 3 Power Cards.
+      Use rock, paper, scissors to decide who goes first.
+
+
+
+2. Board, Turns, Battles, and Kings
+Board and Direction
+The standard board has 10 spaces in one continuous loop: Y1 -> Y2 -> Y3 -> Y4 -> Y5 -> A5 -> A4 -> A3 -> A2 -> A1 ->
+back to Y1. Each player begins with 5 spaces on their side. Y3 and A3 are the King starting spots. Characters follow the
+board arrows when they move forward.
+
+Main Actions
+      Move Forward: Move one character forward one space if that next space is empty.
+      Attack: If an enemy is directly in front of your character, attack using attacker ATK vs defender DEF. If the attacker
+       wins, the defender dies and the attacker moves into the defeated character's space.
+      Self-Defend: If an enemy is directly behind your character, self-defend using DEF vs DEF. If the self-defending
+       character wins, it stays in its space and the loser dies.
+
+
+                                                              Page 1
+
+[Page 2]
+BRENDANMON - CONSOLIDATED RULEBOOK
+“Directly in front,” “directly behind,” and “directly next to” mean the immediately adjacent board spaces in the normal
+board path. Nexus Tree and Bridge connections do not change what counts as directly next to.
+
+Revealing and Abilities
+   A Character Card is revealed when it enters battle. Once revealed, it stays face up.
+   Character abilities only work after that character is revealed.
+   When a character wins or loses, apply the card text and battle result before moving on.
+
+Ties
+   A normal tie kills both battling characters.
+   King Tie Advantage: if a King ties a non-King, the King wins the tie.
+   Final King Duel: if both players only have Kings left, they immediately battle using King ATK vs King ATK. If that ties
+    after Power Cards, the game is a draw.
+
+Kings Crossing Territory Lines
+Whenever your King crosses into enemy territory, draw 1 Power Card. This can happen by moving or by winning an
+attack that moves the King across the line. A side card may count as its creator for line-crossing only when its own card
+text specifically says so.
+
+
+
+3. Attachments, Power Cards, Flying, and Sessions
+Graveyard and Used Power Cards
+   Dead Character Cards go to the Graveyard.
+   Used Power Cards go to the Used Power Card pile.
+   If a character dies with attached Power Cards, such as Weapons or Vehicles, those cards go to the Used Power
+    Card pile unless their card says otherwise.
+   If a character dies with attached Character Cards, those attached Character Cards go to the Graveyard.
+   A revived character does not regain old attachments unless a card says otherwise.
+
+Attachments
+Attachments stay with a character when it moves, swaps, or dies. Attachments can include Weapons, Vehicles, Horses,
+Apprentices, Followers, merged bread characters, and other card effects. A character may ride 1 Horse at a time. A
+Horse may ride a Horse.
+
+Power Card Timing
+Always follow the timing printed on the card. Multiple Power Cards may be used in the same battle unless a card prevents
+it. Unless a card says permanent, a stat change lasts only for the current battle or turn.
+
+Flying and Falling
+   A character with a Flying Vehicle still follows the board arrows for normal movement.
+   A flying character may move onto an occupied space by flying above the character already there.
+   A flying character above an enemy may attack the character below using ATK vs ATK; the character below cannot
+    attack upward.
+   A flying character directly in front of an enemy may be attacked normally.
+   A flying character above a teammate may combine stats with that teammate when battling from the shared space. If
+    stacked teammates start a battle and lose, the character that started the battle dies. If an enemy attacks the stack
+    and wins, the attacker chooses which character dies.
+   If a character is above another character and loses its Flying Vehicle, it falls and dies.
+
+
+
+
+                                                           Page 2
+
+[Page 3]
+BRENDANMON - CONSOLIDATED RULEBOOK
+Multi-Game Session Rule
+When playing multiple games in one session, cards used in finished games go into a Used pile and are not available for
+later games in that session. Search effects can only search unused cards unless a card says otherwise. Thanos
+collecting Infinity Stones is a special exception as written on Thanos and Infinity Gauntlet.
+
+
+
+4. Official Character Card Registry
+This registry keeps the original official cards plus later finalized cards. If a card has no ability listed, it has no printed
+ability.
+
+Original Official Character Cards
+BRENDAN
+
+ATK 5 / DEF 4
+
+LUKE
+
+ATK 4 / DEF 3
+
+JOHN CENA
+
+ATK 6 / DEF 7
+
+CEDI OSMAN
+
+ATK 6 / DEF 5
+
+THE ULTIMATE SNOWMAN
+
+ATK 4 / DEF 2
+
+BATMAN
+
+ATK 7 / DEF 6
+
+SANTA
+
+ATK 4 / DEF 4
+
+CHARGER-ZARD
+
+ATK 5 / DEF 5
+
+BIRD
+
+ATK 2 / DEF 2
+
+   Flight; follows Flying Rules.
+BAXTER
+
+ATK 6 / DEF 7
+
+FAKE BAXTER
+
+ATK 3 / DEF 1
+
+STICK FIGURE MAN
+                                                               Page 3
+
+[Page 4]
+BRENDANMON - CONSOLIDATED RULEBOOK
+ATK 2 / DEF 1
+
+KEITH
+
+ATK 8 / DEF 7
+
+SPIDER-MAN
+
+ATK 7 / DEF 8
+
+LEGO CAP / CAPTAIN AMERICA
+
+ATK 3 / DEF 2
+
+GRILLED CHEESE 2
+
+ATK 4 / DEF 1
+
+    Bread Ability: if this character battles another bread character, the bread characters merge after the battle according to
+    whoever wins. The losing bread card attaches to the winning bread card instead of going to the Graveyard.
+HULK
+
+ATK 8 / DEF 8
+
+ROBIN
+
+ATK 5 / DEF 4
+
+AMISH BRENDAN
+
+ATK 6 / DEF 5
+
+INDIANA JONES
+
+ATK 6 / DEF 6
+
+CITIZEN 1
+
+ATK 4 / DEF 1
+
+?
+
+ATK 2 / DEF 2
+
+LOGAN / WOLVERINE
+
+ATK 8 / DEF 8.5
+
+HEISENBERG
+
+ATK 8 / DEF 6
+
+COACH FLAN
+
+ATK 6 / DEF 6
+
+POOP
+
+ATK 3 / DEF 8
+                                                               Page 4
+
+[Page 5]
+BRENDANMON - CONSOLIDATED RULEBOOK
+THE PENGUIN
+
+ATK 2 / DEF 9
+
+MR. FREEZE
+
+ATK 9 / DEF 9
+
+RIDDLER
+
+ATK ? / DEF ?
+
+  When Riddler is revealed for battle, reveal the bottom Character Card of the deck. For that battle only, Riddler uses that
+  card's ATK and DEF. After the battle, the bottom card used for Riddler goes to the Graveyard whether Riddler wins or loses.
+ZOLI THE GOALIE
+
+ATK 1.5 / DEF 8.5
+
+HARAMBE
+
+ATK 8 / DEF 7
+
+CHRISTMAS TREE
+
+ATK 3 / DEF 5.5
+
+HANK SCHRADER
+
+ATK 7 / DEF 5
+
+THE WIGGLES
+
+ATK 9 / DEF 7
+
+FRENCH TOAST
+
+ATK 5 / DEF 2
+
+  Bread Ability: if this character battles another bread character, the bread characters merge after the battle according to
+  whoever wins.
+CHICKEN SANDWICH
+
+ATK 3 / DEF 3
+
+  Bread Ability: if this character battles another bread character, the bread characters merge after the battle according to
+  whoever wins.
+HOT SAUCE
+
+ATK 8 / DEF 2
+
+BOB
+
+ATK 10 / DEF 10
+
+FRIENDLY PET
+
+ATK 10 / DEF 10
+
+DAVID
+                                                             Page 5
+
+[Page 6]
+BRENDANMON - CONSOLIDATED RULEBOOK
+ATK 6 / DEF 4
+
+  If David has the Slingshot equipped, David automatically beats any opponent with 10 or more total power.
+THE MOON
+
+ATK Night / DEF Day
+
+  The Moon's stats are based on the current time. There are 24 total points divided between ATK and DEF. ATK equals the
+  current hour on a 24-hour clock; DEF equals the remaining points needed to total 24.
+THE TRAITOR
+
+ATK 7 / DEF 7
+
+  Once The Traitor crosses into enemy territory, The Traitor joins the opponent's team. King Exception: if The Traitor is a King,
+  this ability does not activate.
+ROOMBA
+
+ATK 5 / DEF 6
+
+  After Roomba is revealed, its player draws 1 Power Card every time Roomba moves.
+THANOS
+
+ATK 10 / DEF 10
+
+  When Thanos crosses a territory line, he collects all available Infinity Stones. If Thanos has the Infinity Gauntlet and crosses
+  a territory line, he collects all Infinity Stones no matter where they are.
+AVATAR AANG
+
+ATK 8.5 / DEF 8.5
+
+  Once per game, if Aang loses a battle, move him to an open spot directly behind him or behind his opponent instead of
+  dying. Then Aang permanently loses -1 ATK and -1 DEF.
+SOKKA
+
+ATK 6 / DEF 5
+
+KATARA
+
+ATK 8 / DEF 6
+
+  Once per game after Katara is revealed, restore one living character to its original ATK and DEF. Katara can restore
+  permanent damage, including NUKE damage.
+ZUKO
+
+ATK 8 / DEF 7
+
+TOPH
+
+ATK 9 / DEF 9
+
+UNCLE IROH
+
+ATK 9 / DEF 7
+
+  Once per game after Iroh is revealed, cancel one opponent's Power Card.
+MODOK
+
+ATK 8 / DEF 4
+                                                             Page 6
+
+[Page 7]
+BRENDANMON - CONSOLIDATED RULEBOOK
+GALACTUS
+
+ATK 10 / DEF 10
+
+GENGHIS KHAN
+
+ATK 8 / DEF 8
+
+  If Mongol Empire is used on Genghis Khan, the +5 ATK becomes permanent.
+HORSE
+
+ATK 5 / DEF 4
+
+  If Horse is defeated, it is tamed and ridden by the winning character. Add Horse's ATK and DEF to that character. There are
+  currently 2 Horse cards.
+DAX
+
+ATK 7 / DEF 6
+
+PHANTOM OF THE OPERA
+
+ATK 6 / DEF 7
+
+RAPUNZEL
+
+ATK 5 / DEF 7
+
+  Once per game after Rapunzel is revealed, pull the first character behind her to the open spot directly in front of her.
+ELSA
+
+ATK 9 / DEF 8
+
+NEGAN
+
+ATK 8 / DEF 9
+
+ANT
+
+ATK 1 / DEF 1
+
+  If Ant wins any battle, draw 2 Power Cards.
+MRS. PUFF
+
+ATK 1 / DEF 10
+
+  Once per game after Mrs. Puff is revealed, she may puff up. Move the character directly in front of her to the next open spot
+  forward, and move the character directly behind her to the next open spot backward, if possible.
+SPONGEBOB
+
+ATK 4 / DEF 8
+
+  SpongeBob cannot drive Vehicles. SpongeBob automatically defeats Mrs. Puff. If SpongeBob is revealed while attached to a
+  Vehicle, the Vehicle is removed and sent to the Used Power Card pile. SpongeBob does not get the Vehicle's stats or ability.
+  If SpongeBob is flying above another character when revealed and loses the Vehicle, he falls and dies.
+PATRICK
+
+ATK 6 / DEF 9
+
+
+                                                             Page 7
+
+[Page 8]
+BRENDANMON - CONSOLIDATED RULEBOOK
+SQUIDWARD
+
+ATK 3 / DEF 6
+
+MR. KRABS
+
+ATK 7 / DEF 8
+
+  Once per game, when Mr. Krabs wins a battle, draw 2 Power Cards.
+SANDY CHEEKS
+
+ATK 9 / DEF 7
+
+KOOL-AID MAN
+
+ATK 10 / DEF 1
+
+JEREMY JAHNS
+
+ATK 6 / DEF 6.5
+
+  Once per game after Jeremy is revealed, look at the top 3 Power Cards. Keep 1 and put the others back in any order.
+SKAR PRODUCTIONS
+
+ATK 7.5 / DEF 6
+
+  Once per game after a battle involving Skar, take one Power Card played during that battle and add it to your hand.
+NIGHTCRAWLER
+
+ATK 6.5 / DEF 7
+
+  Instead of moving normally, Nightcrawler may teleport up to 3 spaces forward or backward to an open spot.
+
+Later Finalized Character Cards
+LEGO BRENDAN
+
+ATK 2 / DEF 3
+
+  ASSEMBLE: If LEGO Brendan wins against a character with 15 or less combined printed ATK + DEF, that character
+  becomes a follower instead of going to the Graveyard.
+IRON MAN
+
+ATK 8.5 / DEF 7.5
+
+  Flying.
+JOKER BRENDAN
+
+ATK 8 / DEF 6.5
+
+  HUMAN HANDS: Once per game, move 1 enemy character, including a King, to any open spot.
+GARY
+
+ATK 2 / DEF 7
+
+  MEOW: Once per game, cancel one opponent movement-based action.
+PLANKTON
+
+ATK 1 / DEF 4
+                                                           Page 8
+
+[Page 9]
+BRENDANMON - CONSOLIDATED RULEBOOK
+  TINY SCHEME: Once per game, steal 1 random Power Card.
+LARRY
+
+ATK 8 / DEF 7.5
+
+KAREN
+
+ATK 4 / DEF 7
+
+  Look at the top 3 Power Cards and put them back in any order.
+MERMAID MAN
+
+ATK 7 / DEF 6
+
+  Against a Villain, +4 ATK.
+BARNACLE BOY
+
+ATK 5 / DEF 7
+
+  A teammate directly behind Barnacle Boy gets +3 DEF.
+CAPTAIN FEATHERSWORD
+
+ATK 6 / DEF 6
+
+  TICKLE ATTACK: Once per game, if the opponent laughs, draw 1 Power Card.
+HENRY OCTOPUS
+
+ATK 5 / DEF 8
+
+DOROTHY DINOSAUR
+
+ATK 7 / DEF 8
+
+DONALD TRUMP
+
+ATK 6 / DEF 7
+
+  YOU'RE FIRED: Once per game, remove a follower or apprentice attached to an opponent's character.
+RICK GRIMES
+
+ATK 9 / DEF 8
+
+VENOM
+
+ATK 8 / DEF 8
+
+  When Venom defeats a non-King, that character stays in its space and joins your team instead of going to the Graveyard.
+  Venom does not move into that space.
+GODZILLA
+
+ATK 10 / DEF 10
+
+  Destroys Locations he lands on instead of using them. Void cannot be destroyed.
+DOLPH ZIGGLER
+
+ATK 7 / DEF 6
+
+  During battle, may swap with the character directly behind him; that character continues the battle.
+
+                                                            Page 9
+
+[Page 10]
+BRENDANMON - CONSOLIDATED RULEBOOK
+SHAWN MICHAELS
+
+ATK 8 / DEF 6
+
+  SWEET CHIN MUSIC: If Shawn Michaels uses Superkick, subtract an extra 3 points from the opponent.
+CYCLOPS
+
+ATK 8 / DEF 5
+
+  May attack an enemy up to 2 spots in front of him if the spaces between are open. If he wins, the target dies but Cyclops
+  stays in place.
+PROFESSOR X
+
+ATK 1 / DEF 9
+
+  TO ME, MY X-MEN: Once per battle if Professor X is losing, recruit one available X-Men Character as an attachment.
+TARZAN
+
+ATK 7 / DEF 5
+
+  May swing forward up to 4 spaces, passing characters, but must land on an open spot.
+VISION
+
+ATK 8 / DEF 8
+
+  Flying. PHASE: When moving forward, may pass any number of characters directly in front of Vision and land on the first
+  open spot after them. If Mind Stone is played while Vision is revealed, attach Mind Stone to Vision for permanent +2 ATK /
+  +2 DEF.
+LOKI
+
+ATK = number of characters in play / DEF = number of open spots
+
+QUICKSILVER
+
+ATK 6.5 / DEF 7
+
+  When used, take 3 actions instead of 1.
+SCARLET WITCH
+
+ATK 10 / DEF 10
+
+  Flying. CRUTCH: Scarlet Witch cannot equip or gain friendly attachments and cannot be an attachment.
+JEAN GREY
+
+ATK 7 / DEF 8
+
+  Flying. (Phoenix / telepathy effects are on the finalized card.)
+HERSHEL
+
+ATK 5 / DEF 5
+
+  DOCTOR'S WISDOM: Once per game during battle, restore one team character to printed stats OR look at the top Power
+  Card and play it now, discard it, or leave it on top.
+KING EZEKIEL
+
+ATK 6 / DEF 8
+
+  When revealed, King Ezekiel becomes your King. Your prior King becomes a normal character.
+
+                                                              Page 10
+
+[Page 11]
+BRENDANMON - CONSOLIDATED RULEBOOK
+SQUIRREL
+
+ATK 2 / DEF 2
+
+LUKE'S FAVORITE LEGO
+
+ATK 1 / DEF 2
+
+  If Luke is on your team, +3 ATK / +3 DEF.
+DORA
+
+ATK 4 / DEF 4
+
+  CAN YOU FIND IT?: Once per game, name a visible object/detail. Opponent has 10 seconds to point it out. If they fail, draw
+  2 Power Cards.
+SWIPER
+
+ATK 3 / DEF 4
+
+  Once, steal an attached card from an opponent and attach it to Swiper.
+BOOTS
+
+ATK 5 / DEF 4
+
+  MONKEY JUMP: Once per game, move any open character directly behind a teammate.
+MYSTIQUE
+
+ATK 3 / DEF 5
+
+  SHAPESHIFT: Each battle, must copy a different revealed character's printed stats and ability if possible. If no character is
+  revealed, reveal a random unrevealed character and copy it.
+MAGNETO
+
+ATK 8.5 / DEF 9
+
+  Flying. MASTER MAGNETISM: Once per game, move a metal character to any open spot or move a metal Weapon/Vehicle
+  to a legal character. Immune to mind abilities.
+ULTRON
+
+ATK 8.5 / DEF 8
+
+  Flying. Starts with five Ultron Drones in a side pile. At the start of each of Ultron's controller's turns, if Ultron is alive and there
+  is an open spot on that player's side, place one Drone from the side pile there.
+APPA
+
+ATK 9 / DEF 6
+
+  Flying. YIP YIP: When Appa or any Gaang character is revealed, all revealed non-King Gaang characters attach to Appa.
+DOODLEBOB
+
+ATK 8 / DEF 5
+
+  MI HOY MINOY: Once per game during battle, write or change 1 small detail on any card involved in DoodleBob's battle until
+  the battle ends. Numbers may change only by 1; no automatic win.
+MICHONNE
+
+ATK 8 / DEF 7
+
+                                                                Page 11
+
+[Page 12]
+BRENDANMON - CONSOLIDATED RULEBOOK
+SHIVA
+
+ATK 8 / DEF 6.5
+
+    LOYAL TIGER: If King Ezekiel is revealed on your team, Shiva may attach to him. If Ezekiel would die, Shiva dies instead.
+PEARL
+
+ATK 5 / DEF 7.5
+
+GAMBIT
+
+ATK 7.5 / DEF 6
+
+    KINETIC CHARGE: Once per battle, discard 1 Power Card for +5 ATK or +5 DEF this battle.
+ROGUE
+
+ATK 7 / DEF 7
+
+    POWER DRAIN: Characters directly next to Rogue cannot use special abilities. Rogue may use their special abilities if
+    possible.
+SUPERMAN
+
+ATK 10 / DEF 10
+
+    Flying.
+MINISUPERHEROESTODAY
+
+ATK 3 / DEF 5
+
+    MINIFIG COLLECTION: When revealed, look at the top 3 Character Cards. You may reveal 1 LEGO or Superhero character
+    and attach it to MiniSuperHeroesToday. Put the rest back in any order.
+JOE
+
+ATK 6 / DEF 5
+
+    NO SHAME: Once per game, force your opponent to reveal 1 random Power Card from their hand.
+SAL
+
+ATK 4 / DEF 6
+
+    PANIC: Once per game, when Sal is attacked, move Sal backward to the first open spot behind him. The attack misses.
+MURR
+
+ATK 5 / DEF 5
+
+    PUNISHED: Once per game during battle, if Murr is winning, he may take -3 ATK or -3 DEF this battle to steal 1 random
+    Power Card from the opponent's hand.
+Q
+
+ATK 6 / DEF 6
+
+    DRIVE DRIVE DRIVE: If Q has a Vehicle, he may move forward any number of spots instead of moving normally, but must
+    land on an open spot.
+MORGAN
+
+ATK 8 / DEF 8
+
+
+
+                                                            Page 12
+
+[Page 13]
+BRENDANMON - CONSOLIDATED RULEBOOK
+  ALL LIFE IS PRECIOUS: Morgan can only kill by winning with ATK. If Morgan wins a battle using DEF, the losing character
+  attaches to Morgan instead of dying.
+SAUL GOODMAN
+
+ATK 3.5 / DEF 6
+
+  LEGAL LOOPHOLE: Once per game, when Saul loses a battle, change the result to a tie.
+JOE BIDEN
+
+ATK 1 / DEF 1
+
+  SLEEPY JOE: Joe Biden cannot act unless a teammate is directly behind him. That teammate may use its action to make
+  Joe Biden move, attack, or self-defend.
+ALEXANDER HAMILTON
+
+ATK 6 / DEF 5
+
+  WHO TELLS YOUR STORY: If non-King Hamilton dies and a teammate is directly next to him, attach Hamilton to that
+  teammate instead of sending him to the Graveyard.
+THE GOVERNOR
+
+ATK 7 / DEF 7
+
+  TOO FAR GONE: Once per game, send all your other non-King characters to the Graveyard. The Governor gets permanent
+  +6 ATK / +6 DEF.
+STAR-LORD
+
+ATK 6 / DEF 5
+
+  Flying. CELESTIAL POWER: While Ego the Living Planet is alive and revealed on your team, Star-Lord gets +4 ATK / +4
+  DEF.
+EGO THE LIVING PLANET
+
+ATK 10 / DEF 10
+
+  Has Ego's Human Form side card. If Ego dies, destroy Ego's Human Form. If Ego's Human Form dies, Ego stays in play.
+GAMORA
+
+ATK 8 / DEF 7.5
+
+DRAX
+
+ATK 8 / DEF 6
+
+  INVISIBLE: If Drax is revealed and goes 2 of your consecutive turns without moving or entering a battle, draw 1 Power Card.
+GROOT
+
+ATK 6 / DEF 9
+
+  WE ARE GROOT: Teammates directly next to Groot get +2 DEF.
+ROCKET RACCOON
+
+ATK 7 / DEF 5
+
+  SCAVENGER: When Rocket wins a battle, search the Power Card pile for 1 Weapon and equip it to any character who does
+  not already have a Weapon.
+YONDU
+
+                                                          Page 13
+
+[Page 14]
+BRENDANMON - CONSOLIDATED RULEBOOK
+ATK 4 / DEF 5
+
+   Starts with Yaka Arrow equipped.
+MANTIS
+
+Stats not yet set
+
+   EMPATHIC TOUCH: Once per game, reveal any unrevealed character directly next to Mantis OR put an enemy directly next
+   to her to sleep. Sleeping characters cannot act while next to Mantis.
+NEBULA
+
+ATK 7 / DEF 6
+
+DARYL DIXON
+
+ATK 7 / DEF 7
+
+CAROL
+
+Stats not yet set
+
+   LOOK AT THE FLOWERS: When Carol is revealed during battle, add +3 ATK or +3 DEF this battle.
+CARL GRIMES
+
+ATK 5.5 / DEF 5
+
+   CORAL!: If Rick is alive, Rick and Carl get +2 ATK / +2 DEF.
+GABRIEL
+
+Stats not yet set
+
+   HAVE FAITH: Once per game, reveal the top Power Card. Play it now if possible. If not, Gabriel gets -3 ATK / -3 DEF this
+   battle.
+
+
+
+5. Official Power Card Registry
+The original official Power Card text is retained below. Later finalized cards follow in the next section.
+
+SUPER BAT
+
+   During battle where opponent DEF is being used: subtract 4 DEF from opponent for this battle. Count: 2.
+TAG TEAM
+
+   During battle: if one of your characters is directly behind your battling character, add that character's relevant ATK or DEF to
+   your battling character. Count: 2.
+PHONE A FRIEND
+
+   During battle: swap one of your living cards with the top card of the unused Character Card deck. The new card cannot come
+   from the Graveyard. May be used on your King. Count: 2.
+WATER BOTTLE
+
+   During battle where your ATK is being used: flip a water bottle. If you land it, add 4 ATK for this battle. If you land it while also
+   playing Boom !! Bomb, both battling cards die. Count: 2.
+BOOM !! BOMB
+
+   During battle: subtract 4 ATK from opponent this battle and subtract 1 DEF from your own card this battle. Count: 2.
+SWAP CHARACTERS
+                                                               Page 14
+
+[Page 15]
+BRENDANMON - CONSOLIDATED RULEBOOK
+  Any time, including battle: swap one living card with one opponent living card. Can be used on Kings. If swapping with a
+  King, the card in the King spot becomes that player's new King.
+MYSTERY CARD
+
+  Before the turn action and before battle cards are revealed: randomly take one Character Card from the unused Character
+  Card deck and add its relevant stat to your battling character. Count: 2.
+CHAMPION'S ADVANTAGE
+
+  During battle: choose whether your card uses ATK or DEF for the action. Count: 2.
+BEHIND THE CURTAINS
+
+  Any time: look at opponent Power Cards. You may swap one of yours with one of theirs.
+NO SPRAY
+
+  During battle, in response to an opponent Power Card: block its effects. Can cancel a Power Card played earlier in the same
+  battle if the battle is still happening and the effect still matters. Cannot cancel Weapons or attachments equipped before
+  battle; use Disarm for those. Count: 2.
+BACK IT UP
+
+  On your turn only: move any one card as far backward as desired, if legal. May be used on a King. Cannot be played during
+  battle.
+POWER UP!
+
+  Any time: draw 2 Power Cards. Opponent draws 1 Power Card.
+NO MORE
+
+  During battle: no more Power Cards can be played this turn. Power Cards also cannot be played on the next individual
+  player's turn.
+BOW DOWN TO THE KING
+
+  Any time: reveal your King. The top Character Card becomes your King's apprentice and attaches to the King.
+BREAKING BREAD
+
+  Any time: assemble all bread and Breaking Bad related characters not currently in use. They become followers of your card
+  in play.
+FIND IT
+
+  During battle: opponent hides this card in an agreed room. It must be visible and intact. If you find it within 1 minute, add 6
+  ATK or DEF this battle.
+SUPERKICK!
+
+  During battle: subtract 5 ATK or DEF from opponent this battle.
+SHOVEL
+
+  On your turn: revive the top card in the Graveyard and place it in any open spot. It joins your team. Cannot undo a King
+  defeat after the game has ended.
+PUSH-UP POWER-UP
+
+  During battle: every 5 push-ups = +1 ATK or DEF this battle.
+PORTAL
+
+  On your turn only: move your card to any open spot. May be used on a King. Cannot be played during battle.
+SECOND LIFE
+
+  Immediately after your card is defeated: keep it in its spot instead of sending it to the Graveyard. It permanently gains +2
+  ATK and +2 DEF. May be used on your King.
+
+                                                             Page 15
+
+[Page 16]
+BRENDANMON - CONSOLIDATED RULEBOOK
+SLINGSHOT
+
+  Any time, including battle: equip to any character. +3 ATK / +2 DEF.
+RAY GUN
+
+  Any time, including battle: equip to any character. +5 ATK / +1 DEF.
+ATTACK!
+
+  On your turn or during battle when your card would self-defend or interact with a card behind it: attack backward using ATK
+  vs ATK instead of defending.
+INFINITY GAUNTLET
+
+  Can be equipped when not in battle. Temporarily equip to any character; move it at any time except during battle. +4 ATK /
+  +2 DEF. With all 6 Infinity Stones, add extra +3 ATK / +3 DEF. Thanos special interaction as written above.
+POWER STONE
+
+  During battle: add +2 ATK or +2 DEF this battle.
+MIND STONE
+
+  Any time, including battle: reveal all face-down Character Cards and both players' current Power Cards. Character Cards
+  stay revealed. Future Power Cards may stay hidden.
+REALITY STONE
+
+  Any time, including battle: change any one card into the top card of its matching deck. Character -> top Character Card;
+  Power -> top Power Card. Attachments stay attached to a changed character. If it changes a Flying Vehicle while its rider is
+  above someone, the rider falls and dies.
+SOUL STONE
+
+  During battle: sacrifice one living character to add +5 ATK or +5 DEF this battle. Sacrificing your King loses the game.
+SPACE STONE
+
+  On your turn: move your character to any open spot. That character permanently gains +2 ATK.
+TIME STONE
+
+  Immediately after an action is completed: reverse the most recent completed action. Return the board, cards, Graveyard,
+  attachments, and Power Card effects to the state before that action. Cannot reverse playing Time Stone itself.
+TAKE THE L
+
+  Immediately after your character loses battle: draw 3 Power Cards.
+SANCTUARY
+
+  On your turn: place on an open spot. The first character to land there is protected for 3 turns. It cannot move, attack, self-
+  defend, or be attacked. One turn = one individual player's actual turn.
+QUICKSAND
+
+  On your turn: place on an open spot. The first character to land there is stuck for 2 turns. It cannot move, attack, or self-
+  defend, but can still be attacked. One turn = one individual player's actual turn.
+CHUG JUG
+
+  During battle: restore your character to original ATK and DEF by canceling stat reductions affecting it this battle. Cannot
+  restore old NUKE damage from earlier in the game.
+TRAINING ARC
+
+  During battle: battle the top Character Deck card using ATK vs ATK. Each win gives +2 ATK and +2 DEF. May keep fighting.
+  If you lose or tie at any point, gain nothing. All revealed deck cards go to the Graveyard. A Training Arc tie is a failed Training
+  Arc, even for a King; the character does not die.
+
+                                                             Page 16
+
+[Page 17]
+BRENDANMON - CONSOLIDATED RULEBOOK
+BOOMERANG
+
+ During battle: subtract 2 ATK or DEF from opponent. If played from hand, returns to your hand after battle and may be used
+ once per turn. If equipped to Sokka, subtract 5 instead, but attaches to Sokka.
+MONGOL EMPIRE
+
+ During battle: +5 ATK. If used on Genghis Khan, the +5 ATK is permanent.
+GIDDY UP
+
+ On your turn only, only if an enemy is directly in front. If the space past that enemy is open, hop over them. If not, search for
+ an available Horse and attach it. Cannot be played during battle.
+THE FORGE
+
+ On your turn: place on open spot. First character to land there may search for any Weapon and equip it. Remove The Forge.
+POCKET KNIFE
+
+ Any time, including battle: Weapon. +3 ATK / +3 DEF.
+BARBED WIRE STEEL CHAIR
+
+ Any time, including battle: Weapon. +3 ATK / +2 DEF.
+TRIDENT
+
+ Any time, including battle: Weapon. +4 ATK / +3 DEF.
+LUCILLE
+
+ Any time, including battle: Weapon. +5 ATK / +1 DEF. If equipped to Negan, extra +2 ATK.
+AVENGERS TOWER
+
+ On your turn: place on open spot. First character to land recruits 1 available Superhero character as an attachment, then
+ remove location. Superhero = Marvel/DC heroes only; Aang does not count.
+ROCK, PAPER, SCISSORS
+
+ During battle: play until someone wins. Rock: +4 ATK or DEF. Paper: take 1 Power Card from opponent. Scissors: give one
+ enemy -3 ATK or DEF permanently. Lose = nothing.
+UNDERDOG UPGRADE
+
+ On your turn or during battle: choose a character with printed ATK and DEF 5 or lower. It permanently gains +10 ATK / +10
+ DEF.
+ZOMBIE HORDE
+
+ On your turn: revive the entire Graveyard as one Horde on your team. Place it on open spot. Each card grants +1 ATK / +1
+ DEF. The Horde loses names, abilities, and attachments; cannot be individually targeted, swapped, or King. If defeated, the
+ whole Horde returns to Graveyard.
+LOW BLOW!
+
+ During battle: subtract 4 ATK or DEF from opponent this battle.
+REFRESH PAGE
+
+ Any time: discard any number of your Power Cards, including Refresh Page, and draw that many new Power Cards.
+DISARM
+
+ On your turn or during battle: remove 1 attached card from an opponent character and send it to Used Power Card pile.
+FRIENDSHIP SPEECH
+
+ During battle before any character dies: cancel one battle. Both stay where they are; both players draw 1 Power Card.
+PLANK POWER
+                                                            Page 17
+
+[Page 18]
+BRENDANMON - CONSOLIDATED RULEBOOK
+  During battle: every 15 seconds holding a plank = +1 ATK or DEF. No cap.
+UNO REVERSE
+
+  In response to opponent Power Card: if it directly targets you or your character, reverse the effect onto them instead.
+BIG RED CAR
+
+  Any time, including battle: Vehicle. +5 ATK / +3 DEF. If driven by The Wiggles, may move forward through any number of
+  open spaces, stopping before next occupied space.
+BATMOBILE
+
+  Any time, including battle: Vehicle. +4 ATK / +4 DEF. If driven by Batman, once per game if Batman would lose, may move
+  backward 1 space instead if open.
+INDY'S WHIP
+
+  Any time, including battle: Weapon. +3 ATK / +2 DEF. If Indiana Jones uses it, once per game pull the nearest character in
+  front as close as desired through open spaces; must stop open in front of Indiana Jones.
+BATARANG
+
+  Any time, including battle: Weapon. +3 ATK / +1 DEF. If Batman uses it, subtract 2 DEF from his opponent during battle.
+FREEZE GUN
+
+  Any time, including battle: Weapon. +4 ATK / +2 DEF. If Mr. Freeze uses it, once per game freeze any character. Frozen
+  cannot move, attack, or self-defend until it breaks free; if its player's only legal move is moving it, it breaks free but does not
+  move that turn.
+FRYING PAN
+
+  Any time, including battle: Weapon. +2 ATK / +4 DEF. If Rapunzel uses it, extra +2 ATK.
+QUINJET
+
+  Any time, including battle: Flying Vehicle. +3 ATK / +4 DEF. If flown by a Superhero, once per game may move forward up to
+  2 spaces.
+CAPPED!
+
+  Any time: permanently attach to one enemy. That character cannot gain ATK or DEF, receive new attachments, or be
+  equipped with new cards. Existing boosts and attachments remain. Negative effects may still be used.
+CLAP CATCH
+
+  During battle: throw card in air and catch after clapping. 1 clap = +1, 2 = +3, 3+ = +5 ATK or DEF. Drop = nothing.
+NUKE
+
+  On your turn: place on any spot. All non-Kings on that spot and 2 surrounding spots are destroyed. Kings survive but
+  permanently lose -3 ATK / -3 DEF.
+MIND CONTROL
+
+  On your turn: control one opponent character, including King, for one legal action. May battle its own teammates. Then
+  returns.
+FLIP THE SCRIPT
+
+  During battle: each battling character swaps its own ATK and DEF for this battle. Battle type does not change.
+STEROIDS
+
+  During battle: +6 ATK / +6 DEF this battle. After battle, if character survives, permanently loses -3 ATK / -3 DEF.
+SNACK ATTACK
+
+  During battle: opponent names a snack in the house. Bring it within 15 seconds to subtract 6 ATK or DEF from their
+  character this battle; fail = nothing.
+
+                                                              Page 18
+
+[Page 19]
+BRENDANMON - CONSOLIDATED RULEBOOK
+CLARINET
+
+  Any time, including battle: Weapon. +1 ATK / +2 DEF. If Squidward uses it, extra +7 ATK / +3 DEF.
+THE DEALERSHIP
+
+  On your turn: place on open spot. First character to land may search for 1 Vehicle and attach it. Remove The Dealership.
+BRICK WALL
+
+  During battle: +5 DEF. Cannot be used against Kool-Aid Man.
+SANTA'S SLEIGH
+
+  Any time, including battle: Flying Vehicle. +2 ATK / +5 DEF. If Santa drives it, draw 1 Power Card every time Santa moves.
+HEISENBERG'S RV
+
+  Any time, including battle: Vehicle. +3 ATK / +5 DEF. If Heisenberg drives it, once per game after revealed, look at opponent
+  Power Cards and take 1.
+
+
+
+6. Later Official Power Cards, Locations, Vehicles, and Side Cards
+POWER OUTAGE
+
+  Permanent negative attachment. The attached revealed character cannot use its special ability. It may be played immediately
+  as that character declares the ability to cancel it. Disarm can remove it.
+ROTATE & RESET
+
+  Rotate the board 180 degrees. Control characters now on your side. If there is no King, choose a character on your side to
+  become King. Both sides must have at least 1 character.
+CREDIT CARD
+
+  Spend cards from the Used Power pile, each for +1 ATK or DEF in battle. Spent cards are set aside. At Locations, spend
+  Used Power Cards for a reward costing that Location's ATK.
+TRUST THE DECK
+
+  During battle, reveal the top Power Card. If legal, play it immediately. If not, your battling character gets -3 ATK / -3 DEF for
+  that battle. Discard the revealed card.
+KICK-OUT!!
+
+  During battle, if your character is losing, make the stat currently being used equal the opponent's equivalent stat. Battle
+  continues.
+CATAPULT
+
+  On landing, reveal the bottom Character Card and launch it forward using that card's ATK. The revealed card goes to the
+  Graveyard. If it lands on a non-King, that character dies. If it lands on a King, the launched character dies. King on King is a
+  Final Duel. If it lands on an open spot, it does not die.
+GYM
+
+  First character to land may do 10 push-ups to draw 1 Power Card. Then remove Gym.
+LOOKOUT TOWER
+
+  Permanent Location. A character landing there may secretly look at 1 face-down Character or 1 random opponent Power
+  Card.
+SWITCH MARKET
+
+  First character to land may swap places with any character. Then remove Switch Market.
+NEXUS TREE
+                                                             Page 19
+
+[Page 20]
+BRENDANMON - CONSOLIDATED RULEBOOK
+  Place in the center as an open spot connected to every board spot. It does not change “directly” relationships for cards such
+  as Dolph Ziggler or Barnacle Boy.
+BRIDGE
+
+  Place between 2 directly opposite spots. It becomes an open spot connected to both and remains. Characters may land and
+  battle across its connections normally.
+VOID
+
+  Must be played when drawn. Place on any board spot. A character landing there is sent to Void. A dying character may
+  choose Void instead. Void cards remain alive off-board and retain reveal status. Once per turn, if you have your own
+  character in Void, choose: pull a random Power Card from either hand into Void; throw a Power Card from Void into either
+  hand; or battle another Void character using ATK vs ATK, ATK vs DEF, or DEF vs DEF. Loser goes to Graveyard. King in
+  Void stays alive unless it loses a Void battle, which loses the game. Two Kings in Void use a real Final Duel.
+BLIND BULLSEYE
+
+  During battle, close eyes and toss a coin/cap. Land on your battling character: +6 to selected stat this battle. Land on anyone
+  else: that character gets permanent +3 ATK / +3 DEF. Miss all: opponent tosses, then effect ends.
+PENCIL
+
+  One-time Power Card. Write or change 1 small detail on any revealed card or Power Card. Numbers may change only by 1.
+  Cannot create automatic win. Pencil stays with the changed card to track the permanent change; it is not a normal
+  Item/Weapon/Vehicle and Disarm cannot remove it.
+ERASER
+
+  Removes or erases a small detail on any revealed card or Power Card. Numbers may only change down by 1. May remove
+  Pencil to undo Pencil's change.
+KATANA
+
+  Weapon. +3 ATK / +2 DEF. If equipped to Michonne, add extra +3 ATK / +3 DEF.
+HULKBUSTER
+
+  Permanent attachment, used as a Weapon or Flying Vehicle. +4 ATK / +4 DEF. Automatically defeats Hulk. If Iron Man
+  equips it, gain extra +2 ATK / +2 DEF.
+MJOLNIR
+
+  Weapon. +4 ATK / +4 DEF. Gives Flying to a worthy character.
+STORMBREAKER
+
+  Weapon. +4.5 ATK / +2 DEF. Gives Flying.
+AANG GLIDER
+
+  +1 ATK / +3 DEF; if Aang equips it, +3 ATK / +1 DEF instead. GLIDING: When moving forward, may pass any number of
+  characters directly in front and land on the first open spot after them.
+SLING RING
+
+  Permanent Item. Instead of normal movement, move the equipped character to any open spot OR move 1 character to any
+  open spot directly next to that character.
+CLOAK OF LEVITATION
+
+  Permanent Item. Gives Flying. If Dr. Strange equips it, +3 ATK / +3 DEF.
+CAPTAIN FEATHERSWORD'S SWORD
+
+  Weapon. +2 ATK / +2 DEF. If Captain Feathersword equips it, +5 ATK / +5 DEF; Tickles draw 2 Power Cards.
+BACKPACK
+
+  Permanent Item. During battle, draw 1 Power Card. If Dora equips it, draw 2 and keep 1.
+
+                                                            Page 20
+
+[Page 21]
+BRENDANMON - CONSOLIDATED RULEBOOK
+MAP
+
+    Permanent Item. When equipped, search the Power Card Deck for a Location and place it on an open spot; shuffle.
+    Equipped character may move forward or backward normally. Dora may move 2 spaces if possible.
+KRYPTONITE
+
+    Item. Equip to any character. During battle, opposing character gets -3 ATK / -3 DEF and cannot use a special ability. If
+    opposing character is Superman, Superman automatically loses. If equipped to Superman, Superman gets -5 ATK / -5 DEF
+    and cannot use this item effect.
+FEBREZE
+
+    Item. During each battle choose one: +2 ATK or +2 DEF to equipped character, OR -2 ATK or -2 DEF to opposing character
+    for that battle.
+MILANO
+
+    Flying Vehicle. +3 ATK / +5 DEF. A Guardian equipped with Milano may move up to 3 spaces instead of moving normally.
+YAKA ARROW
+
+    Weapon - 5 ATK / 5 DEF. Yondu only. May attack any revealed character. If target is not directly next to Yondu, use only
+    Yaka Arrow stats. After winning alone, may attack again.
+
+Official Side Cards
+ULTRON DRONE
+
+    ATK 5 / DEF 5. Flying. Five copies are in Ultron's side pile. When a Drone dies, return it to the Drone pile.
+EGO'S HUMAN FORM
+
+    ATK 5 / DEF 5. An extension of Ego. It may move, attack, and self-defend normally. If Ego dies, destroy Human Form. If
+    Human Form dies, Ego stays alive.
+
+
+
+7. Current Exclusions / Not Yet Finalized
+These are intentionally not included as official finalized cards or rules in this edition:
+
+    Daryl's Crossbow.
+    Benatar.
+    Anti-Flying Power Card.
+    Eugene, Abraham, Hawkeye, Black Widow, Ant-Man, Green Goblin, and Goblin Glider.
+    Any new 10-per-side “big game” board mode.
+    A universal search timer rule.
+    Any revised Falling Rules beyond the written flying/falling rules above.
+    Unbeatable Brendan.
+    Any unfinalized stats for Mantis, Carol, and Gabriel remain marked as “not yet set.”
+
+
+
+                                                 End of consolidated rulebook.
+
+
+
+
+                                                               Page 21
+

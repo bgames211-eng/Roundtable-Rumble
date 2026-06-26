@@ -248,6 +248,10 @@ export function executeMoveForward(state: GameState, characterId: string): GameS
           ...newState.drawCount,
           [character.controller]: newState.drawCount[character.controller] + 1,
         },
+        powerCardHandCount: {
+          ...newState.powerCardHandCount,
+          [character.controller]: newState.powerCardHandCount[character.controller] + 1,
+        },
       };
 
       newState = logEvent(newState, 'King Territory Draw', {
@@ -255,6 +259,7 @@ export function executeMoveForward(state: GameState, characterId: string): GameS
         fromSpace: character.boardPosition,
         toSpace: forwardSpace,
         newDrawCount: newState.drawCount[character.controller],
+        newPowerCardHandCount: newState.powerCardHandCount[character.controller],
       });
     }
   }
@@ -336,12 +341,17 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
             ...newState.drawCount,
             [attacker.controller]: newState.drawCount[attacker.controller] + 1,
           },
+          powerCardHandCount: {
+            ...newState.powerCardHandCount,
+            [attacker.controller]: newState.powerCardHandCount[attacker.controller] + 1,
+          },
         };
 
         newState = logEvent(newState, 'King Territory Draw', {
           characterId: attacker.id,
           reason: 'Attack Forward Win',
           newDrawCount: newState.drawCount[attacker.controller],
+          newPowerCardHandCount: newState.powerCardHandCount[attacker.controller],
         });
       }
     }

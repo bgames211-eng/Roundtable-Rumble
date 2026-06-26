@@ -11,11 +11,27 @@ export type BoardSpace = 'Y1' | 'Y2' | 'Y3' | 'Y4' | 'Y5' | 'A1' | 'A2' | 'A3' |
 export type Controller = 'Y' | 'A';
 export type GameStatus = 'active' | 'Y wins' | 'A wins' | 'draw';
 
+export interface CharacterDeckCard {
+  instanceId: string;
+  definitionId: string;
+  displayName: string;
+  ATK: number;
+  DEF: number;
+  ability: string | null;
+  statRule: string | null;
+  imageKey: string;
+}
+
 export interface Character {
   id: string;
   controller: Controller;
   ATK: number;
   DEF: number;
+  definitionId?: string;
+  displayName?: string;
+  ability?: string | null;
+  statRule?: string | null;
+  imageKey?: string;
   isKing: boolean;
   revealed: boolean;
   alive: boolean;
@@ -33,8 +49,10 @@ export interface GameState {
   activePlayer: Controller;
   turnNumber: number;
   characters: Character[];
+  characterDeck: CharacterDeckCard[];
   graveyard: Character[];
   drawCount: { Y: number; A: number };
+  powerCardHandCount: { Y: number; A: number };
   gameStatus: GameStatus;
   eventLog: ActionEvent[];
 }
@@ -48,8 +66,10 @@ export function initializeGameState(initialCharacters: Character[]): GameState {
     activePlayer: 'Y',
     turnNumber: 1,
     characters: initialCharacters.map(ch => ({ ...ch, alive: true })),
+    characterDeck: [],
     graveyard: [],
     drawCount: { Y: 0, A: 0 },
+    powerCardHandCount: { Y: 0, A: 0 },
     gameStatus: 'active',
     eventLog: [
       {
