@@ -49,6 +49,11 @@ export interface PlayerSafeGameView {
     ability?: string | null;
     statRule?: string | null;
   }>;
+  eventLog: Array<{
+    turn: number;
+    activePlayer: Controller;
+    action: string;
+  }>;
 }
 
 function buildOpaqueInstanceId(oneBasedIndex: number): string {
@@ -198,6 +203,11 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
       DEF: card.DEF,
       ability: card.ability ?? null,
       statRule: card.statRule ?? null,
+    })),
+    eventLog: state.eventLog.map(event => ({
+      turn: event.turn,
+      activePlayer: event.activePlayer,
+      action: event.action,
     })),
   };
 }
