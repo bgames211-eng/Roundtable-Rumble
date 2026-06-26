@@ -10,6 +10,8 @@ import { getForwardSpace, getBackwardSpace, getTerritory } from './board';
 export type BoardSpace = 'Y1' | 'Y2' | 'Y3' | 'Y4' | 'Y5' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
 export type Controller = 'Y' | 'A';
 export type GameStatus = 'active' | 'Y wins' | 'A wins' | 'draw';
+export type BattleStatus = 'WindowOpen' | 'ReadyToResolve' | 'Resolving';
+export type BattleType = 'attack' | 'defend';
 
 export interface CharacterDeckCard {
   instanceId: string;
@@ -45,6 +47,23 @@ export interface ActionEvent {
   details: Record<string, unknown>;
 }
 
+export interface PendingBattle {
+  battleType: BattleType;
+  status: BattleStatus;
+  initiatorId: string;
+  opponentId: string;
+  initiatorController: Controller;
+  opponentController: Controller;
+  initiatorStartPosition: BoardSpace;
+  opponentStartPosition: BoardSpace;
+  initiatorBaseComparisonStat: number;
+  opponentBaseComparisonStat: number;
+  currentPriorityPlayer: Controller;
+  consecutivePassCount: number;
+  handoffRequiredFor: Controller | null;
+  eventHistory: string[];
+}
+
 export interface GameState {
   activePlayer: Controller;
   turnNumber: number;
@@ -55,6 +74,7 @@ export interface GameState {
   powerCardHandCount: { Y: number; A: number };
   gameStatus: GameStatus;
   eventLog: ActionEvent[];
+  pendingBattle: PendingBattle | null;
 }
 
 /**
@@ -71,6 +91,7 @@ export function initializeGameState(initialCharacters: Character[]): GameState {
     drawCount: { Y: 0, A: 0 },
     powerCardHandCount: { Y: 0, A: 0 },
     gameStatus: 'active',
+    pendingBattle: null,
     eventLog: [
       {
         turn: 1,

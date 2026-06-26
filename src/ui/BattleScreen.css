@@ -1,0 +1,82 @@
+.battle-screen,
+.battle-handoff {
+  border: 2px solid var(--cream-dark);
+  border-radius: 12px;
+  padding: 1rem;
+  background: rgba(20, 55, 42, 0.9);
+}
+
+.battle-notice {
+  font-weight: 700;
+  color: #ffe8a6;
+}
+
+.battle-line {
+  margin: 0.3rem 0;
+}
+
+.battle-comparison {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.battle-modifier-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.battle-modifier-box {
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  border-radius: 6px;
+  padding: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.battle-card-row {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.battle-card-column {
+  border: 1px solid var(--cream-dark);
+  border-radius: 8px;
+  padding: 0.6rem;
+  background: rgba(91, 58, 41, 0.8);
+}
+
+.battle-card-name {
+  font-weight: 700;
+}
+
+.battle-card-meta {
+  margin: 0.2rem 0;
+}
+
+.battle-hands,
+.battle-events {
+  margin-top: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.battle-controls {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 860px) {
+  .battle-card-row,
+  .battle-modifier-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,28 @@
+.action-controls {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.action-controls h3 {
+  margin: 0;
+}
+
+.selected-card-line {
+  margin: 0;
+  font-weight: 700;
+}
+
+.action-hint {
+  margin: 0;
+  color: #f3e9cf;
+}
+
+.action-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.skip-button {
+  width: fit-content;
+}

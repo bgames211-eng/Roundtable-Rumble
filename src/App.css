@@ -83,6 +83,23 @@ input:focus-visible {
   gap: 0.8rem;
 }
 
+.battle-shell {
+  grid-template-columns: 1fr;
+}
+
+.battle-board-readonly {
+  grid-column: 1 / -1;
+}
+
+.battle-banner {
+  margin-bottom: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--cream-dark);
+  border-radius: 8px;
+  background: rgba(91, 58, 41, 0.9);
+  font-weight: 700;
+}
+
 .left-panel,
 .right-panel,
 .center-board {
@@ -96,7 +113,7 @@ input:focus-visible {
 .shared-bottom {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
+  grid-template-columns: 1fr 1fr 2fr 2fr;
   gap: 0.8rem;
   align-items: start;
 }
@@ -105,12 +122,21 @@ input:focus-visible {
   max-height: 24vh;
 }
 
+.shared-actions {
+  margin-bottom: 0;
+}
+
 .status-block {
   background: rgba(91, 58, 41, 0.85);
   border: 1px solid var(--cream-dark);
   border-radius: 8px;
   padding: 0.6rem;
   margin-bottom: 0.7rem;
+}
+
+.left-panel .status-block,
+.right-panel .status-block {
+  margin-bottom: 0;
 }
 
 .status-label {

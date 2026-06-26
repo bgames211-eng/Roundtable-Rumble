@@ -4,6 +4,9 @@ import './Board.css';
 
 interface BoardProps {
   view: PlayerSafeGameView;
+  selectedCardId: string | null;
+  onCardClick: (instanceId: string) => void;
+  readOnly?: boolean;
 }
 
 const topRow = ['A1', 'A2', 'A3', 'A4', 'A5'] as const;
@@ -42,19 +45,31 @@ function renderCard(card: PlayerSafeCardView | undefined): React.ReactNode {
   );
 }
 
-function spaceCell(view: PlayerSafeGameView, position: (typeof topRow)[number] | (typeof bottomRow)[number]): React.ReactNode {
+function spaceCell(
+  view: PlayerSafeGameView,
+  position: (typeof topRow)[number] | (typeof bottomRow)[number],
+  selectedCardId: string | null,
+  onCardClick: (instanceId: string) => void,
+  readOnly: boolean,
+): React.ReactNode {
   const card = cardAt(view, position);
   const isKingStart = position === 'A3' || position === 'Y3';
+  const isSelected = card?.instanceId === selectedCardId;
+  const selectable = !readOnly && !!card && card.controller === view.activePlayer && view.gameStatus === 'active';
 
   return React.createElement(
     'div',
     {
-      className: `board-space ${isKingStart ? 'king-start' : ''}`,
+      className: `board-space ${isKingStart ? 'king-start' : ''} ${selectable ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`,
       key: position,
       'data-testid': `space-${position}`,
+      onClick: selectable && card ? () => onCardClick(card.instanceId) : undefined,
     },
     React.createElement('div', { className: 'space-header' },
       React.createElement('span', { className: 'space-label' }, position),
+      isSelected
+        ? React.createElement('span', { className: 'selected-chip', 'data-testid': `selected-${position}` }, 'Selected')
+        : null,
       isKingStart
         ? React.createElement('span', { className: 'king-badge', 'data-testid': `king-start-${position}` }, '♛ King Start')
         : null,
@@ -63,7 +78,7 @@ function spaceCell(view: PlayerSafeGameView, position: (typeof topRow)[number] |
   );
 }
 
-export function Board({ view }: BoardProps): React.ReactElement {
+export function Board({ view, selectedCardId, onCardClick, readOnly = false }: BoardProps): React.ReactElement {
   return React.createElement(
     'section',
     { className: 'board-wrap' },
@@ -76,10 +91,10 @@ export function Board({ view }: BoardProps): React.ReactElement {
 
       React.createElement('div', { className: 'board-main' },
         React.createElement('div', { className: 'lane-direction lane-direction-top', 'aria-hidden': 'true' }, '⟵⟵⟵⟵⟵ LEFTWARD A-LANE'),
-        React.createElement('div', { className: 'row top-row', 'data-testid': 'top-row' }, topRow.map(pos => spaceCell(view, pos))),
+        React.createElement('div', { className: 'row top-row', 'data-testid': 'top-row' }, topRow.map(pos => spaceCell(view, pos, selectedCardId, onCardClick, readOnly))),
         React.createElement('div', { className: 'row-arrow top-arrows', 'aria-hidden': 'true' }, '← ← ← ←'),
         React.createElement('div', { className: 'row-arrow bottom-arrows', 'aria-hidden': 'true' }, '→ → → →'),
-        React.createElement('div', { className: 'row bottom-row', 'data-testid': 'bottom-row' }, bottomRow.map(pos => spaceCell(view, pos))),
+        React.createElement('div', { className: 'row bottom-row', 'data-testid': 'bottom-row' }, bottomRow.map(pos => spaceCell(view, pos, selectedCardId, onCardClick, readOnly))),
         React.createElement('div', { className: 'lane-direction lane-direction-bottom', 'aria-hidden': 'true' }, 'Y-LANE RIGHTWARD ⟶⟶⟶⟶⟶'),
       ),
 
