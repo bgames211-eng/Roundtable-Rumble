@@ -1,6 +1,6 @@
-# Roundtable-Rumble
+# Roundtable Rumble
 
-Roundtable Rumble Digital — Phase 1 (rules engine)
+Roundtable Rumble — Phase 1 (rules engine)
 
 Run tests:
 

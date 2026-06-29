@@ -1,6 +1,6 @@
-Roundtable Rumble Digital
+Roundtable Rumble
 
-Test Suite: Board movement and interaction tests for Roundtable Rumble Digital
+Test Suite: Board movement and interaction tests for Roundtable Rumble
 
 1. Forward from Y1 goes to Y2.
 2. Forward from Y2 goes to Y3.

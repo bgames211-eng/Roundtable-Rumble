@@ -1,4 +1,4 @@
-Roundtable Rumble Digital
+Roundtable Rumble
 
 BOARD PATH:
 Y1 → Y2 → Y3 → Y4 → Y5 → A5 → A4 → A3 → A2 → A1 → Y1
