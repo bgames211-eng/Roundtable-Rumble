@@ -30,7 +30,7 @@ const LEGACY_CHARACTER_STORAGE_KEY = 'rr-character-catalog-v1';
 const LEGACY_POWER_STORAGE_KEY = 'rr-power-catalog-v1';
 
 function publicCardsPath(...segments: string[]): string {
-  return `/cards/${segments.map(segment => encodeURIComponent(segment)).join('/')}`;
+  return `${import.meta.env.BASE_URL}cards/${segments.map(segment => encodeURIComponent(segment)).join('/')}`;
 }
 
 const CHARACTER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {

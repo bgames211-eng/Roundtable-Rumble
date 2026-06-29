@@ -23,10 +23,11 @@ describe('Catalog Art Coverage', () => {
 
   it('assigns full-face defaults only when explicit power art exists', () => {
     const defaults = FIRST_ALPHA_POWER_CARD_DEFINITIONS.map(createDefaultPowerCatalogEntry);
+    const powerCardsPrefix = `${import.meta.env.BASE_URL}cards/power%20cards/`;
 
     expect(defaults).toHaveLength(FIRST_ALPHA_POWER_CARD_DEFINITIONS.length);
     for (const entry of defaults) {
-      const hasMappedFullFace = entry.fullCardFaceImageUrl.startsWith('/cards/power%20cards/');
+      const hasMappedFullFace = entry.fullCardFaceImageUrl.startsWith(powerCardsPrefix);
       if (hasMappedFullFace) {
         expect(entry.visualMode).toBe('full-card-face');
         expect(entry.artImageUrl.length).toBeGreaterThan(0);
