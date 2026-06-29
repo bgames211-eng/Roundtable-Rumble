@@ -20,8 +20,6 @@ import {
   getSpaceTerritory,
   isKingAlive,
   getKing,
-  shouldTriggerFinalKingDuel,
-  checkAndResolveFinalKingDuel,
   updateCharacter,
   addToGraveyard,
   logEvent,
@@ -29,13 +27,192 @@ import {
   countLivingCharacters,
   getPowerCardHandCounts,
 } from './gameState';
+import { shufflePowerCardInstances } from './powerCards';
+
+function normalizeName(name: string | undefined): string {
+  return (name ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function isMrFreeze(name: string | undefined): boolean {
+  return normalizeName(name) === 'MRFREEZE';
+}
+
+function isRoomba(name: string | undefined): boolean {
+  return normalizeName(name) === 'ROOMBA';
+}
+
+function isAnt(name: string | undefined): boolean {
+  return normalizeName(name) === 'ANT';
+}
+
+function isSpongeBob(name: string | undefined): boolean {
+  return normalizeName(name) === 'SPONGEBOB';
+}
+
+function isMrsPuff(name: string | undefined): boolean {
+  return normalizeName(name) === 'MRSPUFF';
+}
+
+function isNightcrawler(name: string | undefined): boolean {
+  return normalizeName(name) === 'NIGHTCRAWLER';
+}
+
+function isRapunzel(name: string | undefined): boolean {
+  return normalizeName(name) === 'RAPUNZEL';
+}
+
+function isCarlGrimes(name: string | undefined): boolean {
+  return normalizeName(name) === 'CARLGRIMES';
+}
+
+function isRickGrimes(name: string | undefined): boolean {
+  return normalizeName(name) === 'RICKGRIMES';
+}
+
+function isMrsPuffCharacter(name: string | undefined): boolean {
+  return normalizeName(name) === 'MRSPUFF';
+}
+
+function hasLivingRevealedRickAndCarlForController(state: GameState, controller: Controller): boolean {
+  const hasLivingRevealedRick = state.characters.some(character => (
+    character.alive
+    && character.revealed
+    && character.controller === controller
+    && isRickGrimes(character.displayName)
+  ));
+  const hasLivingRevealedCarl = state.characters.some(character => (
+    character.alive
+    && character.revealed
+    && character.controller === controller
+    && isCarlGrimes(character.displayName)
+  ));
+
+  return hasLivingRevealedRick && hasLivingRevealedCarl;
+}
+
+function getEffectiveCoreStat(state: GameState, character: Character, stat: 'ATK' | 'DEF'): number {
+  let value = character[stat];
+
+  if (
+    (isCarlGrimes(character.displayName) || isRickGrimes(character.displayName))
+    && hasLivingRevealedRickAndCarlForController(state, character.controller)
+  ) {
+    value += 2;
+  }
+
+  return value;
+}
+
+function drawTopPowerCardForController(
+  state: GameState,
+  controller: Controller,
+  action: string,
+  logDetails: Record<string, unknown>,
+): GameState {
+  let workingState = state;
+  if (workingState.powerCardDeck.length === 0 && workingState.sessionUsedPowerCardPile.length > 0) {
+    const replenishedDeck = shufflePowerCardInstances(workingState.sessionUsedPowerCardPile, Math.random);
+    workingState = {
+      ...workingState,
+      powerCardDeck: replenishedDeck,
+      sessionUsedPowerCardPile: [],
+      sessionRunoutOccurred: true,
+    };
+  }
+
+  if (workingState.powerCardDeck.length === 0) {
+    return logEvent(state, `${action} - No Power Cards Remaining`, {
+      ...logDetails,
+      controller,
+      remainingPowerCardDeckCount: 0,
+    });
+  }
+
+  const drawnCard = workingState.powerCardDeck[0];
+  const remainingDeck = workingState.powerCardDeck.slice(1);
+  const nextHand = [...workingState.powerCardHands[controller], drawnCard];
+  const next: GameState = {
+    ...workingState,
+    powerCardDeck: remainingDeck,
+    powerCardHands: {
+      ...workingState.powerCardHands,
+      [controller]: nextHand,
+    },
+    drawCount: {
+      ...workingState.drawCount,
+      [controller]: workingState.drawCount[controller] + 1,
+    },
+  };
+
+  return logEvent(next, action, {
+    ...logDetails,
+    controller,
+    drawnPowerCardAuditInstanceId: drawnCard.instanceId,
+    remainingPowerCardDeckCount: remainingDeck.length,
+  });
+}
+
+function resolveRoombaMoveDraws(
+  state: GameState,
+  movedCharacters: Array<{ characterId: string; fromSpace: BoardSpace; toSpace: BoardSpace }>,
+): GameState {
+  let next = state;
+  for (const moved of movedCharacters) {
+    const character = getCharacter(next, moved.characterId);
+    if (!character || !character.alive || !character.revealed || !isRoomba(character.displayName) || moved.fromSpace === moved.toSpace) {
+      continue;
+    }
+
+    next = drawTopPowerCardForController(next, character.controller, 'Roomba Move Draw', {
+      characterId: character.id,
+      fromSpace: moved.fromSpace,
+      toSpace: moved.toSpace,
+    });
+  }
+  return next;
+}
+
+function resolveAntBattleWinDraw(state: GameState, winnerId: string): GameState {
+  const winner = getCharacter(state, winnerId);
+  if (!winner || !winner.alive || !isAnt(winner.displayName)) {
+    return state;
+  }
+
+  let next = drawTopPowerCardForController(state, winner.controller, 'Ant Victory Draw', {
+    characterId: winner.id,
+    drawNumber: 1,
+  });
+  next = drawTopPowerCardForController(next, winner.controller, 'Ant Victory Draw', {
+    characterId: winner.id,
+    drawNumber: 2,
+  });
+  return next;
+}
+
+function getUnusedFreezeGunAttachmentIndex(character: Character): number {
+  const attachments = character.attachments ?? [];
+  return attachments.findIndex(
+    attachment => attachment.definitionId === 'power-alpha-014' && !attachment.specialUsed,
+  );
+}
 
 function resolveKingTerritoryDraw(
   state: GameState,
   controller: Controller,
   logDetails: Record<string, unknown>,
 ): GameState {
-  if (state.powerCardDeck.length === 0) {
+  let workingState = state;
+  if (workingState.powerCardDeck.length === 0 && workingState.sessionUsedPowerCardPile.length > 0) {
+    const replenishedDeck = shufflePowerCardInstances(workingState.sessionUsedPowerCardPile, Math.random);
+    workingState = {
+      ...workingState,
+      powerCardDeck: replenishedDeck,
+      sessionUsedPowerCardPile: [],
+      sessionRunoutOccurred: true,
+    };
+  }
+
+  if (workingState.powerCardDeck.length === 0) {
     return logEvent(state, 'King Territory Draw - No Power Cards Remaining', {
       ...logDetails,
       controller,
@@ -43,20 +220,20 @@ function resolveKingTerritoryDraw(
     });
   }
 
-  const drawnCard = state.powerCardDeck[0];
-  const remainingPowerCardDeck = state.powerCardDeck.slice(1);
-  const nextHand = [...state.powerCardHands[controller], drawnCard];
+  const drawnCard = workingState.powerCardDeck[0];
+  const remainingPowerCardDeck = workingState.powerCardDeck.slice(1);
+  const nextHand = [...workingState.powerCardHands[controller], drawnCard];
 
   let newState: GameState = {
-    ...state,
+    ...workingState,
     powerCardDeck: remainingPowerCardDeck,
     powerCardHands: {
-      ...state.powerCardHands,
+      ...workingState.powerCardHands,
       [controller]: nextHand,
     },
     drawCount: {
-      ...state.drawCount,
-      [controller]: state.drawCount[controller] + 1,
+      ...workingState.drawCount,
+      [controller]: workingState.drawCount[controller] + 1,
     },
   };
 
@@ -87,6 +264,10 @@ export function canMoveForward(state: GameState, characterId: string): boolean {
     return false;
   }
 
+  if (character.isFrozen) {
+    return false;
+  }
+
   if (character.controller !== state.activePlayer) {
     return false;
   }
@@ -105,6 +286,10 @@ export function canAttackForward(state: GameState, characterId: string): boolean
 
   const character = getCharacter(state, characterId);
   if (!character || !character.alive) {
+    return false;
+  }
+
+  if (character.isFrozen) {
     return false;
   }
 
@@ -128,6 +313,10 @@ export function canSelfDefend(state: GameState, characterId: string): boolean {
 
   const character = getCharacter(state, characterId);
   if (!character || !character.alive) {
+    return false;
+  }
+
+  if (character.isFrozen) {
     return false;
   }
 
@@ -192,6 +381,26 @@ export function resolveBattle(
   attackerStat: number,
   defenderStat: number,
 ): BattleOutcome {
+  if (isSpongeBob(attacker.displayName) && isMrsPuff(defender.displayName)) {
+    return {
+      winnerId: attacker.id,
+      loserId: defender.id,
+      doubleLoss: false,
+      isDoubleLoss: false,
+      isDraw: false,
+    };
+  }
+
+  if (isSpongeBob(defender.displayName) && isMrsPuff(attacker.displayName)) {
+    return {
+      winnerId: defender.id,
+      loserId: attacker.id,
+      doubleLoss: false,
+      isDoubleLoss: false,
+      isDraw: false,
+    };
+  }
+
   const isDraw = attackerStat === defenderStat;
 
   if (!isDraw) {
@@ -280,6 +489,12 @@ export function executeMoveForward(state: GameState, characterId: string): GameS
     characters: newCharacters,
   };
 
+  newState = resolveRoombaMoveDraws(newState, [{
+    characterId,
+    fromSpace: character.boardPosition!,
+    toSpace: forwardSpace,
+  }]);
+
   // Check King Territory Draw
   if (character.isKing) {
     const originTerritory = getSpaceTerritory(character.boardPosition!);
@@ -336,7 +551,12 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
   });
 
   // Step 3: Resolve battle
-  const outcome = resolveBattle(attacker, defender, attacker.ATK, defender.DEF);
+  const outcome = resolveBattle(
+    attacker,
+    defender,
+    getEffectiveCoreStat(state, attacker, 'ATK'),
+    getEffectiveCoreStat(state, defender, 'DEF'),
+  );
 
   // Determine who dies
   const winnerId = outcome.winnerId;
@@ -371,6 +591,12 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
         });
       }
     }
+
+    newState = resolveRoombaMoveDraws(newState, [{
+      characterId: attacker.id,
+      fromSpace: attacker.boardPosition!,
+      toSpace: forwardSpace,
+    }]);
   }
 
   // Step 6: Send defeated to Graveyard
@@ -396,6 +622,10 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
     bothDied: bothDie,
   });
 
+  if (!bothDie) {
+    newState = resolveAntBattleWinDraw(newState, winnerId);
+  }
+
   validateBoardStateInvariants(newState);
 
   // Step 7: Check King Death or Double-King Tie
@@ -417,8 +647,8 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
   const defeated = toDefeatInOrder[0];
   const defeatedChar = state.characters.find(ch => ch.id === defeated)!;
   if (defeatedChar.isKing) {
-    const winnerController = defeatedChar.controller === 'Y' ? 'A' : 'Y';
-    const newStatus: GameStatus = winnerController === 'Y' ? 'Y wins' : 'A wins';
+    const winnerController = defeatedChar.controller === 'P1' ? 'P2' : 'P1';
+    const newStatus: GameStatus = winnerController === 'P1' ? 'P1 wins' : 'P2 wins';
     newState = {
       ...newState,
       gameStatus: newStatus,
@@ -432,15 +662,7 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
 
   validateBoardStateInvariants(newState);
 
-  // Step 8: Check Final King Duel
-  newState = checkAndResolveFinalKingDuel(newState);
-  if (newState.gameStatus !== 'active') {
-    return newState; // Game ended by duel, no turn switch
-  }
-
-  validateBoardStateInvariants(newState);
-
-  // Step 9: End turn
+  // Step 8: End turn
   return endTurn(newState);
 }
 
@@ -476,7 +698,12 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
   });
 
   // Step 3: Resolve battle (DEF vs DEF, no movement)
-  const outcome = resolveBattle(selfDefender, enemy, selfDefender.DEF, enemy.DEF);
+  const outcome = resolveBattle(
+    selfDefender,
+    enemy,
+    getEffectiveCoreStat(state, selfDefender, 'DEF'),
+    getEffectiveCoreStat(state, enemy, 'DEF'),
+  );
 
   const winnerId = outcome.winnerId;
   const loserId = outcome.loserId;
@@ -504,6 +731,10 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
     bothDied: bothDie,
   });
 
+  if (!bothDie) {
+    newState = resolveAntBattleWinDraw(newState, winnerId);
+  }
+
   validateBoardStateInvariants(newState);
 
   // Step 7: Check King Death or Double-King Tie
@@ -525,8 +756,8 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
   const defeated = toDefeatInOrder[0];
   const defeatedChar = state.characters.find(ch => ch.id === defeated)!;
   if (defeatedChar.isKing) {
-    const winnerController = defeatedChar.controller === 'Y' ? 'A' : 'Y';
-    const newStatus: GameStatus = winnerController === 'Y' ? 'Y wins' : 'A wins';
+    const winnerController = defeatedChar.controller === 'P1' ? 'P2' : 'P1';
+    const newStatus: GameStatus = winnerController === 'P1' ? 'P1 wins' : 'P2 wins';
     newState = {
       ...newState,
       gameStatus: newStatus,
@@ -540,15 +771,7 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
 
   validateBoardStateInvariants(newState);
 
-  // Step 8: Check Final King Duel
-  newState = checkAndResolveFinalKingDuel(newState);
-  if (newState.gameStatus !== 'active') {
-    return newState; // Game ended by duel, no turn switch
-  }
-
-  validateBoardStateInvariants(newState);
-
-  // Step 9: End turn
+  // Step 8: End turn
   return endTurn(newState);
 }
 
@@ -570,6 +793,606 @@ export function skipTurn(state: GameState): GameState {
   return endTurn(newState);
 }
 
+export function getBackItUpDestinations(state: GameState, characterId: string): BoardSpace[] {
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.boardPosition) {
+    return [];
+  }
+
+  const destinations: BoardSpace[] = [];
+  let cursor = getBackwardSpace(character.boardPosition);
+
+  while (cursor !== character.boardPosition) {
+    if (!isPositionEmpty(state, cursor)) {
+      break;
+    }
+    destinations.push(cursor);
+    cursor = getBackwardSpace(cursor);
+  }
+
+  return destinations;
+}
+
+export function getNightcrawlerTeleportDestinations(state: GameState, characterId: string): BoardSpace[] {
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.boardPosition || !isNightcrawler(character.displayName)) {
+    return [];
+  }
+
+  const destinations = new Set<BoardSpace>();
+  let forwardCursor = character.boardPosition;
+  let backwardCursor = character.boardPosition;
+
+  for (let i = 0; i < 3; i += 1) {
+    forwardCursor = getForwardSpace(forwardCursor);
+    backwardCursor = getBackwardSpace(backwardCursor);
+    if (isPositionEmpty(state, forwardCursor)) {
+      destinations.add(forwardCursor);
+    }
+    if (isPositionEmpty(state, backwardCursor)) {
+      destinations.add(backwardCursor);
+    }
+  }
+
+  return [...destinations];
+}
+
+export function executeNightcrawlerTeleportMove(
+  state: GameState,
+  actingPlayer: Controller,
+  characterId: string,
+  destination: BoardSpace,
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: game is not active');
+  }
+
+  if (actingPlayer !== state.activePlayer) {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: acting player is not active');
+  }
+
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.boardPosition || !isNightcrawler(character.displayName)) {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: selected character is invalid');
+  }
+
+  if (character.controller !== actingPlayer) {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: selected character is not yours');
+  }
+
+  if (character.isFrozen) {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: character is frozen');
+  }
+
+  const legalDestinations = getNightcrawlerTeleportDestinations(state, characterId);
+  if (!legalDestinations.includes(destination)) {
+    throw new Error('Cannot execute NIGHTCRAWLER teleport: destination is not legal');
+  }
+
+  const fromSpace = character.boardPosition;
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(entry => (
+      entry.id === characterId
+        ? updateCharacter(entry, { boardPosition: destination })
+        : entry
+    )),
+  };
+
+  next = resolveRoombaMoveDraws(next, [{
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  }]);
+
+  next = logEvent(next, 'Nightcrawler Teleport', {
+    actingPlayer,
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  });
+
+  validateBoardStateInvariants(next);
+  return endTurn(next);
+}
+
+export function executePortalMove(
+  state: GameState,
+  actingPlayer: Controller,
+  characterId: string,
+  destination: BoardSpace,
+  options?: { preserveTurn?: boolean },
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot execute PORTAL: game is not active');
+  }
+
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.boardPosition) {
+    throw new Error('Cannot execute PORTAL: selected character is invalid');
+  }
+
+  if (actingPlayer !== state.activePlayer) {
+    throw new Error('Cannot execute PORTAL: acting player is not active');
+  }
+
+  if (character.controller !== actingPlayer) {
+    throw new Error('Cannot execute PORTAL: must target your own character');
+  }
+
+  if (!isPositionEmpty(state, destination)) {
+    throw new Error('Cannot execute PORTAL: destination is occupied');
+  }
+
+  const fromSpace = character.boardPosition;
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(entry => (
+      entry.id === characterId
+        ? updateCharacter(entry, { boardPosition: destination })
+        : entry
+    )),
+  };
+
+  next = resolveRoombaMoveDraws(next, [{
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  }]);
+
+  const crossed = character.isKing
+    && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
+
+  if (crossed) {
+    next = resolveKingTerritoryDraw(next, character.controller, {
+      reason: 'PORTAL',
+      characterId,
+      fromSpace,
+      toSpace: destination,
+    });
+  }
+
+  next = logEvent(next, 'PORTAL Move', {
+    actingPlayer,
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  });
+
+  validateBoardStateInvariants(next);
+  return options?.preserveTurn ? next : endTurn(next);
+}
+
+export function executeBackItUpMove(
+  state: GameState,
+  actingPlayer: Controller,
+  characterId: string,
+  destination: BoardSpace,
+  options?: { preserveTurn?: boolean },
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot execute BACK IT UP: game is not active');
+  }
+
+  if (actingPlayer !== state.activePlayer) {
+    throw new Error('Cannot execute BACK IT UP: acting player is not active');
+  }
+
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.boardPosition) {
+    throw new Error('Cannot execute BACK IT UP: selected character is invalid');
+  }
+
+  const legalDestinations = getBackItUpDestinations(state, characterId);
+  if (!legalDestinations.includes(destination)) {
+    throw new Error('Cannot execute BACK IT UP: destination is not legal');
+  }
+
+  const fromSpace = character.boardPosition;
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(entry => (
+      entry.id === characterId
+        ? updateCharacter(entry, { boardPosition: destination })
+        : entry
+    )),
+  };
+
+  next = resolveRoombaMoveDraws(next, [{
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  }]);
+
+  const crossed = character.isKing
+    && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
+
+  if (crossed) {
+    next = resolveKingTerritoryDraw(next, character.controller, {
+      reason: 'BACK IT UP',
+      characterId,
+      fromSpace,
+      toSpace: destination,
+    });
+  }
+
+  next = logEvent(next, 'Back It Up Move', {
+    actingPlayer,
+    characterId,
+    fromSpace,
+    toSpace: destination,
+  });
+
+  validateBoardStateInvariants(next);
+  return options?.preserveTurn ? next : endTurn(next);
+}
+
+export function executeSwapCharactersMove(
+  state: GameState,
+  actingPlayer: Controller,
+  ownCharacterId: string,
+  opponentCharacterId: string,
+  options?: { allowDuringBattle?: boolean; allowOutOfTurn?: boolean },
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot execute SWAP CHARACTERS: game is not active');
+  }
+
+  if (state.pendingBattle && !options?.allowDuringBattle) {
+    throw new Error('Cannot execute SWAP CHARACTERS: battle is currently active');
+  }
+
+  if (actingPlayer !== state.activePlayer && !options?.allowOutOfTurn) {
+    throw new Error('Cannot execute SWAP CHARACTERS: acting player is not active');
+  }
+
+  if (ownCharacterId === opponentCharacterId) {
+    throw new Error('Cannot execute SWAP CHARACTERS: must choose two different characters');
+  }
+
+  const ownCharacter = getCharacter(state, ownCharacterId);
+  const opponentCharacter = getCharacter(state, opponentCharacterId);
+
+  if (!ownCharacter || !ownCharacter.alive || !ownCharacter.boardPosition) {
+    throw new Error('Cannot execute SWAP CHARACTERS: own selected character is invalid');
+  }
+
+  if (!opponentCharacter || !opponentCharacter.alive || !opponentCharacter.boardPosition) {
+    throw new Error('Cannot execute SWAP CHARACTERS: opponent selected character is invalid');
+  }
+
+  if (ownCharacter.controller !== actingPlayer) {
+    throw new Error('Cannot execute SWAP CHARACTERS: first selected character must be yours');
+  }
+
+  if (opponentCharacter.controller === actingPlayer) {
+    throw new Error('Cannot execute SWAP CHARACTERS: second selected character must be opponent');
+  }
+
+  const ownFrom = ownCharacter.boardPosition;
+  const opponentFrom = opponentCharacter.boardPosition;
+
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(character => {
+      if (character.id === ownCharacterId) {
+        return updateCharacter(character, {
+          boardPosition: opponentFrom,
+          controller: opponentCharacter.controller,
+        });
+      }
+      if (character.id === opponentCharacterId) {
+        return updateCharacter(character, {
+          boardPosition: ownFrom,
+          controller: ownCharacter.controller,
+        });
+      }
+      return character;
+    }),
+  };
+
+  // King status is reassigned immediately by king-space occupancy.
+  next = {
+    ...next,
+    characters: next.characters.map(character => ({
+      ...character,
+      isKing: character.alive && (character.boardPosition === 'P1_3' || character.boardPosition === 'P2_3'),
+    })),
+  };
+
+  next = logEvent(next, 'Swap Characters Move', {
+    actingPlayer,
+    ownCharacterId,
+    opponentCharacterId,
+    ownFrom,
+    ownTo: opponentFrom,
+    opponentFrom,
+    opponentTo: ownFrom,
+    switchedTeams: true,
+    generatedDraws: false,
+  });
+
+  validateBoardStateInvariants(next);
+  return next;
+}
+
+export function canUseRapunzelSpecial(state: GameState, characterId: string): boolean {
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive || !character.revealed || !character.boardPosition || character.controller !== state.activePlayer || character.abilityUsed || !isRapunzel(character.displayName)) {
+    return false;
+  }
+
+  const frontSpace = getForwardSpace(character.boardPosition);
+  if (!isPositionEmpty(state, frontSpace)) {
+    return false;
+  }
+
+  let cursor = getBackwardSpace(character.boardPosition);
+  while (cursor !== character.boardPosition) {
+    const found = getCharacterAtPosition(state, cursor);
+    if (found && found.alive) {
+      return true;
+    }
+    cursor = getBackwardSpace(cursor);
+  }
+
+  return false;
+}
+
+export function executeRapunzelSpecial(state: GameState, characterId: string): GameState {
+  if (!canUseRapunzelSpecial(state, characterId)) {
+    throw new Error('Cannot execute Rapunzel special');
+  }
+
+  const rapunzel = getCharacter(state, characterId)!;
+  const frontSpace = getForwardSpace(rapunzel.boardPosition!);
+  let target = getCharacterAtPosition(state, getBackwardSpace(rapunzel.boardPosition!));
+  let cursor = getBackwardSpace(rapunzel.boardPosition!);
+  while ((!target || !target.alive) && cursor !== rapunzel.boardPosition) {
+    cursor = getBackwardSpace(cursor);
+    target = getCharacterAtPosition(state, cursor);
+    if (target?.alive) {
+      break;
+    }
+  }
+
+  if (!target || !target.alive || !target.boardPosition) {
+    throw new Error('Cannot execute Rapunzel special: no target behind');
+  }
+
+  const fromSpace = target.boardPosition;
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(character => {
+      if (character.id === rapunzel.id) {
+        return { ...character, abilityUsed: true };
+      }
+      if (character.id === target.id) {
+        return { ...character, boardPosition: frontSpace };
+      }
+      return character;
+    }),
+  };
+
+  if (
+    target.isKing
+    && getSpaceTerritory(fromSpace) !== getSpaceTerritory(frontSpace)
+  ) {
+    next = resolveKingTerritoryDraw(next, target.controller, {
+      reason: 'RAPUNZEL SPECIAL',
+      characterId: target.id,
+      fromSpace,
+      toSpace: frontSpace,
+      rapunzelCharacterId: rapunzel.id,
+    });
+  }
+
+  next = resolveRoombaMoveDraws(next, [{
+    characterId: target.id,
+    fromSpace,
+    toSpace: frontSpace,
+  }]);
+
+  next = logEvent(next, 'Rapunzel Special', {
+    characterId: rapunzel.id,
+    movedCharacterId: target.id,
+    fromSpace,
+    toSpace: frontSpace,
+  });
+
+  validateBoardStateInvariants(next);
+  return endTurn(next);
+}
+
+export function canUseMrsPuffSpecial(state: GameState, characterId: string): boolean {
+  const character = getCharacter(state, characterId);
+  return !!character
+    && character.alive
+    && character.revealed
+    && !!character.boardPosition
+    && character.controller === state.activePlayer
+    && !character.abilityUsed
+    && isMrsPuffCharacter(character.displayName);
+}
+
+function findNextOpenSpaceForward(state: GameState, start: BoardSpace): BoardSpace | null {
+  let cursor = getForwardSpace(start);
+  while (cursor !== start) {
+    if (isPositionEmpty(state, cursor)) {
+      return cursor;
+    }
+    cursor = getForwardSpace(cursor);
+  }
+  return null;
+}
+
+function findNextOpenSpaceBackward(state: GameState, start: BoardSpace): BoardSpace | null {
+  let cursor = getBackwardSpace(start);
+  while (cursor !== start) {
+    if (isPositionEmpty(state, cursor)) {
+      return cursor;
+    }
+    cursor = getBackwardSpace(cursor);
+  }
+  return null;
+}
+
+export function executeMrsPuffSpecial(state: GameState, characterId: string): GameState {
+  if (!canUseMrsPuffSpecial(state, characterId)) {
+    throw new Error('Cannot execute Mrs. Puff special');
+  }
+
+  const puff = getCharacter(state, characterId)!;
+  const front = getCharacterAtPosition(state, getForwardSpace(puff.boardPosition!));
+  const behind = getCharacterAtPosition(state, getBackwardSpace(puff.boardPosition!));
+  const frontDestination = front?.boardPosition ? findNextOpenSpaceForward(state, front.boardPosition) : null;
+  const behindDestination = behind?.boardPosition ? findNextOpenSpaceBackward(state, behind.boardPosition) : null;
+
+  let next: GameState = {
+    ...state,
+    characters: state.characters.map(character => {
+      if (character.id === puff.id) {
+        return { ...character, abilityUsed: true };
+      }
+      if (front && frontDestination && character.id === front.id) {
+        return { ...character, boardPosition: frontDestination };
+      }
+      if (behind && behindDestination && character.id === behind.id) {
+        return { ...character, boardPosition: behindDestination };
+      }
+      return character;
+    }),
+  };
+
+  next = resolveRoombaMoveDraws(next, [
+    ...(front && frontDestination && front.boardPosition ? [{ characterId: front.id, fromSpace: front.boardPosition, toSpace: frontDestination }] : []),
+    ...(behind && behindDestination && behind.boardPosition ? [{ characterId: behind.id, fromSpace: behind.boardPosition, toSpace: behindDestination }] : []),
+  ]);
+
+  next = logEvent(next, 'Mrs. Puff Special', {
+    characterId: puff.id,
+    frontCharacterId: front?.id ?? null,
+    frontDestination,
+    behindCharacterId: behind?.id ?? null,
+    behindDestination,
+  });
+
+  validateBoardStateInvariants(next);
+  return endTurn(next);
+}
+
+export function executeBehindTheCurtainsSwap(
+  state: GameState,
+  actingPlayer: Controller,
+  ownHandCardInstanceId: string,
+  opponentHandCardInstanceId: string,
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot execute BEHIND THE CURTAINS: game is not active');
+  }
+
+  const opponent: Controller = actingPlayer === 'P1' ? 'P2' : 'P1';
+  const ownHand = state.powerCardHands[actingPlayer];
+  const opponentHand = state.powerCardHands[opponent];
+  const ownCard = ownHand.find(card => card.instanceId === ownHandCardInstanceId);
+  const opponentCard = opponentHand.find(card => card.instanceId === opponentHandCardInstanceId);
+
+  if (!ownCard) {
+    throw new Error('Cannot execute BEHIND THE CURTAINS: own selected card is not in hand');
+  }
+
+  if (!opponentCard) {
+    throw new Error('Cannot execute BEHIND THE CURTAINS: opponent selected card is not in hand');
+  }
+
+  const next: GameState = {
+    ...state,
+    powerCardHands: {
+      ...state.powerCardHands,
+      [actingPlayer]: ownHand.map(card => (card.instanceId === ownCard.instanceId ? opponentCard : card)),
+      [opponent]: opponentHand.map(card => (card.instanceId === opponentCard.instanceId ? ownCard : card)),
+    },
+  };
+
+  return logEvent(next, 'Behind The Curtains Swap', {
+    actingPlayer,
+    ownHandCardInstanceId,
+    opponentHandCardInstanceId,
+  });
+}
+
+export function executeFreezeGunSpecial(
+  state: GameState,
+  sourceCharacterId: string,
+  targetCharacterId: string,
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot use Freeze Gun special: game is not active');
+  }
+
+  const source = getCharacter(state, sourceCharacterId);
+  const target = getCharacter(state, targetCharacterId);
+
+  if (!source || !source.alive) {
+    throw new Error('Cannot use Freeze Gun special: source character is invalid');
+  }
+
+  const actingController = state.pendingBattle
+    ? state.pendingBattle.currentPriorityPlayer
+    : state.activePlayer;
+  if (source.controller !== actingController) {
+    throw new Error('Cannot use Freeze Gun special: source character is not controlled by acting player');
+  }
+
+  if (!target || !target.alive) {
+    throw new Error('Cannot use Freeze Gun special: target character is invalid');
+  }
+
+  if (!isMrFreeze(source.displayName)) {
+    throw new Error('Cannot use Freeze Gun special: source character is not Mr. Freeze');
+  }
+
+  const freezeGunIndex = getUnusedFreezeGunAttachmentIndex(source);
+  if (freezeGunIndex === -1) {
+    throw new Error('Cannot use Freeze Gun special: no unused Freeze Gun attachment found');
+  }
+
+  const sourceAttachments = [...(source.attachments ?? [])];
+  sourceAttachments[freezeGunIndex] = {
+    ...sourceAttachments[freezeGunIndex],
+    specialUsed: true,
+  };
+
+  let nextState: GameState = {
+    ...state,
+    characters: state.characters.map(character => {
+      if (character.id === sourceCharacterId) {
+        return {
+          ...character,
+          attachments: sourceAttachments,
+        };
+      }
+
+      if (character.id === targetCharacterId) {
+        return {
+          ...character,
+          isFrozen: true,
+        };
+      }
+
+      return character;
+    }),
+  };
+
+  nextState = logEvent(nextState, 'Freeze Gun Special', {
+    sourceCharacterId,
+    targetCharacterId,
+    sourceController: source.controller,
+  });
+
+  return nextState;
+}
+
 /**
  * End turn: increment turn counter and switch active player.
  */
@@ -578,7 +1401,7 @@ function endTurn(state: GameState): GameState {
     return state; // Game already ended, no turn switch
   }
 
-  const nextPlayer: Controller = state.activePlayer === 'Y' ? 'A' : 'Y';
+  const nextPlayer: Controller = state.activePlayer === 'P1' ? 'P2' : 'P1';
   const nextTurn = state.turnNumber + 1;
 
   let newState: GameState = {
@@ -592,5 +1415,61 @@ function endTurn(state: GameState): GameState {
     nextTurnNumber: nextTurn,
   });
 
-  return newState;
+  return resolveFrozenBreakFreeAtTurnStart(newState);
+}
+
+function canMoveForwardIgnoringFrozen(state: GameState, characterId: string): boolean {
+  if (state.gameStatus !== 'active') {
+    return false;
+  }
+
+  const character = getCharacter(state, characterId);
+  if (!character || !character.alive) {
+    return false;
+  }
+
+  if (character.controller !== state.activePlayer) {
+    return false;
+  }
+
+  const forwardSpace = getForwardSpace(character.boardPosition!);
+  return isPositionEmpty(state, forwardSpace);
+}
+
+function resolveFrozenBreakFreeAtTurnStart(state: GameState): GameState {
+  if (state.gameStatus !== 'active') {
+    return state;
+  }
+
+  const activeCharacters = getCharactersByController(state, state.activePlayer).filter(character => character.alive);
+  const legalActionsNow = getLegalActions(state);
+
+  if (legalActionsNow.length > 0) {
+    return state;
+  }
+
+  const frozenMoveCandidates = activeCharacters.filter(
+    character => character.isFrozen && canMoveForwardIgnoringFrozen(state, character.id),
+  );
+
+  if (frozenMoveCandidates.length !== 1) {
+    return state;
+  }
+
+  const thawedCharacter = frozenMoveCandidates[0];
+  let nextState: GameState = {
+    ...state,
+    characters: state.characters.map(character => (
+      character.id === thawedCharacter.id
+        ? updateCharacter(character, { isFrozen: false })
+        : character
+    )),
+  };
+
+  nextState = logEvent(nextState, 'Frozen Break Free', {
+    characterId: thawedCharacter.id,
+    note: 'Character breaks free instead of moving; turn ends immediately',
+  });
+
+  return endTurn(nextState);
 }

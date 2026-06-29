@@ -13,9 +13,9 @@ import {
   countPowerCardsByController,
 } from './powerCards';
 
-export type BoardSpace = 'Y1' | 'Y2' | 'Y3' | 'Y4' | 'Y5' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
-export type Controller = 'Y' | 'A';
-export type GameStatus = 'active' | 'Y wins' | 'A wins' | 'draw';
+export type BoardSpace = 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+export type Controller = 'P1' | 'P2';
+export type GameStatus = 'active' | 'P1 wins' | 'P2 wins' | 'draw';
 export type BattleStatus = 'WindowOpen' | 'ReadyToResolve' | 'Resolving';
 export type BattleType = 'attack' | 'defend';
 
@@ -28,6 +28,9 @@ export interface CharacterDeckCard {
   ability: string | null;
   statRule: string | null;
   imageKey: string;
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
 }
 
 export interface Character {
@@ -35,11 +38,17 @@ export interface Character {
   controller: Controller;
   ATK: number;
   DEF: number;
+  attachments?: CharacterAttachment[];
+  isFrozen?: boolean;
+  abilityUsed?: boolean;
   definitionId?: string;
   displayName?: string;
   ability?: string | null;
   statRule?: string | null;
   imageKey?: string;
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
   isKing: boolean;
   revealed: boolean;
   alive: boolean;
@@ -54,6 +63,7 @@ export interface ActionEvent {
 }
 
 export interface PendingBattle {
+  isFinalKingDuel?: boolean;
   battleType: BattleType;
   status: BattleStatus;
   initiatorId: string;
@@ -66,9 +76,14 @@ export interface PendingBattle {
   opponentBaseComparisonStat: number;
   currentPriorityPlayer: Controller;
   consecutivePassCount: number;
+  readyPlayers: { P1: boolean; P2: boolean };
   handoffRequiredFor: Controller | null;
   comparisonStatOverrides: Partial<Record<Controller, 'ATK' | 'DEF'>>;
+  statsSwapped: boolean;
   temporaryModifiers: BattleTemporaryModifier[];
+  usedPowerPileStartCount: number;
+  riddlerStatSourceByCharacterId: Record<string, CharacterDeckCard>;
+  riddlerConsumedCards: CharacterDeckCard[];
   eventHistory: string[];
 }
 
@@ -84,6 +99,16 @@ export interface BattleTemporaryModifier {
   selectedChoice: 'ATK' | 'DEF' | null;
 }
 
+export interface CharacterAttachment {
+  instanceId: string;
+  definitionId: string;
+  displayName: string;
+  category: 'weapon';
+  ATK: number;
+  DEF: number;
+  specialUsed?: boolean;
+}
+
 export interface PersistentCharacterModifier {
   ATK: number;
   DEF: number;
@@ -94,12 +119,17 @@ export interface GameState {
   turnNumber: number;
   characters: Character[];
   characterDeck: CharacterDeckCard[];
+  sessionUsedCharacterPile: CharacterDeckCard[];
   powerCardDeck: PowerCardInstance[];
-  powerCardHands: { Y: PowerCardInstance[]; A: PowerCardInstance[] };
+  sessionUsedPowerCardPile: PowerCardInstance[];
+  powerCardHands: { P1: PowerCardInstance[]; P2: PowerCardInstance[] };
   usedPowerCardPile: UsedPowerCardEntry[];
+  sessionMode: 'single-game' | 'multi-game';
+  sessionGameNumber: number;
+  sessionRunoutOccurred: boolean;
   persistentCharacterModifiers: Record<string, PersistentCharacterModifier>;
   graveyard: Character[];
-  drawCount: { Y: number; A: number };
+  drawCount: { P1: number; P2: number };
   gameStatus: GameStatus;
   eventLog: ActionEvent[];
   pendingBattle: PendingBattle | null;
@@ -107,35 +137,43 @@ export interface GameState {
 
 /**
  * Initialize a new game with given characters.
- * If exactly one King per side exists, Final King Duel resolves immediately.
  */
 export function initializeGameState(initialCharacters: Character[]): GameState {
   const state: GameState = {
-    activePlayer: 'Y',
+    activePlayer: 'P1',
     turnNumber: 1,
-    characters: initialCharacters.map(ch => ({ ...ch, alive: true })),
+    characters: initialCharacters.map(ch => ({
+      ...ch,
+      alive: true,
+      isFrozen: ch.isFrozen ?? false,
+      abilityUsed: ch.abilityUsed ?? false,
+      attachments: ch.attachments ?? [],
+    })),
     characterDeck: [],
+    sessionUsedCharacterPile: [],
     powerCardDeck: buildFirstAlphaPowerCardDeck(),
-    powerCardHands: { Y: [], A: [] },
+    sessionUsedPowerCardPile: [],
+    powerCardHands: { P1: [], P2: [] },
     usedPowerCardPile: [],
+    sessionMode: 'single-game',
+    sessionGameNumber: 1,
+    sessionRunoutOccurred: false,
     persistentCharacterModifiers: {},
     graveyard: [],
-    drawCount: { Y: 0, A: 0 },
+    drawCount: { P1: 0, P2: 0 },
     gameStatus: 'active',
     pendingBattle: null,
     eventLog: [
       {
         turn: 1,
-        activePlayer: 'Y',
+        activePlayer: 'P1',
         action: 'Initialize Game',
         details: { characterCount: initialCharacters.length },
       },
     ],
   };
 
-  // Check for immediate Final King Duel at setup
-  const finalDuelState = checkAndResolveFinalKingDuel(state);
-  return finalDuelState;
+  return state;
 }
 
 /**
@@ -167,7 +205,7 @@ export function isPositionEmpty(state: GameState, position: BoardSpace): boolean
 }
 
 /**
- * Get the territory of a board space ('Y' or 'A').
+ * Get the territory of a board space ('P1' or 'P2').
  */
 export function getSpaceTerritory(space: BoardSpace): Controller {
   return getTerritory(space) as Controller;
@@ -207,8 +245,8 @@ export function checkAndResolveFinalKingDuel(state: GameState): GameState {
     return state;
   }
 
-  const yLiving = state.characters.filter(ch => ch.controller === 'Y' && ch.alive);
-  const aLiving = state.characters.filter(ch => ch.controller === 'A' && ch.alive);
+  const yLiving = state.characters.filter(ch => ch.controller === 'P1' && ch.alive);
+  const aLiving = state.characters.filter(ch => ch.controller === 'P2' && ch.alive);
 
   // Must be exactly one living character per side, and both must be Kings
   if (yLiving.length !== 1 || aLiving.length !== 1) {
@@ -225,9 +263,9 @@ export function checkAndResolveFinalKingDuel(state: GameState): GameState {
   // Resolve Final King Duel: Y ATK vs A ATK
   let newStatus: GameStatus = 'active';
   if (yKing.ATK > aKing.ATK) {
-    newStatus = 'Y wins';
+    newStatus = 'P1 wins';
   } else if (aKing.ATK > yKing.ATK) {
-    newStatus = 'A wins';
+    newStatus = 'P2 wins';
   } else {
     // Tie in Final King Duel = draw
     newStatus = 'draw';
@@ -262,8 +300,8 @@ export function shouldTriggerFinalKingDuel(state: GameState): boolean {
     return false;
   }
 
-  const yLiving = state.characters.filter(ch => ch.controller === 'Y' && ch.alive);
-  const aLiving = state.characters.filter(ch => ch.controller === 'A' && ch.alive);
+  const yLiving = state.characters.filter(ch => ch.controller === 'P1' && ch.alive);
+  const aLiving = state.characters.filter(ch => ch.controller === 'P2' && ch.alive);
 
   if (yLiving.length !== 1 || aLiving.length !== 1) {
     return false;
@@ -357,16 +395,16 @@ export function logEvent(
 /**
  * Get the number of living characters for each controller.
  */
-export function getLivingCharacterCounts(state: GameState): { Y: number; A: number } {
+export function getLivingCharacterCounts(state: GameState): { P1: number; P2: number } {
   return {
-    Y: state.characters.filter(ch => ch.controller === 'Y' && ch.alive).length,
-    A: state.characters.filter(ch => ch.controller === 'A' && ch.alive).length,
+    P1: state.characters.filter(ch => ch.controller === 'P1' && ch.alive).length,
+    P2: state.characters.filter(ch => ch.controller === 'P2' && ch.alive).length,
   };
 }
 
 /**
  * Derive public power-card hand counts from authoritative private hands.
  */
-export function getPowerCardHandCounts(state: GameState): { Y: number; A: number } {
+export function getPowerCardHandCounts(state: GameState): { P1: number; P2: number } {
   return countPowerCardsByController(state.powerCardHands);
 }

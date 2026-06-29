@@ -11,11 +11,12 @@ import {
 
 function createChar(
   id: string,
-  controller: 'Y' | 'A',
+  controller: 'P1' | 'P2',
   ATK: number,
   DEF: number,
   isKing: boolean,
   boardPosition: Character['boardPosition'],
+  displayName?: string,
 ): Character {
   return {
     id,
@@ -26,16 +27,17 @@ function createChar(
     boardPosition,
     revealed: false,
     alive: true,
+    displayName,
   };
 }
 
 describe('Phase 3C battleFlow', () => {
   it('Attack starts pending battle and does not instantly resolve', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 7, 3, false, 'Y3'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-def', 'A', 3, 4, false, 'Y4'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 7, 3, false, 'P1_3'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-def', 'P2', 3, 4, false, 'P1_4'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
@@ -46,16 +48,16 @@ describe('Phase 3C battleFlow', () => {
     expect(started.graveyard.length).toBe(0);
     expect(started.turnNumber).toBe(state.turnNumber);
     expect(started.activePlayer).toBe(state.activePlayer);
-    expect(started.characters.find(c => c.id === 'y-att')?.boardPosition).toBe('Y3');
-    expect(started.characters.find(c => c.id === 'a-def')?.boardPosition).toBe('Y4');
+    expect(started.characters.find(c => c.id === 'y-att')?.boardPosition).toBe('P1_3');
+    expect(started.characters.find(c => c.id === 'a-def')?.boardPosition).toBe('P1_4');
   });
 
   it('Self-Defend starts pending battle and does not instantly resolve', () => {
     const state = initializeGameState([
-      createChar('y-def', 'Y', 3, 8, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-att', 'A', 3, 4, false, 'Y3'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-def', 'P1', 3, 8, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-att', 'P2', 3, 4, false, 'P1_3'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'defend', 'y-def');
@@ -64,16 +66,16 @@ describe('Phase 3C battleFlow', () => {
     expect(started.pendingBattle?.status).toBe('WindowOpen');
     expect(started.pendingBattle?.battleType).toBe('defend');
     expect(started.graveyard.length).toBe(0);
-    expect(started.characters.find(c => c.id === 'y-def')?.boardPosition).toBe('Y4');
-    expect(started.characters.find(c => c.id === 'a-att')?.boardPosition).toBe('Y3');
+    expect(started.characters.find(c => c.id === 'y-def')?.boardPosition).toBe('P1_4');
+    expect(started.characters.find(c => c.id === 'a-att')?.boardPosition).toBe('P1_3');
   });
 
   it('Both battle participants are revealed at battle start', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 6, 4, false, 'Y3'),
-      createChar('a-def', 'A', 2, 2, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 6, 4, false, 'P1_3'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
@@ -84,35 +86,35 @@ describe('Phase 3C battleFlow', () => {
 
   it('Initiator receives first priority and priority alternates one-card-or-pass flow', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 6, 4, false, 'Y3'),
-      createChar('a-def', 'A', 2, 2, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 6, 4, false, 'P1_3'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
-    expect(started.pendingBattle?.currentPriorityPlayer).toBe('Y');
+    expect(started.pendingBattle?.currentPriorityPlayer).toBe('P1');
 
-    const afterPass = passBattlePriority(started, 'Y');
-    expect(afterPass.pendingBattle?.currentPriorityPlayer).toBe('A');
+    const afterPass = passBattlePriority(started, 'P1');
+    expect(afterPass.pendingBattle?.currentPriorityPlayer).toBe('P2');
     expect(afterPass.pendingBattle?.consecutivePassCount).toBe(1);
 
-    const afterCardPlay = recordBattleCardPlay(afterPass, 'A');
+    const afterCardPlay = recordBattleCardPlay(afterPass, 'P2');
     expect(afterCardPlay.pendingBattle?.consecutivePassCount).toBe(0);
-    expect(afterCardPlay.pendingBattle?.currentPriorityPlayer).toBe('Y');
+    expect(afterCardPlay.pendingBattle?.currentPriorityPlayer).toBe('P1');
   });
 
   it('Two consecutive passes create ReadyToResolve', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 6, 4, false, 'Y3'),
-      createChar('a-def', 'A', 2, 2, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 6, 4, false, 'P1_3'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
-    const passOne = passBattlePriority(started, 'Y');
-    const passTwo = passBattlePriority(passOne, 'A');
+    const passOne = passBattlePriority(started, 'P1');
+    const passTwo = passBattlePriority(passOne, 'P2');
 
     expect(passTwo.pendingBattle?.status).toBe('ReadyToResolve');
     expect(passTwo.pendingBattle?.consecutivePassCount).toBe(2);
@@ -120,29 +122,29 @@ describe('Phase 3C battleFlow', () => {
 
   it('No death, movement, graveyard change, or turn switch occurs before resolve', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 6, 4, false, 'Y3'),
-      createChar('a-def', 'A', 2, 2, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 6, 4, false, 'P1_3'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
-    const passOne = passBattlePriority(started, 'Y');
+    const passOne = passBattlePriority(started, 'P1');
 
     expect(passOne.turnNumber).toBe(state.turnNumber);
     expect(passOne.activePlayer).toBe(state.activePlayer);
     expect(passOne.graveyard.length).toBe(0);
-    expect(passOne.characters.find(c => c.id === 'y-att')?.boardPosition).toBe('Y3');
-    expect(passOne.characters.find(c => c.id === 'a-def')?.boardPosition).toBe('Y4');
+    expect(passOne.characters.find(c => c.id === 'y-att')?.boardPosition).toBe('P1_3');
+    expect(passOne.characters.find(c => c.id === 'a-def')?.boardPosition).toBe('P1_4');
     expect(passOne.characters.find(c => c.id === 'a-def')?.alive).toBe(true);
   });
 
   it('getBattlePublicView exposes battle participants and safe board view only', () => {
     const state = initializeGameState([
-      createChar('y-att', 'Y', 6, 4, false, 'Y3'),
-      createChar('a-def', 'A', 2, 2, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 6, 4, false, 'P1_3'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const started = startBattle(state, 'attack', 'y-att');
@@ -157,17 +159,17 @@ describe('Phase 3C battleFlow', () => {
 
   it('resolvePendingBattle matches existing Phase 2 resolver outcome when no Power Cards are played', () => {
     const baseline = initializeGameState([
-      createChar('y-att', 'Y', 10, 4, false, 'Y3'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-def', 'A', 3, 2, false, 'Y4'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-att', 'P1', 10, 4, false, 'P1_3'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-def', 'P2', 3, 2, false, 'P1_4'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const instant = executeAttackForward(baseline, 'y-att');
 
     const stagedStart = startBattle(baseline, 'attack', 'y-att');
-    const stagedPass1 = passBattlePriority(stagedStart, 'Y');
-    const stagedPass2 = passBattlePriority(stagedPass1, 'A');
+    const stagedPass1 = passBattlePriority(stagedStart, 'P1');
+    const stagedPass2 = passBattlePriority(stagedPass1, 'P2');
     const stagedResolved = resolvePendingBattle(stagedPass2);
 
     expect(stagedResolved.pendingBattle).toBeNull();
@@ -194,22 +196,69 @@ describe('Phase 3C battleFlow', () => {
 
   it('resolvePendingBattle supports staged Self-Defend and matches instant resolver', () => {
     const baseline = initializeGameState([
-      createChar('y-def', 'Y', 4, 8, false, 'Y4'),
-      createChar('y-king', 'Y', 8, 8, true, 'Y1'),
-      createChar('a-att', 'A', 7, 3, false, 'Y3'),
-      createChar('a-king', 'A', 8, 8, true, 'A3'),
+      createChar('y-def', 'P1', 4, 8, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1'),
+      createChar('a-att', 'P2', 7, 3, false, 'P1_3'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3'),
     ]);
 
     const instant = executeSelfDefend(baseline, 'y-def');
     const staged = resolvePendingBattle(
       passBattlePriority(
-        passBattlePriority(startBattle(baseline, 'defend', 'y-def'), 'Y'),
-        'A',
+        passBattlePriority(startBattle(baseline, 'defend', 'y-def'), 'P1'),
+        'P2',
       ),
     );
 
     expect(staged.pendingBattle).toBeNull();
     expect(staged.gameStatus).toBe(instant.gameStatus);
     expect(staged.graveyard.map(card => card.id)).toEqual(instant.graveyard.map(card => card.id));
+  });
+
+  it('Riddler uses bottom character-deck stats for battle and consumes that card to graveyard', () => {
+    const baseline = initializeGameState([
+      createChar('y-riddler', 'P1', 0, 0, false, 'P1_3', 'RIDDLER'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-def', 'P2', 4, 2, false, 'P1_4', 'A-DEF'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const withDeck = {
+      ...baseline,
+      characterDeck: [
+        {
+          instanceId: 'deck-top',
+          definitionId: 'alpha-top',
+          displayName: 'Top Card',
+          ATK: 1,
+          DEF: 1,
+          ability: null,
+          statRule: null,
+          imageKey: 'top',
+        },
+        {
+          instanceId: 'deck-bottom',
+          definitionId: 'alpha-bottom',
+          displayName: 'Bottom Card',
+          ATK: 13,
+          DEF: 12,
+          ability: null,
+          statRule: null,
+          imageKey: 'bottom',
+        },
+      ],
+    };
+
+    const started = startBattle(withDeck, 'attack', 'y-riddler');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorRiddlerSource?.instanceId).toBe('deck-bottom');
+    expect(publicView.initiatorEffectiveComparison).toBe(13);
+    expect(started.characterDeck.map(card => card.instanceId)).toEqual(['deck-top']);
+
+    const ready = passBattlePriority(passBattlePriority(started, 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    expect(resolved.graveyard.some(card => card.id === 'deck-bottom')).toBe(true);
   });
 });

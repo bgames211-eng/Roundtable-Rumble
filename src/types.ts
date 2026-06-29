@@ -1,12 +1,12 @@
-export type Controller = 'Y' | 'A';
+export type Controller = 'P1' | 'P2';
 export type Space =
-	| 'Y1'
-	| 'Y2'
-	| 'Y3'
-	| 'Y4'
-	| 'Y5'
-	| 'A1'
-	| 'A2'
-	| 'A3'
-	| 'A4'
-	| 'A5';
+	| 'P1_1'
+	| 'P1_2'
+	| 'P1_3'
+	| 'P1_4'
+	| 'P1_5'
+	| 'P2_1'
+	| 'P2_2'
+	| 'P2_3'
+	| 'P2_4'
+	| 'P2_5';

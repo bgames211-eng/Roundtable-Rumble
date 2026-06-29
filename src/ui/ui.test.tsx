@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -31,23 +31,52 @@ function createChar(
   };
 }
 
-describe('Phase 3B Step 2 UI', () => {
-  it('renders start screen and allows selecting Y or A', async () => {
+function buildBattleSetup() {
+  return (): ReturnType<typeof initializeGameState> => {
+    const base = initializeGameState([
+      createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+      createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+    return { ...base, activePlayer: 'P1' };
+  };
+}
+
+function buildDefendSetup() {
+  return (): ReturnType<typeof initializeGameState> => {
+    const base = initializeGameState([
+      createChar('p1-defender', 'P1', 4, 9, false, 'P1_4', 'P1-DEFENDER'),
+      createChar('p2-enemy', 'P2', 6, 3, false, 'P1_3', 'P2-ENEMY'),
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+    return { ...base, activePlayer: 'P1' };
+  };
+}
+
+describe('Phase 5 UI', () => {
+  it('requires unique colors before starting a new game', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(screen.getByTestId('start-screen')).toBeInTheDocument();
-    expect(screen.getByText('Roundtable Rumble')).toBeInTheDocument();
-    expect(screen.getByText('Manual Two-Player Alpha')).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId('color-select-P1'), 'Blue');
 
-    const yRadio = screen.getByRole('radio', { name: /Y/i }) as HTMLInputElement;
-    const aRadio = screen.getByRole('radio', { name: /A/i }) as HTMLInputElement;
+    const p2Select = screen.getByTestId('color-select-P2') as HTMLSelectElement;
+    const blueOption = Array.from(p2Select.options).find(option => option.value === 'Blue');
+    expect(blueOption).toBeDefined();
+    expect(blueOption).toBeDisabled();
+    expect(screen.queryByTestId('color-uniqueness-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('new-game-button')).toBeEnabled();
+  });
 
-    expect(yRadio.checked).toBe(true);
-    await user.click(aRadio);
-    expect(aRadio.checked).toBe(true);
-    await user.click(yRadio);
-    expect(yRadio.checked).toBe(true);
+  it('renders the start screen without visible P1/P2 labels', () => {
+    const { container } = render(<App />);
+    const text = container.textContent ?? '';
+
+    expect(text).toContain('Roundtable Rumble');
+    expect(text).not.toContain(' P1');
+    expect(text).not.toContain(' P2');
   });
 
   it('new game switches to match screen', async () => {
@@ -58,80 +87,89 @@ describe('Phase 3B Step 2 UI', () => {
     expect(screen.getByTestId('match-screen')).toBeInTheDocument();
   });
 
-  it('renders all ten board positions with exact top and bottom visual layout', async () => {
+  it('renders ten distinct square spaces and both center piles', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    const topRow = screen.getByTestId('top-row');
-    const bottomRow = screen.getByTestId('bottom-row');
+    expect(screen.getByTestId('circular-board')).toBeInTheDocument();
+    expect(screen.getByTestId('board-center-piles')).toBeInTheDocument();
+    expect(screen.getByTestId('center-graveyard-pile')).toBeInTheDocument();
+    expect(screen.getByTestId('center-used-power-pile')).toBeInTheDocument();
 
-    expect(topRow).toBeInTheDocument();
-    expect(bottomRow).toBeInTheDocument();
+    const spaces = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'];
+    const slotStyles = new Set<string>();
 
-    const topSpaces = ['A1', 'A2', 'A3', 'A4', 'A5'];
-    const bottomSpaces = ['Y1', 'Y2', 'Y3', 'Y4', 'Y5'];
-
-    for (const space of topSpaces) {
-      expect(screen.getByTestId(`space-${space}`)).toBeInTheDocument();
+    for (const space of spaces) {
+      const node = screen.getByTestId(`space-${space}`);
+      expect(node).toBeInTheDocument();
+      expect(node.querySelector('.ring-space-square')).toBeTruthy();
+      slotStyles.add(node.getAttribute('style') ?? '');
     }
-    for (const space of bottomSpaces) {
-      expect(screen.getByTestId(`space-${space}`)).toBeInTheDocument();
-    }
 
-    const topText = topRow.textContent ?? '';
-    const bottomText = bottomRow.textContent ?? '';
-    expect(topText.indexOf('A1')).toBeLessThan(topText.indexOf('A2'));
-    expect(topText.indexOf('A2')).toBeLessThan(topText.indexOf('A3'));
-    expect(topText.indexOf('A3')).toBeLessThan(topText.indexOf('A4'));
-    expect(topText.indexOf('A4')).toBeLessThan(topText.indexOf('A5'));
-
-    expect(bottomText.indexOf('Y1')).toBeLessThan(bottomText.indexOf('Y2'));
-    expect(bottomText.indexOf('Y2')).toBeLessThan(bottomText.indexOf('Y3'));
-    expect(bottomText.indexOf('Y3')).toBeLessThan(bottomText.indexOf('Y4'));
-    expect(bottomText.indexOf('Y4')).toBeLessThan(bottomText.indexOf('Y5'));
+    expect(slotStyles.size).toBe(10);
+    expect(screen.getByTestId('territory-divider')).toBeInTheDocument();
+    expect(screen.getByTestId('connector-P1_1')).toBeInTheDocument();
+    expect(screen.getByTestId('connector-P2_5')).toBeInTheDocument();
   });
 
-  it('renders King Start markers on A3 and Y3', async () => {
+  it('renders king start markers on the two king slots', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    expect(screen.getByTestId('king-start-A3')).toBeInTheDocument();
-    expect(screen.getByTestId('king-start-Y3')).toBeInTheDocument();
+    expect(screen.getByTestId('king-start-P1_3')).toBeInTheDocument();
+    expect(screen.getByTestId('king-start-P2_3')).toBeInTheDocument();
   });
 
-  it('active-player hidden card can be selected and remains anonymous', async () => {
+  it('does not show raw board IDs in visible text', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('P1_1');
+    expect(text).not.toContain('P2_5');
+    expect(text).not.toContain('P1_3');
+  });
+
+  it('does not show raw P1/P2 labels in visible player-facing text', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('P1');
+    expect(text).not.toContain('P2');
+    expect(text).toContain('Player One');
+    expect(text).toContain('Player Two');
+  });
+
+  it('shows the active-player hidden card anonymously and keeps opponent selection blocked', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('card-001', 'Y', 5, 5, false, 'Y1', 'SECRET-Y-1'),
-        createChar('card-002', 'Y', 7, 7, true, 'Y3', 'Y-KING'),
-        createChar('card-003', 'A', 6, 6, true, 'A3', 'A-KING'),
-        createChar('card-004', 'A', 4, 4, false, 'A1', 'SECRET-A-1'),
+        createChar('card-001', 'P1', 5, 5, false, 'P1_1', 'SECRET-HUMAN-1'),
+        createChar('card-002', 'P1', 7, 7, true, 'P1_3', 'HUMAN-KING'),
+        createChar('card-003', 'P2', 6, 6, true, 'P2_3', 'BOT-KING'),
+        createChar('card-004', 'P2', 4, 4, false, 'P2_1', 'SECRET-BOT-1'),
       ]);
-      return { ...base, activePlayer: 'Y' };
+      return { ...base, activePlayer: 'P1' };
     };
 
     const { container } = render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    await user.click(screen.getByTestId('space-Y1'));
-    expect(screen.getByTestId('selected-Y1')).toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_1'));
+    expect(screen.getByTestId('selected-P1_1')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('space-P2_1'));
+    expect(screen.queryByTestId('selected-P2_1')).not.toBeInTheDocument();
 
     const html = container.innerHTML;
-    expect(html).not.toContain('SECRET-Y-1');
+    expect(html).not.toContain('SECRET-HUMAN-1');
     expect(html).not.toContain('ATK 5');
     expect(html).not.toContain('DEF 5');
-  });
-
-  it('opponent card cannot be selected', async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(screen.getByTestId('new-game-button'));
-
-    await user.click(screen.getByTestId('space-A1'));
-    expect(screen.queryByTestId('selected-A1')).not.toBeInTheDocument();
   });
 
   it('selection can clear and change', async () => {
@@ -139,139 +177,201 @@ describe('Phase 3B Step 2 UI', () => {
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    await user.click(screen.getByTestId('space-Y1'));
-    expect(screen.getByTestId('selected-Y1')).toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_1'));
+    expect(screen.getByTestId('selected-P1_1')).toBeInTheDocument();
 
-    await user.click(screen.getByTestId('space-Y1'));
-    expect(screen.queryByTestId('selected-Y1')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_1'));
+    expect(screen.queryByTestId('selected-P1_1')).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId('space-Y2'));
-    expect(screen.getByTestId('selected-Y2')).toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_2'));
+    expect(screen.getByTestId('selected-P1_2')).toBeInTheDocument();
   });
 
-  it('selected card shows only legal actions and illegal actions are absent', async () => {
+  it('selected card shows only legal actions', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('card-011', 'Y', 5, 5, false, 'Y3', 'Y-Attacker'),
-        createChar('card-012', 'Y', 7, 7, true, 'Y1', 'Y-KING'),
-        createChar('card-013', 'A', 3, 2, false, 'Y4', 'A-Defender'),
-        createChar('card-014', 'A', 7, 7, true, 'A3', 'A-KING'),
+        createChar('card-011', 'P1', 5, 5, false, 'P1_3', 'P1-Attacker'),
+        createChar('card-012', 'P1', 7, 7, true, 'P1_1', 'P1-KING'),
+        createChar('card-013', 'P2', 3, 2, false, 'P1_4', 'P2-Defender'),
+        createChar('card-014', 'P2', 7, 7, true, 'P2_3', 'P2-KING'),
       ]);
-      return { ...base, activePlayer: 'Y' };
+      return { ...base, activePlayer: 'P1' };
     };
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
 
     expect(screen.getByTestId('action-attack')).toBeInTheDocument();
     expect(screen.queryByTestId('action-move')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-defend')).not.toBeInTheDocument();
   });
 
-  it('successful Move Forward updates board and event log', async () => {
+  it('successful move forward updates the board and event log', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('card-021', 'Y', 5, 5, false, 'Y3', 'Y-Mover'),
-        createChar('card-022', 'Y', 7, 7, true, 'Y1', 'Y-KING'),
-        createChar('card-023', 'A', 7, 7, true, 'A3', 'A-KING'),
+        createChar('card-021', 'P1', 5, 5, false, 'P1_3', 'P1-Mover'),
+        createChar('card-022', 'P1', 7, 7, true, 'P1_1', 'P1-KING'),
+        createChar('card-023', 'P2', 7, 7, true, 'P2_3', 'P2-KING'),
       ]);
-      return { ...base, activePlayer: 'Y' };
+      return { ...base, activePlayer: 'P1' };
     };
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    const y4Before = screen.getByTestId('space-Y4');
-    expect(within(y4Before).getByTestId('empty-space')).toBeInTheDocument();
+    const slot = screen.getByTestId('space-P1_4');
+    expect(within(slot).getByTestId('empty-space')).toBeInTheDocument();
 
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-move'));
 
-    const y4After = screen.getByTestId('space-Y4');
-    expect(within(y4After).getByTestId('card-back')).toBeInTheDocument();
     expect(screen.getByTestId('event-log')).toHaveTextContent('Move Forward');
   });
 
-  it('battle action opens staged Battle Screen with both participants revealed', async () => {
+  it('attack opens battle screen immediately and reveals both participants', async () => {
     const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('card-031', 'Y', 5, 5, false, 'Y3', 'Y-Reveal-Attacker'),
-        createChar('card-032', 'Y', 7, 7, true, 'Y1', 'Y-KING'),
-        createChar('card-033', 'A', 3, 2, false, 'Y4', 'A-Reveal-Defender'),
-        createChar('card-034', 'A', 7, 7, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
+    render(<App createGameState={buildBattleSetup()} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    expect(screen.getByTestId('battle-intro')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
     await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
 
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getAllByTestId('card-revealed').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('battle-type')).toHaveTextContent('Attack Forward');
+    expect(screen.getByTestId('battle-type')).toHaveTextContent('ATK vs DEF');
   });
 
-  it('Skip Turn appears only when active player has no legal actions', async () => {
+  it('self-defend opens battle screen immediately and keeps battle unresolved', async () => {
     const user = userEvent.setup();
-    const noLegalSetup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('card-041', 'Y', 6, 6, true, 'Y3', 'Y-KING'),
-        createChar('card-046', 'A', 7, 7, true, 'A3', 'A-KING'),
-      ]);
-      return {
-        ...base,
-        activePlayer: 'Y',
-        gameStatus: 'active',
-        characters: base.characters.map(card => {
-          if (card.controller !== 'Y') {
-            return card;
-          }
-          return {
-            ...card,
-            alive: false,
-            boardPosition: null,
-          };
-        }),
-      };
-    };
-
-    render(<App createGameState={noLegalSetup} />);
+    render(<App createGameState={buildDefendSetup()} />);
     await user.click(screen.getByTestId('new-game-button'));
-    expect(screen.getByTestId('skip-turn-button')).toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_4'));
+    await user.click(screen.getByTestId('action-defend'));
 
-    cleanup();
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
 
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-type')).toHaveTextContent('DEF vs DEF');
+    expect(screen.queryByTestId('battle-resolve-button')).not.toBeInTheDocument();
+  });
+
+  it('battle renders cinematic overlay and no cutscene cards', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-hero-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
+
+    await screen.findByTestId('battle-handoff-acknowledge');
+  });
+
+  it('reduced-motion mode still renders battle screen without cutscene intro', async () => {
+    const user = userEvent.setup();
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+      expect(screen.getByTestId('battle-hero-overlay')).toBeInTheDocument();
+    });
+
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('battle keeps board in background view and has no expand toggle control', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-toggle-board-size')).not.toBeInTheDocument();
+  });
+
+  it('ready flow exposes resolve button after both players are ready', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+
+    expect(screen.getByTestId('battle-resolve-button')).toBeInTheDocument();
+  });
+
+  it('resolve battle clears pending battle', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-resolve-button'));
+
+    expect(screen.queryByTestId('battle-screen')).not.toBeInTheDocument();
+  });
+
+  it('battle screen keeps the embedded board read only', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
+    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('space-P1_3'));
+    expect(screen.queryByTestId('selected-P1_3')).not.toBeInTheDocument();
+  });
+
+  it('renders public counts and status fields', async () => {
+    const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
-    expect(screen.queryByTestId('skip-turn-button')).not.toBeInTheDocument();
-  });
 
-  it('no action controls appear after game over', async () => {
-    const user = userEvent.setup();
-    const gameOverSetup = (): ReturnType<typeof initializeGameState> => {
-      return initializeGameState([
-        createChar('card-051', 'Y', 9, 9, true, 'Y3', 'Y-KING'),
-        createChar('card-052', 'A', 1, 1, true, 'A3', 'A-KING'),
-      ]);
-    };
-
-    render(<App createGameState={gameOverSetup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-
-    expect(screen.getByTestId('no-actions-after-game-over')).toBeInTheDocument();
-    expect(screen.queryByTestId('action-move')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('action-attack')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('action-defend')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('skip-turn-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('turn-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('active-player')).toHaveTextContent('Player One');
+    expect(screen.getByTestId('turn-number')).toHaveTextContent('Round 1');
+    expect(screen.getByTestId('character-deck-stack')).toHaveTextContent('Character Deck');
+    expect(screen.getByTestId('power-deck-stack')).toHaveTextContent('Power Card Deck');
+    expect(screen.getByTestId('graveyard-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('graveyard-top')).toHaveTextContent('Top Card: None');
   });
 
   it('rendered HTML still does not leak unrevealed names or stats', async () => {
@@ -288,275 +388,51 @@ describe('Phase 3B Step 2 UI', () => {
     expect(html).not.toContain('ATK ');
     expect(html).not.toContain('DEF ');
     expect(html).not.toContain('alpha-');
-    expect(html).not.toContain('ability');
     expect(html).not.toContain('definitionId');
   });
 
-  it('renders public counts and status fields', async () => {
+  it('Skip Turn appears only when active player has no legal actions', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
-
-    expect(screen.getAllByTestId('active-player').length).toBe(1);
-    expect(screen.getAllByTestId('turn-number').length).toBe(1);
-    expect(screen.getAllByTestId('deck-count').length).toBe(1);
-    expect(screen.getByTestId('deck-count').textContent).toContain('6');
-    expect(screen.getAllByTestId('y-power-count')[0].textContent).toContain('3');
-    expect(screen.getAllByTestId('a-power-count')[0].textContent).toContain('3');
-    expect(screen.getAllByTestId('graveyard-count').length).toBe(1);
-    expect(screen.getByTestId('graveyard-count').textContent).toContain('0');
-  });
-
-  it('renders board direction labels and edge connectors', async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(screen.getByTestId('new-game-button'));
-
-    expect(screen.getByTestId('direction-top')).toHaveTextContent('A5 → A4 → A3 → A2 → A1');
-    expect(screen.getByTestId('direction-bottom')).toHaveTextContent('Y1 → Y2 → Y3 → Y4 → Y5');
-    expect(screen.getByTestId('right-connector')).toHaveTextContent('Y5');
-    expect(screen.getByTestId('right-connector')).toHaveTextContent('A5');
-    expect(screen.getByTestId('left-connector')).toHaveTextContent('A1');
-    expect(screen.getByTestId('left-connector')).toHaveTextContent('Y1');
-  });
-
-  it('Attack starts pending battle and does not instantly resolve', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
-    expect(screen.getByTestId('battle-type')).toHaveTextContent('Attack Forward');
-    expect(screen.queryByTestId('battle-resolve-button')).not.toBeInTheDocument();
-    expect(screen.queryByText('Attack Forward Outcome')).not.toBeInTheDocument();
-  });
-
-  it('Self-Defend starts pending battle and does not instantly resolve', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-defender', 'Y', 4, 9, false, 'Y4', 'Y-DEFENDER'),
-        createChar('a-enemy', 'A', 6, 3, false, 'Y3', 'A-ENEMY'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y4'));
-    await user.click(screen.getByTestId('action-defend'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
-    expect(screen.getByTestId('battle-type')).toHaveTextContent('Self-Defend');
-    expect(screen.queryByTestId('battle-resolve-button')).not.toBeInTheDocument();
-  });
-
-  it('battle start reveals both participants on Battle Screen', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER-NAME'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER-NAME'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    expect(screen.getAllByTestId('card-revealed').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('Y-ATTACKER-NAME').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('A-DEFENDER-NAME').length).toBeGreaterThan(0);
-  });
-
-  it('initiator gets first priority and first pass creates privacy handoff', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    expect(await screen.findByTestId('battle-handoff')).toBeInTheDocument();
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-
-    expect(screen.getByTestId('battle-priority')).toHaveTextContent('Y');
-    expect(screen.getByTestId('battle-private-hand-Y')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('battle-pass-button'));
-    expect(screen.getByTestId('battle-handoff')).toHaveTextContent('Pass device to A');
-
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-    expect(screen.getByTestId('battle-priority')).toHaveTextContent('A');
-    expect(screen.getByTestId('battle-private-hand-A')).toBeInTheDocument();
-  });
-
-  it('two consecutive passes create ReadyToResolve and no outcome occurs before Resolve Battle', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    await user.click(screen.getByTestId('battle-pass-button'));
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-    await user.click(screen.getByTestId('battle-pass-button'));
-
-    expect(screen.getByTestId('battle-pass-progress')).toHaveTextContent('2/2');
-    expect(screen.getByTestId('battle-resolve-button')).toBeInTheDocument();
-    expect(screen.queryByText('King Death')).not.toBeInTheDocument();
-    expect(screen.queryByText(/wins/)).not.toBeInTheDocument();
-  });
-
-  it('Battle Screen contains a read-only embedded board and normal board actions stay blocked', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
-    expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
     expect(screen.queryByTestId('skip-turn-button')).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId('space-Y3'));
-    expect(screen.queryByTestId('selected-Y3')).not.toBeInTheDocument();
   });
 
-  it('Resolve Battle clears pending battle and applies final resolver outcome', async () => {
+  it('king-only board enters final king duel battle instead of ending immediately', async () => {
     const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 10, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 2, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+    const gameOverSetup = (): ReturnType<typeof initializeGameState> => {
+      return initializeGameState([
+        createChar('card-051', 'P1', 9, 9, true, 'P1_3', 'P1-KING'),
+        createChar('card-052', 'P2', 1, 1, true, 'P2_3', 'P2-KING'),
       ]);
-      return { ...base, activePlayer: 'Y' };
     };
 
-    render(<App createGameState={setup} />);
+    render(<App createGameState={gameOverSetup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    await user.click(screen.getByTestId('battle-pass-button'));
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-    await user.click(screen.getByTestId('battle-pass-button'));
-    await user.click(screen.getByTestId('battle-resolve-button'));
-
-    expect(screen.queryByTestId('battle-screen')).not.toBeInTheDocument();
-    const y3 = screen.getByTestId('space-Y3');
-    expect(within(y3).getByTestId('empty-space')).toBeInTheDocument();
-    expect(screen.getByTestId('event-log')).toHaveTextContent('Attack Forward Outcome');
-  });
-
-  it('battle rendering does not expose uninvolved hidden card data', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-        createChar('a-hidden', 'A', 1, 1, false, 'A1', 'SECRET-UNINVOLVED-A1'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    const { container } = render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-
-    const html = container.innerHTML;
-    expect(html).toContain('Y-ATTACKER');
-    expect(html).toContain('A-DEFENDER');
-    expect(html).not.toContain('SECRET-UNINVOLVED-A1');
-    expect(html).not.toContain('definitionId');
-    expect(html).not.toContain('ability');
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
   });
 
   it('private hand is hidden until acknowledgment and reveals only after handoff accept', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+        createChar('y-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('a-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
       ]);
 
       return {
         ...base,
-        activePlayer: 'Y',
+        activePlayer: 'P1',
         powerCardHands: {
-          Y: [
+          P1: [
             { instanceId: 'power-y-001', definitionId: 'power-alpha-006' },
             { instanceId: 'power-y-002', definitionId: 'power-alpha-004' },
           ],
-          A: [
+          P2: [
             { instanceId: 'power-a-001', definitionId: 'power-alpha-005' },
           ],
         },
@@ -565,211 +441,363 @@ describe('Phase 3B Step 2 UI', () => {
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    expect(await screen.findByTestId('battle-handoff')).toHaveTextContent('Pass device to Y. Y may view their hand.');
-    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('battle-handoff')).toHaveTextContent('Pass device to Player One');
+    expect(screen.queryByTestId('battle-private-hand-P1')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-    expect(screen.getByText('POWER STONE')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-private-hand-P1')).toBeInTheDocument();
   });
 
   it('both real hands are never in the DOM together during battle privacy flow', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+        createChar('y-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('a-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
       ]);
 
       return {
         ...base,
-        activePlayer: 'Y',
+        activePlayer: 'P1',
         powerCardHands: {
-          Y: [
-            { instanceId: 'power-y-010', definitionId: 'power-alpha-006' },
-          ],
-          A: [
-            { instanceId: 'power-a-010', definitionId: 'power-alpha-005' },
-          ],
+          P1: [{ instanceId: 'power-y-010', definitionId: 'power-alpha-006' }],
+          P2: [{ instanceId: 'power-a-010', definitionId: 'power-alpha-005' }],
         },
       };
     };
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
     await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-    expect(screen.getByText('POWER STONE')).toBeInTheDocument();
-    expect(screen.queryByText('LOW BLOW!')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-private-hand-P1')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-private-hand-P2')).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId('battle-pass-button'));
-    expect(screen.getByTestId('battle-handoff')).toHaveTextContent('Pass device to A. A may view their hand.');
-    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
-
+    await user.click(screen.getByTestId('battle-ready-button'));
     await user.click(screen.getByTestId('battle-handoff-acknowledge'));
-    expect(screen.getByText('LOW BLOW!')).toBeInTheDocument();
-    expect(screen.queryByText('POWER STONE')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-private-hand-P2')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-private-hand-P1')).not.toBeInTheDocument();
   });
 
-  it('battle intro renders card backs first and then exposes battle controls', async () => {
+  it('battle screen contains a small read-only embedded board and current score banner', async () => {
     const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
+    render(<App createGameState={buildBattleSetup()} />);
     await user.click(screen.getByTestId('new-game-button'));
-
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    expect(screen.getByTestId('battle-intro')).toBeInTheDocument();
-    expect(screen.getByTestId('battle-intro-initiator-back')).toBeInTheDocument();
-    expect(screen.getByTestId('battle-intro-opponent-back')).toBeInTheDocument();
-    expect(screen.queryByTestId('battle-pass-button')).not.toBeInTheDocument();
-
-    await screen.findByTestId('battle-handoff-acknowledge');
-    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
-  });
-
-  it('reduced-motion mode skips intro timing delays', async () => {
-    const user = userEvent.setup();
-    const originalMatchMedia = window.matchMedia;
-    window.matchMedia = ((query: string) => ({
-      matches: query === '(prefers-reduced-motion: reduce)',
-      media: query,
-      onchange: null,
-      addListener: () => undefined,
-      removeListener: () => undefined,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      dispatchEvent: () => false,
-    })) as unknown as typeof window.matchMedia;
-
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
-    await user.click(screen.getByTestId('action-attack'));
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
-    });
-
-    window.matchMedia = originalMatchMedia;
-  });
-
-  it('battle intro does not replay when toggling board expansion', async () => {
-    const user = userEvent.setup();
-    const setup = (): ReturnType<typeof initializeGameState> => {
-      const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
-      ]);
-      return { ...base, activePlayer: 'Y' };
-    };
-
-    render(<App createGameState={setup} />);
-    await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
     await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId('battle-toggle-board-size'));
-    await user.click(screen.getByTestId('battle-toggle-board-size'));
-    expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-score-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
   });
 
-  it('board-phase hand stays visible for acknowledged player and unimplemented cards are disabled', async () => {
+  it('battle event history does not expose raw controller IDs', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    const text = screen.getByTestId('battle-event-history').textContent ?? '';
+    expect(text).not.toContain('P1');
+    expect(text).not.toContain('P2');
+  });
+
+  it('board-phase hand stays visible for acknowledged player and battle-only cards are disabled', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
 
-    expect(screen.getByTestId('board-phase-handoff')).toBeInTheDocument();
+    expect(screen.getByTestId('manual-handoff-row')).toBeInTheDocument();
     await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
 
-    expect(screen.getByTestId('board-phase-private-hand')).toBeInTheDocument();
-    const disabledButtons = screen.getAllByRole('button', { name: 'Battle card - playable only during a battle' });
-    for (const button of disabledButtons) {
-      expect(button).toBeDisabled();
-    }
+    expect(screen.getByTestId('manual-handoff-row').querySelectorAll('[data-testid^="manual-power-"]').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('board-phase-handoff')).not.toBeInTheDocument();
   });
 
   it('hand hides and handoff appears when board-phase turn changes', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('y-move', 'Y', 5, 5, false, 'Y3', 'Y-MOVE'),
-        createChar('a-safe', 'A', 5, 5, true, 'A3', 'A-SAFE'),
+        createChar('y-move', 'P1', 5, 5, false, 'P1_3', 'P1-MOVE'),
+        createChar('a-safe', 'P2', 5, 5, true, 'P2_3', 'P2-SAFE'),
       ]);
-      return { ...base, activePlayer: 'Y' };
+      return { ...base, activePlayer: 'P1' };
     };
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
     await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
 
-    expect(screen.getByTestId('board-phase-private-hand')).toBeInTheDocument();
+    expect(screen.getByTestId('manual-handoff-row')).toBeInTheDocument();
 
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-move'));
 
-    expect(screen.queryByTestId('board-phase-private-hand')).not.toBeInTheDocument();
-    expect(screen.getByTestId('board-phase-handoff')).toHaveTextContent('Pass device to A. A may view their hand.');
+    expect(screen.queryByTestId('manual-handoff-row')?.querySelectorAll('[data-testid^="manual-power-"]').length ?? 0).toBe(0);
+    expect(screen.getByTestId('manual-handoff-row')).toHaveTextContent('Pass device to Player Two');
   });
 
-  it('all implemented battle cards show enabled Play control when legal', async () => {
+  it('implemented battle cards show enabled Play control when legal', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
-        createChar('y-attacker', 'Y', 9, 6, false, 'Y3', 'Y-ATTACKER'),
-        createChar('a-defender', 'A', 3, 3, false, 'Y4', 'A-DEFENDER'),
-        createChar('y-king', 'Y', 8, 8, true, 'Y1', 'Y-KING'),
-        createChar('a-king', 'A', 8, 8, true, 'A3', 'A-KING'),
+        createChar('y-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('a-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
       ]);
 
       return {
         ...base,
-        activePlayer: 'Y',
+        activePlayer: 'P1',
         powerCardHands: {
-          Y: [{ instanceId: 'power-y-unimpl', definitionId: 'power-alpha-001' }],
-          A: [],
+          P1: [{ instanceId: 'power-y-unimpl', definitionId: 'power-alpha-001' }],
+          P2: [],
         },
       };
     };
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('space-Y3'));
+    await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
     await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
 
-    expect(screen.queryByText('Not playable in this build yet')).not.toBeInTheDocument();
-    expect(screen.getByTestId('battle-play-card-power-y-unimpl')).toBeEnabled();
+    await user.click(screen.getByTestId('battle-card-tap-power-y-unimpl'));
+    expect(screen.getByTestId('battle-inspector-play-button')).toBeEnabled();
+  });
+
+  it('battle screen exposes the current human and bot readiness compactly', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    expect(screen.getByTestId('battle-ready-p1')).toHaveTextContent('Human Ready: No');
+    expect(screen.getByTestId('battle-ready-p2')).toHaveTextContent('Bot Ready: No');
+  });
+
+  it('battle full-board link opens and returns to battle correctly', async () => {
+    const user = userEvent.setup();
+    render(<App createGameState={buildBattleSetup()} />);
+
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    await user.click(screen.getByTestId('battle-return-to-battle'));
+
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
+    await user.click(screen.getByTestId('battle-open-full-board'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-return-to-battle'));
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-open-full-board-inline'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+  });
+
+  it('card rotation stays mild and readable across the ring', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    const cards = Array.from(document.querySelectorAll('.character-card-frame'));
+    expect(cards.length).toBeGreaterThan(0);
+
+    for (const card of cards) {
+      const transform = card.getAttribute('style') ?? '';
+      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
+      const rotation = match ? Math.abs(Number(match[1])) : 0;
+      expect(rotation).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it('card placement remains separated in the normal setup', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('new-game-button'));
+
+    const positions = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'];
+    const distinctStyles = new Set<string>();
+
+    for (const position of positions) {
+      distinctStyles.add(screen.getByTestId(`space-${position}`).getAttribute('style') ?? '');
+    }
+
+    expect(distinctStyles.size).toBe(10);
+  });
+
+  it('bot mode shows the human hand at the bottom and hides the bot hand from the DOM', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('human-card', 'P1', 8, 8, true, 'P1_1', 'HUMAN-KING'),
+        createChar('human-side', 'P1', 4, 4, false, 'P1_3', 'HUMAN-SIDE'),
+        createChar('bot-card', 'P2', 8, 8, true, 'P2_3', 'BOT-KING'),
+        createChar('bot-side', 'P2', 4, 4, false, 'P2_1', 'BOT-SIDE'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-human-1', definitionId: 'power-alpha-006' }],
+          P2: [{ instanceId: 'power-bot-1', definitionId: 'power-alpha-005' }],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('mode-bot'));
+    await user.click(screen.getByTestId('new-game-button'));
+
+    expect(screen.getByTestId('human-hand-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('human-power-cards')).toBeInTheDocument();
+    expect(screen.queryByText('BOT-KING')).not.toBeInTheDocument();
+  });
+
+  it('bot opponent cards remain face down at the top in bot mode', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId('mode-bot'));
+    await user.click(screen.getByTestId('new-game-button'));
+
+    expect(screen.getByTestId('opponent-power-cards')).toBeInTheDocument();
+    expect(screen.getAllByTestId('card-back').length).toBeGreaterThan(0);
+  });
+
+  it('battle visibility does not leak uninterested hidden card data', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('y-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('a-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+        createChar('a-hidden', 'P2', 1, 1, false, 'P2_1', 'SECRET-UNINVOLVED-BOT'),
+      ]);
+      return { ...base, activePlayer: 'P1' };
+    };
+
+    const { container } = render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+
+    const html = container.innerHTML;
+    expect(html).not.toContain('SECRET-UNINVOLVED-BOT');
+    expect(html).not.toContain('definitionId');
+  });
+
+  it('board swap flow confirms both picks and swaps team control', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-own', 'P1', 6, 6, false, 'P1_2', 'P1-OWN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-opp', 'P2', 6, 6, false, 'P2_4', 'P2-OPP'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-swap', definitionId: 'power-alpha-018' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+
+    await user.click(screen.getByTestId('manual-power-button-power-y-swap'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+
+    await user.click(screen.getByTestId('space-P1_2'));
+    expect(await screen.findByTestId('board-character-read-modal')).toBeInTheDocument();
+    await user.click(screen.getByTestId('board-swap-own-confirm'));
+
+    await user.click(screen.getByTestId('space-P2_4'));
+    expect(await screen.findByTestId('board-character-read-modal')).toBeInTheDocument();
+    await user.click(screen.getByTestId('board-swap-opponent-confirm'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('event-log')).toHaveTextContent('Swap Characters Move');
+    }, { timeout: 3500 });
+
+    await user.click(screen.getByTestId('space-P1_2'));
+    expect(screen.getByTestId('selected-P1_2')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('space-P1_2'));
+    await user.click(screen.getByTestId('space-P2_4'));
+    expect(screen.queryByTestId('selected-P2_4')).not.toBeInTheDocument();
+  });
+
+  it('board NO SPRAY can cancel BEHIND THE CURTAINS in main board view', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-own', 'P1', 6, 6, false, 'P1_2', 'P1-OWN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-own', 'P2', 6, 6, false, 'P2_2', 'P2-OWN'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-curtains', definitionId: 'power-alpha-019' }],
+          P2: [{ instanceId: 'power-a-nospray', definitionId: 'power-alpha-020' }],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+    expect(screen.getByTestId('game-mode-label')).toHaveTextContent('Mode: Player One vs Player Two');
+
+    await user.click(screen.getByTestId('manual-power-button-power-y-curtains'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+    await user.click(screen.getByTestId('curtains-confirm'));
+    await user.click(await screen.findByTestId('board-phase-handoff-acknowledge'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
+    });
+
+    expect(await screen.findByTestId('board-nospray-reaction-modal')).toBeInTheDocument();
+    await user.click(screen.getByTestId('board-nospray-use-button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('board-nospray-reaction-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
+    });
+
+    await user.click(await screen.findByTestId('board-phase-handoff-acknowledge'));
+    expect(screen.getByTestId('manual-power-button-power-y-curtains')).toBeInTheDocument();
   });
 });

@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { ALPHA_1_CHARACTER_DEFINITIONS } from './cardDefinitions';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, buildFirstAlphaPowerCardDeck } from './powerCards';
 import {
+  advanceSessionDeckPools,
+  createInitialSessionDeckPools,
+  createMultiGameSessionSetup,
   createStandardGameSetup,
   getPlayerGameView,
   getPrivatePowerCardHand,
 } from './setup';
+import { initializeGameState, type Character } from './gameState';
 
 function sequenceRandom(values: number[]): () => number {
   let idx = 0;
@@ -17,7 +21,7 @@ function sequenceRandom(values: number[]): () => number {
 }
 
 function getOrderedInstanceIds(state: ReturnType<typeof createStandardGameSetup>): string[] {
-  const boardOrder = ['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'A1', 'A2', 'A3', 'A4', 'A5'] as const;
+  const boardOrder = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'] as const;
   const boardIds = boardOrder.map(
     space => state.characters.find(ch => ch.boardPosition === space)?.id ?? 'missing',
   );
@@ -26,7 +30,7 @@ function getOrderedInstanceIds(state: ReturnType<typeof createStandardGameSetup>
 }
 
 describe('Phase 3A Card Definitions', () => {
-  it('contains all 16 exact approved Alpha definitions and fixed stats', () => {
+  it('contains the expanded supported character definition pool and fixed stats', () => {
     const expected = [
       { definitionId: 'alpha-001', displayName: 'BRENDAN', printedATK: 5, printedDEF: 4 },
       { definitionId: 'alpha-002', displayName: 'LUKE', printedATK: 4, printedDEF: 3 },
@@ -44,9 +48,30 @@ describe('Phase 3A Card Definitions', () => {
       { definitionId: 'alpha-014', displayName: 'PATRICK', printedATK: 6, printedDEF: 9 },
       { definitionId: 'alpha-015', displayName: 'SANDY CHEEKS', printedATK: 9, printedDEF: 7 },
       { definitionId: 'alpha-016', displayName: 'TOPH', printedATK: 9, printedDEF: 9 },
+      { definitionId: 'alpha-017', displayName: 'CEDI OSMAN', printedATK: 6, printedDEF: 5 },
+      { definitionId: 'alpha-018', displayName: 'LEGO CAP / CAPTAIN AMERICA', printedATK: 3, printedDEF: 2 },
+      { definitionId: 'alpha-019', displayName: 'THE PENGUIN', printedATK: 2, printedDEF: 9 },
+      { definitionId: 'alpha-020', displayName: 'MR. FREEZE', printedATK: 9, printedDEF: 9 },
+      { definitionId: 'alpha-021', displayName: 'BOB', printedATK: 10, printedDEF: 10 },
+      { definitionId: 'alpha-022', displayName: 'SOKKA', printedATK: 6, printedDEF: 5 },
+      { definitionId: 'alpha-023', displayName: 'ZUKO', printedATK: 8, printedDEF: 7 },
+      { definitionId: 'alpha-024', displayName: 'GENGHIS KHAN', printedATK: 8, printedDEF: 8 },
+      { definitionId: 'alpha-025', displayName: 'KOOL-AID MAN', printedATK: 10, printedDEF: 1 },
+      { definitionId: 'alpha-026', displayName: 'ROOMBA', printedATK: 5, printedDEF: 6 },
+      { definitionId: 'alpha-027', displayName: 'NIGHTCRAWLER', printedATK: 6.5, printedDEF: 7 },
+      { definitionId: 'alpha-028', displayName: 'RAPUNZEL', printedATK: 5, printedDEF: 7 },
+      { definitionId: 'alpha-029', displayName: 'MRS. PUFF', printedATK: 1, printedDEF: 10 },
+      { definitionId: 'alpha-030', displayName: 'SPONGEBOB', printedATK: 4, printedDEF: 8 },
+      { definitionId: 'alpha-031', displayName: 'ANT', printedATK: 1, printedDEF: 1 },
+      { definitionId: 'alpha-032', displayName: 'CARL GRIMES', printedATK: 5.5, printedDEF: 5 },
+      { definitionId: 'alpha-033', displayName: 'RIDDLER', printedATK: 0, printedDEF: 0 },
+      { definitionId: 'alpha-034', displayName: 'UNCLE IROH', printedATK: 9, printedDEF: 7 },
+      { definitionId: 'alpha-035', displayName: 'JEREMY JAHNS', printedATK: 6, printedDEF: 6.5 },
+      { definitionId: 'alpha-036', displayName: 'SKAR PRODUCTIONS', printedATK: 7.5, printedDEF: 6 },
+      { definitionId: 'alpha-037', displayName: 'BIRD', printedATK: 2, printedDEF: 2 },
     ];
 
-    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(16);
+    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(37);
     expect(
       ALPHA_1_CHARACTER_DEFINITIONS.map(def => ({
         definitionId: def.definitionId,
@@ -57,62 +82,69 @@ describe('Phase 3A Card Definitions', () => {
     ).toEqual(expected);
 
     for (const def of ALPHA_1_CHARACTER_DEFINITIONS) {
-      expect(def.ability).toBeNull();
-      expect(def.statRule).toBeNull();
+      if (def.definitionId === 'alpha-033') {
+        expect(def.statRule).toContain('bottom Character Card');
+      } else {
+        expect(def.statRule).toBeNull();
+      }
       expect(def.imageKey.length).toBeGreaterThan(0);
     }
+
+    const genghis = ALPHA_1_CHARACTER_DEFINITIONS.find(def => def.definitionId === 'alpha-024');
+    expect(genghis?.ability).toContain('Mongol Empire');
   });
 });
 
 describe('Phase 3A Standard Setup', () => {
   it('shuffles deterministically with injected random function', () => {
     const rngValues = [0.1, 0.9, 0.3, 0.2, 0.8, 0.55, 0.44, 0.66, 0.12, 0.77, 0.5, 0.25, 0.75, 0.33, 0.67, 0.42];
-    const stateA = createStandardGameSetup('Y', sequenceRandom(rngValues));
-    const stateB = createStandardGameSetup('Y', sequenceRandom(rngValues));
+    const stateA = createStandardGameSetup('P1', sequenceRandom(rngValues));
+    const stateB = createStandardGameSetup('P1', sequenceRandom(rngValues));
     expect(getOrderedInstanceIds(stateA)).toEqual(getOrderedInstanceIds(stateB));
   });
 
-  it('deals exactly 10 cards and keeps exactly 6 cards in hidden character deck', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.5]));
+  it('deals exactly 10 cards and keeps the remaining expanded pool in hidden character deck', () => {
+    const state = createStandardGameSetup('P1', sequenceRandom([0.5]));
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
     expect(state.characters).toHaveLength(10);
-    expect(state.characterDeck).toHaveLength(6);
-    expect(state.powerCardHands.Y).toHaveLength(3);
-    expect(state.powerCardHands.A).toHaveLength(3);
-    expect(state.powerCardDeck).toHaveLength(13);
+    expect(state.characterDeck).toHaveLength(ALPHA_1_CHARACTER_DEFINITIONS.length - 10);
+    expect(state.powerCardHands.P1).toHaveLength(3);
+    expect(state.powerCardHands.P2).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(totalPowerCards - 6);
 
     const allInstanceIds = new Set([
       ...state.characters.map(ch => ch.id),
       ...state.characterDeck.map(card => card.instanceId),
     ]);
-    expect(allInstanceIds.size).toBe(16);
+    expect(allInstanceIds.size).toBe(ALPHA_1_CHARACTER_DEFINITIONS.length);
 
     const allPowerIds = new Set([
-      ...state.powerCardHands.Y.map(card => card.instanceId),
-      ...state.powerCardHands.A.map(card => card.instanceId),
+      ...state.powerCardHands.P1.map(card => card.instanceId),
+      ...state.powerCardHands.P2.map(card => card.instanceId),
       ...state.powerCardDeck.map(card => card.instanceId),
     ]);
-    expect(allPowerIds.size).toBe(19);
+    expect(allPowerIds.size).toBe(totalPowerCards);
   });
 
   it('fills every standard board setup space at setup', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.25]));
-    const setupSpaces = ['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'A1', 'A2', 'A3', 'A4', 'A5'];
+    const state = createStandardGameSetup('P1', sequenceRandom([0.25]));
+    const setupSpaces = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'];
     for (const space of setupSpaces) {
       expect(state.characters.some(ch => ch.boardPosition === space)).toBe(true);
     }
   });
 
   it('assigns Kings by position: Y3 and A3', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.75]));
-    const y3 = state.characters.find(ch => ch.boardPosition === 'Y3');
-    const a3 = state.characters.find(ch => ch.boardPosition === 'A3');
+    const state = createStandardGameSetup('P1', sequenceRandom([0.75]));
+    const y3 = state.characters.find(ch => ch.boardPosition === 'P1_3');
+    const a3 = state.characters.find(ch => ch.boardPosition === 'P2_3');
     expect(y3?.isKing).toBe(true);
     expect(a3?.isKing).toBe(true);
     expect(state.characters.filter(ch => ch.isKing)).toHaveLength(2);
   });
 
   it('starts all dealt characters as alive and unrevealed', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.6]));
+    const state = createStandardGameSetup('P1', sequenceRandom([0.6]));
     for (const ch of state.characters) {
       expect(ch.alive).toBe(true);
       expect(ch.revealed).toBe(false);
@@ -120,14 +152,15 @@ describe('Phase 3A Standard Setup', () => {
   });
 
   it('player-safe view hides unrevealed identity, stats, definition, ability, and deck order', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.4]));
+    const state = createStandardGameSetup('P1', sequenceRandom([0.4]));
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
     const view = getPlayerGameView(state);
 
-    expect(view.characterDeck.remainingCount).toBe(6);
+    expect(view.characterDeck.remainingCount).toBe(ALPHA_1_CHARACTER_DEFINITIONS.length - 10);
     expect('cards' in view.characterDeck).toBe(false);
     expect('characterDeckOrder' in view).toBe(false);
-    expect(view.powerCardHandCount).toEqual({ Y: 3, A: 3 });
-    expect(view.powerCards.remainingDeckCount).toBe(13);
+    expect(view.powerCardHandCount).toEqual({ P1: 3, P2: 3 });
+    expect(view.powerCards.remainingDeckCount).toBe(totalPowerCards - 6);
     expect(view.powerCards.usedPileCount).toBe(0);
 
     for (const card of view.boardCards) {
@@ -148,7 +181,7 @@ describe('Phase 3A Standard Setup', () => {
   });
 
   it('player-safe view reveals identity and stats when a card is revealed', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.11]));
+    const state = createStandardGameSetup('P1', sequenceRandom([0.11]));
     const targetId = state.characters[0].id;
 
     const revealedState = {
@@ -166,19 +199,119 @@ describe('Phase 3A Standard Setup', () => {
     expect(target?.definitionId).toBeDefined();
   });
 
+  it('Rick and Carl show +2 ATK/DEF label and stat boost only while both are alive and revealed', () => {
+    const state = initializeGameState([
+      {
+        id: 'rick',
+        controller: 'P1',
+        ATK: 9,
+        DEF: 8,
+        isKing: false,
+        boardPosition: 'P1_2',
+        revealed: false,
+        alive: true,
+        displayName: 'RICK GRIMES',
+      } as Character,
+      {
+        id: 'carl',
+        controller: 'P1',
+        ATK: 5.5,
+        DEF: 5,
+        isKing: false,
+        boardPosition: 'P1_4',
+        revealed: false,
+        alive: true,
+        displayName: 'CARL GRIMES',
+      } as Character,
+      {
+        id: 'p1-king',
+        controller: 'P1',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P1_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P1 KING',
+      } as Character,
+      {
+        id: 'p2-king',
+        controller: 'P2',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P2_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P2 KING',
+      } as Character,
+      {
+        id: 'p2-other',
+        controller: 'P2',
+        ATK: 6,
+        DEF: 6,
+        isKing: false,
+        boardPosition: 'P2_4',
+        revealed: false,
+        alive: true,
+        displayName: 'Opponent',
+      } as Character,
+    ]);
+
+    const rick = state.characters.find(character => character.id === 'rick');
+    const carl = state.characters.find(character => character.id === 'carl');
+
+    const bothRevealed = {
+      ...state,
+      characters: state.characters.map(character => {
+        if (character.id === rick?.id || character.id === carl?.id) {
+          return { ...character, revealed: true };
+        }
+        return character;
+      }),
+    };
+
+    const boostedView = getPlayerGameView(bothRevealed);
+    const boostedRick = boostedView.boardCards.find(card => card.instanceId === 'rick');
+    const boostedCarl = boostedView.boardCards.find(card => card.instanceId === 'carl');
+
+    expect(boostedRick?.ATK).toBe((rick?.ATK ?? 0) + 2);
+    expect(boostedRick?.DEF).toBe((rick?.DEF ?? 0) + 2);
+    expect(boostedCarl?.ATK).toBe((carl?.ATK ?? 0) + 2);
+    expect(boostedCarl?.DEF).toBe((carl?.DEF ?? 0) + 2);
+    expect(boostedRick?.statRule).toContain('+2 ATK / +2 DEF');
+    expect(boostedCarl?.statRule).toContain('+2 ATK / +2 DEF');
+
+    const carlDefeated = {
+      ...bothRevealed,
+      characters: bothRevealed.characters.map(character => (
+        character.id === carl?.id
+          ? { ...character, alive: false, boardPosition: null }
+          : character
+      )),
+    };
+
+    const noBonusView = getPlayerGameView(carlDefeated);
+    const noBonusRick = noBonusView.boardCards.find(card => card.instanceId === 'rick');
+    expect(noBonusRick?.ATK).toBe(rick?.ATK);
+    expect(noBonusRick?.DEF).toBe(rick?.DEF);
+    expect(noBonusRick?.statRule ?? '').not.toContain('+2 ATK / +2 DEF');
+  });
+
   it('starts each player with 3 actual Power Cards and drawCount preserved at 0', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.22]));
-    expect(state.powerCardHands.Y).toHaveLength(3);
-    expect(state.powerCardHands.A).toHaveLength(3);
-    expect(state.powerCardDeck).toHaveLength(13);
+    const state = createStandardGameSetup('P1', sequenceRandom([0.22]));
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
+    expect(state.powerCardHands.P1).toHaveLength(3);
+    expect(state.powerCardHands.P2).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(totalPowerCards - 6);
     expect(state.usedPowerCardPile).toHaveLength(0);
-    expect(state.drawCount).toEqual({ Y: 0, A: 0 });
+    expect(state.drawCount).toEqual({ P1: 0, P2: 0 });
   });
 
   it('exposes only the requested player private hand', () => {
-    const state = createStandardGameSetup('Y', sequenceRandom([0.12, 0.61, 0.28, 0.94]));
-    const yHand = getPrivatePowerCardHand(state, 'Y');
-    const aHand = getPrivatePowerCardHand(state, 'A');
+    const state = createStandardGameSetup('P1', sequenceRandom([0.12, 0.61, 0.28, 0.94]));
+    const yHand = getPrivatePowerCardHand(state, 'P1');
+    const aHand = getPrivatePowerCardHand(state, 'P2');
 
     expect(yHand).toHaveLength(3);
     expect(aHand).toHaveLength(3);
@@ -191,50 +324,120 @@ describe('Phase 3A Standard Setup', () => {
   });
 
   it('respects explicitly chosen first player', () => {
-    const yFirst = createStandardGameSetup('Y', sequenceRandom([0.15]));
-    const aFirst = createStandardGameSetup('A', sequenceRandom([0.15]));
-    expect(yFirst.activePlayer).toBe('Y');
-    expect(aFirst.activePlayer).toBe('A');
+    const yFirst = createStandardGameSetup('P1', sequenceRandom([0.15]));
+    const aFirst = createStandardGameSetup('P2', sequenceRandom([0.15]));
+    expect(yFirst.activePlayer).toBe('P1');
+    expect(aFirst.activePlayer).toBe('P2');
   });
 });
 
 describe('Phase 4A Power Card Deck', () => {
-  it('builds exactly 19 power-card instances with approved Alpha definition counts', () => {
+  it('builds power-card instances matching definition counts', () => {
     const deck = buildFirstAlphaPowerCardDeck();
-    expect(deck).toHaveLength(19);
+    const expectedDeckSize = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce(
+      (total, definition) => total + definition.alphaDeckCount,
+      0,
+    );
+    expect(deck).toHaveLength(expectedDeckSize);
 
     const byDefinition = new Map<string, number>();
     for (const card of deck) {
       byDefinition.set(card.definitionId, (byDefinition.get(card.definitionId) ?? 0) + 1);
     }
 
-    expect(FIRST_ALPHA_POWER_CARD_DEFINITIONS).toHaveLength(10);
     for (const definition of FIRST_ALPHA_POWER_CARD_DEFINITIONS) {
-      if (definition.displayName === 'POWER STONE') {
-        expect(byDefinition.get(definition.definitionId)).toBe(1);
-      } else {
-        expect(byDefinition.get(definition.definitionId)).toBe(2);
-      }
+      const expected = definition.alphaDeckCount;
+      expect(byDefinition.get(definition.definitionId) ?? 0).toBe(expected);
     }
   });
 
   it('dealing order is repeatable under deterministic shuffle and instance IDs stay unique', () => {
     const rngValues = [0.03, 0.91, 0.41, 0.87, 0.22, 0.63, 0.15, 0.74, 0.39, 0.52, 0.68];
-    const stateA = createStandardGameSetup('Y', sequenceRandom(rngValues));
-    const stateB = createStandardGameSetup('Y', sequenceRandom(rngValues));
+    const stateA = createStandardGameSetup('P1', sequenceRandom(rngValues));
+    const stateB = createStandardGameSetup('P1', sequenceRandom(rngValues));
 
-    const yHandA = stateA.powerCardHands.Y.map(card => card.instanceId);
-    const yHandB = stateB.powerCardHands.Y.map(card => card.instanceId);
-    const aHandA = stateA.powerCardHands.A.map(card => card.instanceId);
-    const aHandB = stateB.powerCardHands.A.map(card => card.instanceId);
+    const yHandA = stateA.powerCardHands.P1.map(card => card.instanceId);
+    const yHandB = stateB.powerCardHands.P1.map(card => card.instanceId);
+    const aHandA = stateA.powerCardHands.P2.map(card => card.instanceId);
+    const aHandB = stateB.powerCardHands.P2.map(card => card.instanceId);
     expect(yHandA).toEqual(yHandB);
     expect(aHandA).toEqual(aHandB);
 
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
     const allIds = [
-      ...stateA.powerCardHands.Y.map(card => card.instanceId),
-      ...stateA.powerCardHands.A.map(card => card.instanceId),
+      ...stateA.powerCardHands.P1.map(card => card.instanceId),
+      ...stateA.powerCardHands.P2.map(card => card.instanceId),
       ...stateA.powerCardDeck.map(card => card.instanceId),
     ];
-    expect(new Set(allIds).size).toBe(19);
+    expect(new Set(allIds).size).toBe(totalPowerCards);
+  });
+});
+
+describe('Multi-game session setup', () => {
+  it('creates a session game using unused cards first and preserves setup counts', () => {
+    const pools = createInitialSessionDeckPools();
+    const state = createMultiGameSessionSetup('P1', sequenceRandom([0.37, 0.12, 0.81, 0.59]), pools);
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
+
+    expect(state.characters).toHaveLength(10);
+    expect(state.characterDeck).toHaveLength(ALPHA_1_CHARACTER_DEFINITIONS.length - 10);
+    expect(state.powerCardHands.P1).toHaveLength(3);
+    expect(state.powerCardHands.P2).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(totalPowerCards - 6);
+  });
+
+  it('advances session pools by moving all game-used cards out of unused pools', () => {
+    const pools = createInitialSessionDeckPools();
+    const state = createMultiGameSessionSetup('P2', sequenceRandom([0.22, 0.44, 0.66, 0.88]), pools);
+    const advanced = advanceSessionDeckPools(pools, state);
+
+    expect(advanced.unusedCharacterDeck).toHaveLength(ALPHA_1_CHARACTER_DEFINITIONS.length - 10);
+    expect(advanced.usedCharacterPile).toHaveLength(10);
+
+    const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
+    expect(advanced.unusedPowerDeck).toHaveLength(totalPowerCards - 6);
+    expect(advanced.usedPowerCardPile).toHaveLength(6);
+  });
+
+  it('uses remaining session cards first and tops up from used piles when a full setup is not possible from unused alone', () => {
+    const initialPools = createInitialSessionDeckPools(sequenceRandom([0.11, 0.27, 0.43, 0.59, 0.73, 0.89]));
+    const pools = {
+      unusedCharacterDeck: initialPools.unusedCharacterDeck.slice(0, 9),
+      usedCharacterPile: initialPools.unusedCharacterDeck.slice(9, 20),
+      unusedPowerDeck: initialPools.unusedPowerDeck.slice(0, 5),
+      usedPowerCardPile: initialPools.unusedPowerDeck.slice(5, 12),
+    };
+
+    const state = createMultiGameSessionSetup('P1', sequenceRandom([0.19, 0.37, 0.53, 0.71, 0.83]), pools);
+
+    expect(state.characters).toHaveLength(10);
+    expect(state.characterDeck).toHaveLength(0);
+    expect(state.powerCardHands.P1).toHaveLength(3);
+    expect(state.powerCardHands.P2).toHaveLength(3);
+    expect(state.powerCardDeck).toHaveLength(0);
+
+    const gameCharacterIds = new Set([
+      ...state.characters.map(card => card.id),
+      ...state.characterDeck.map(card => card.instanceId),
+    ]);
+    const gamePowerIds = new Set([
+      ...state.powerCardHands.P1.map(card => card.instanceId),
+      ...state.powerCardHands.P2.map(card => card.instanceId),
+      ...state.powerCardDeck.map(card => card.instanceId),
+    ]);
+
+    // All remaining session cards are consumed into this setup before used-pile top-up.
+    for (const card of pools.unusedCharacterDeck) {
+      expect(gameCharacterIds.has(card.instanceId)).toBe(true);
+    }
+    for (const card of pools.unusedPowerDeck) {
+      expect(gamePowerIds.has(card.instanceId)).toBe(true);
+    }
+
+    const supplementalCharacterCount = pools.usedCharacterPile.filter(card => gameCharacterIds.has(card.instanceId)).length;
+    const supplementalPowerCount = pools.usedPowerCardPile.filter(card => gamePowerIds.has(card.instanceId)).length;
+
+    expect(supplementalCharacterCount).toBe(1);
+    expect(supplementalPowerCount).toBe(1);
   });
 });

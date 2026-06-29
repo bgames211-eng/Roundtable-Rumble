@@ -1,6 +1,6 @@
 import { Controller, Space } from './types';
 
-export const BOARD_PATH: Space[] = ['Y1','Y2','Y3','Y4','Y5','A5','A4','A3','A2','A1'];
+export const BOARD_PATH: Space[] = ['P1_1','P1_2','P1_3','P1_4','P1_5','P2_5','P2_4','P2_3','P2_2','P2_1'];
 
 export function getForwardSpace(space: Space): Space {
   const idx = BOARD_PATH.indexOf(space);
@@ -15,8 +15,8 @@ export function getBackwardSpace(space: Space): Space {
 }
 
 export function getTerritory(space: Space): Controller {
-  if (space.startsWith('Y')) return 'Y';
-  if (space.startsWith('A')) return 'A';
+  if (space.startsWith('P1')) return 'P1';
+  if (space.startsWith('P2')) return 'P2';
   throw new Error(`Unknown space territory: ${space}`);
 }
 

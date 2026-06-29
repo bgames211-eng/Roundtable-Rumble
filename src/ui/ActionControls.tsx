@@ -5,7 +5,7 @@ import './ActionControls.css';
 export type LegalActionType = 'move' | 'attack' | 'defend';
 
 interface ActionControlsProps {
-  gameStatus: 'active' | 'Y wins' | 'A wins' | 'draw';
+  gameStatus: 'active' | 'P1 wins' | 'P2 wins' | 'draw';
   selectedCard: PlayerSafeCardView | null;
   legalActions: LegalActionType[];
   canSkip: boolean;
@@ -47,7 +47,7 @@ export function ActionControls({
           React.createElement(
             'p',
             { className: 'selected-card-line', 'data-testid': 'selected-card-indicator' },
-            `Selected: ${selectedCard.boardPosition} (${selectedCard.controller})`,
+                'Card selected. Choose an action below.',
           ),
           legalActions.length > 0
             ? React.createElement(
