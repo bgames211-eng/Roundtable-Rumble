@@ -22,6 +22,7 @@ interface CharacterCardFrameProps {
   isThawing?: boolean;
   selected?: boolean;
   tilt?: number;
+  statusTag?: string | null;
   testId?: string;
 }
 
@@ -55,6 +56,7 @@ export function CharacterCardFrame({
   isThawing = false,
   selected = false,
   tilt = 0,
+  statusTag = null,
   testId,
 }: CharacterCardFrameProps): React.ReactElement {
   const [fullFaceImageFailed, setFullFaceImageFailed] = React.useState(false);
@@ -100,6 +102,9 @@ export function CharacterCardFrame({
         ? React.createElement('img', { className: 'card-art-image', src: artSrc, alt: '', 'aria-hidden': 'true' })
         : React.createElement('div', { className: 'card-art-placeholder' }, revealed ? 'ART' : ''),
     ),
+    revealed && statusTag
+      ? React.createElement('span', { className: 'character-status-tag', 'data-testid': 'character-status-tag' }, statusTag)
+      : null,
     revealed
       ? !shouldRenderFullCardFace
         ? React.createElement(

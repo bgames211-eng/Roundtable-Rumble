@@ -343,4 +343,13 @@ export const ALPHA_1_CHARACTER_DEFINITIONS: CharacterCardDefinition[] = [
     statRule: null,
     imageKey: 'placeholder-alpha-037',
   },
+  {
+    definitionId: 'alpha-038',
+    displayName: 'AVATAR AANG',
+    printedATK: 8.5,
+    printedDEF: 8.5,
+    ability: 'Once per game, if Aang loses a battle, move him to an open spot directly behind him or behind his opponent instead of dying. Then Aang permanently loses -1 ATK and -1 DEF.',
+    statRule: null,
+    imageKey: 'placeholder-alpha-038',
+  },
 ];

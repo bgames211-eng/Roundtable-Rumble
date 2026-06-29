@@ -456,26 +456,15 @@ export function advanceSessionDeckPools(
 export function getPlayerGameView(state: GameState): PlayerSafeGameView {
   const boardCards: PlayerSafeCardView[] = [];
   const powerCardHandCount = getPowerCardHandCounts(state);
-  const revealedRickAndCarlByController: Record<Controller, boolean> = {
-    P1: false,
-    P2: false,
-  };
-
-  (['P1', 'P2'] as Controller[]).forEach(controller => {
-    const hasRick = state.characters.some(character => (
-      character.alive
-      && character.revealed
-      && character.controller === controller
-      && isRickGrimes(character.displayName)
-    ));
-    const hasCarl = state.characters.some(character => (
-      character.alive
-      && character.revealed
-      && character.controller === controller
-      && isCarlGrimes(character.displayName)
-    ));
-    revealedRickAndCarlByController[controller] = hasRick && hasCarl;
-  });
+  const hasLivingRevealedRick = state.characters.some(character => (
+    character.alive
+    && character.revealed
+    && isRickGrimes(character.displayName)
+  ));
+  const hasRevealedCarl = state.characters.some(character => (
+    character.revealed
+    && isCarlGrimes(character.displayName)
+  ));
 
   for (const space of ALL_SETUP_SPACES) {
     const card = state.characters.find(ch => ch.alive && ch.boardPosition === space);
@@ -503,15 +492,16 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
     };
 
     if (card.revealed) {
-      const hasRickCarlBonus = (isRickGrimes(card.displayName) || isCarlGrimes(card.displayName))
-        && revealedRickAndCarlByController[card.controller];
+      const hasRickCarlBonus = hasLivingRevealedRick
+        && hasRevealedCarl
+        && (isRickGrimes(card.displayName) || isCarlGrimes(card.displayName));
       safeCard.displayName = card.displayName ?? 'Unknown';
       safeCard.ATK = card.ATK + (hasRickCarlBonus ? 2 : 0);
       safeCard.DEF = card.DEF + (hasRickCarlBonus ? 2 : 0);
       safeCard.definitionId = card.definitionId;
       safeCard.ability = card.ability ?? null;
       safeCard.statRule = hasRickCarlBonus
-        ? `${card.statRule ? `${card.statRule} | ` : ''}+2 ATK / +2 DEF while RICK + CARL are both alive and revealed`
+        ? `${card.statRule ? `${card.statRule} | ` : ''}+2 ATK / +2 DEF while RICK is alive/revealed and CARL is revealed`
         : (card.statRule ?? null);
       safeCard.visualMode = card.visualMode;
       safeCard.artImageUrl = card.artImageUrl;

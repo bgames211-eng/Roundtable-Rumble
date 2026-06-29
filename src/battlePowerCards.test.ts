@@ -638,6 +638,7 @@ describe('Phase 4A Step 3 battle power cards', () => {
 
     const view = getBattlePublicView(afterPlay);
     expect(view.initiatorEffectiveATK).toBe(14);
+    expect(afterPlay.characters.find(character => character.id === 'y-support')?.revealed).toBe(true);
   });
 
   it('PHONE A FRIEND replaces selected own living character with top hidden deck card', () => {
@@ -706,6 +707,39 @@ describe('Phase 4A Step 3 battle power cards', () => {
     expect(replacement?.isFrozen).toBe(true);
     expect(publicView.initiatorEffectiveATK).toBe(10);
     expect(publicView.initiatorEffectiveDEF).toBe(6);
+  });
+
+  it('SWAP CHARACTERS keeps BRICK WALL on the same character when battlers trade sides', () => {
+    const state = {
+      ...createBattleState('DARYL', 'LARRY'),
+      powerCardHands: {
+        P1: [{ instanceId: 'power-y-wall', definitionId: 'power-alpha-008' }],
+        P2: [{ instanceId: 'power-a-swap', definitionId: 'power-alpha-018' }],
+      },
+    };
+
+    const started = openBattleAndAcknowledge(state);
+    const afterBrickWall = playBattlePowerCard(started, 'P1', {
+      instanceId: 'power-y-wall',
+    });
+
+    const p2Turn = acknowledgeBattleHandoff(afterBrickWall, 'P2');
+    const afterSwap = playBattlePowerCard(p2Turn, 'P2', {
+      instanceId: 'power-a-swap',
+      targetCharacterId: 'a-def',
+      secondTargetCharacterId: 'y-att',
+    });
+
+    const view = getBattlePublicView(afterSwap);
+    expect(afterSwap.pendingBattle?.initiatorId).toBe('a-def');
+    expect(afterSwap.pendingBattle?.opponentId).toBe('y-att');
+    expect(afterSwap.pendingBattle?.temporaryModifiers.some(modifier => (
+      modifier.sourceInstanceId === 'power-y-wall'
+      && modifier.targetCharacterId === 'y-att'
+      && modifier.stat === 'DEF'
+      && modifier.amount === 5
+    ))).toBe(true);
+    expect(view.opponentEffectiveDEF).toBe(11);
   });
 
   it('NO SPRAY cancels latest cancelable opponent battle card effects', () => {

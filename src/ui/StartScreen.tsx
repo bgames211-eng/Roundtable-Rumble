@@ -5,10 +5,8 @@ import { CharacterCardFrame, PowerCardFrame } from './CardFrames';
 import { ALPHA_1_CHARACTER_DEFINITIONS } from '../cardDefinitions';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from '../powerCards';
 import {
-  loadCharacterCatalog,
-  loadPowerCatalog,
-  saveCharacterCatalog,
-  savePowerCatalog,
+  createDefaultCharacterCatalogEntry,
+  createDefaultPowerCatalogEntry,
 } from '../cardCatalog';
 import { PUBLIC_ASSETS } from '../publicAssets';
 import './StartScreen.css';
@@ -116,26 +114,6 @@ type RpsChoice = 'rock' | 'paper' | 'scissors';
 type RpsOutcome = 'human' | 'bot' | 'tie';
 type CatalogMode = 'character' | 'power';
 
-interface EditableCharacterCatalogCard {
-  definitionId: string;
-  displayName: string;
-  printedATK: number;
-  printedDEF: number;
-  ability: string;
-  visualMode: 'layered-art' | 'full-card-face';
-  artImageUrl: string;
-  fullCardFaceImageUrl: string;
-}
-
-interface EditablePowerCatalogCard {
-  definitionId: string;
-  displayName: string;
-  rulesText: string;
-  visualMode: 'layered-art' | 'full-card-face';
-  artImageUrl: string;
-  fullCardFaceImageUrl: string;
-}
-
 interface RpsBattleState {
   humanChoice: RpsChoice;
   botChoice: RpsChoice;
@@ -165,14 +143,16 @@ export function StartScreen({
   const [rpsBattle, setRpsBattle] = React.useState<RpsBattleState | null>(null);
   const [rpsLocked, setRpsLocked] = React.useState(false);
   const [catalogMode, setCatalogMode] = React.useState<CatalogMode>('character');
-  const [characterCatalog, setCharacterCatalog] = React.useState<EditableCharacterCatalogCard[]>(() =>
-    loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS),
+  const characterCatalog = React.useMemo(
+    () => ALPHA_1_CHARACTER_DEFINITIONS.map(createDefaultCharacterCatalogEntry),
+    [],
   );
-  const [powerCatalog, setPowerCatalog] = React.useState<EditablePowerCatalogCard[]>(() =>
-    loadPowerCatalog(FIRST_ALPHA_POWER_CARD_DEFINITIONS),
+  const powerCatalog = React.useMemo(
+    () => FIRST_ALPHA_POWER_CARD_DEFINITIONS.map(createDefaultPowerCatalogEntry),
+    [],
   );
-  const [characterCatalogWarnings, setCharacterCatalogWarnings] = React.useState<Record<string, string>>({});
-  const [powerCatalogWarnings, setPowerCatalogWarnings] = React.useState<Record<string, string>>({});
+  const [selectedCharacterId, setSelectedCharacterId] = React.useState<string | null>(null);
+  const [selectedPowerId, setSelectedPowerId] = React.useState<string | null>(null);
   const [openColorPickerFor, setOpenColorPickerFor] = React.useState<Controller | null>(null);
   const colorPickerRootRef = React.useRef<HTMLFieldSetElement | null>(null);
 
@@ -189,12 +169,16 @@ export function StartScreen({
   }, [initialPhase]);
 
   React.useEffect(() => {
-    saveCharacterCatalog(characterCatalog);
-  }, [characterCatalog]);
+    if (!selectedCharacterId && characterCatalog.length > 0) {
+      setSelectedCharacterId(characterCatalog[0].definitionId);
+    }
+  }, [characterCatalog, selectedCharacterId]);
 
   React.useEffect(() => {
-    savePowerCatalog(powerCatalog);
-  }, [powerCatalog]);
+    if (!selectedPowerId && powerCatalog.length > 0) {
+      setSelectedPowerId(powerCatalog[0].definitionId);
+    }
+  }, [powerCatalog, selectedPowerId]);
 
   React.useEffect(() => {
     const onDocumentMouseDown = (event: MouseEvent): void => {
@@ -212,85 +196,6 @@ export function StartScreen({
       document.removeEventListener('mousedown', onDocumentMouseDown);
     };
   }, [openColorPickerFor]);
-
-  React.useEffect(() => {
-    const active = true;
-
-    const probeImage = (url: string, onOk: () => void, onFail: () => void): void => {
-      const image = new Image();
-      image.onload = () => {
-        if (!active) return;
-        onOk();
-      };
-      image.onerror = () => {
-        if (!active) return;
-        onFail();
-      };
-      image.src = url;
-    };
-
-    const nextCharacterWarnings: Record<string, string> = {};
-    const nextPowerWarnings: Record<string, string> = {};
-
-    for (const card of characterCatalog) {
-      if (card.visualMode === 'full-card-face' && card.fullCardFaceImageUrl.trim()) {
-        probeImage(
-          card.fullCardFaceImageUrl,
-          () => {
-            setCharacterCatalogWarnings(prev => {
-              if (prev[card.definitionId] === 'Full Card Face image failed to load — using Layered Art preview.') {
-                const next = { ...prev };
-                delete next[card.definitionId];
-                return next;
-              }
-              return prev;
-            });
-          },
-          () => {
-            setCharacterCatalogWarnings(prev => ({
-              ...prev,
-              [card.definitionId]: 'Full Card Face image failed to load — using Layered Art preview.',
-            }));
-          },
-        );
-      } else if (card.visualMode === 'full-card-face') {
-        nextCharacterWarnings[card.definitionId] = 'Full Card Face image missing — using Layered Art preview.';
-      }
-    }
-
-    for (const card of powerCatalog) {
-      if (card.visualMode === 'full-card-face' && card.fullCardFaceImageUrl.trim()) {
-        probeImage(
-          card.fullCardFaceImageUrl,
-          () => {
-            setPowerCatalogWarnings(prev => {
-              if (prev[card.definitionId] === 'Full Card Face image failed to load — using Layered Art preview.') {
-                const next = { ...prev };
-                delete next[card.definitionId];
-                return next;
-              }
-              return prev;
-            });
-          },
-          () => {
-            setPowerCatalogWarnings(prev => ({
-              ...prev,
-              [card.definitionId]: 'Full Card Face image failed to load — using Layered Art preview.',
-            }));
-          },
-        );
-      } else if (card.visualMode === 'full-card-face') {
-        nextPowerWarnings[card.definitionId] = 'Full Card Face image missing — using Layered Art preview.';
-      }
-    }
-
-    setCharacterCatalogWarnings(nextCharacterWarnings);
-    setPowerCatalogWarnings(nextPowerWarnings);
-
-    return () => {
-      // local guard only; no cleanup needed for Image objects
-    };
-  }, [characterCatalog, powerCatalog]);
 
   const transitionTo = React.useCallback((nextPhase: SetupPhase): void => {
     if (isJsdomTestEnv) {
@@ -483,194 +388,55 @@ export function StartScreen({
     );
   };
 
-  const renderCharacterCatalogCard = (card: EditableCharacterCatalogCard, index: number): React.ReactElement => {
-    const isFullCardFace = card.visualMode === 'full-card-face';
-    const warning = characterCatalogWarnings[card.definitionId] ?? '';
+  const selectedCharacter = characterCatalog.find(card => card.definitionId === selectedCharacterId) ?? null;
+  const selectedPower = powerCatalog.find(card => card.definitionId === selectedPowerId) ?? null;
 
-    return React.createElement(
-      'article',
-      { key: card.definitionId, className: 'catalog-card' },
-      React.createElement('span', { className: `catalog-badge catalog-badge-${isFullCardFace ? 'full' : 'layered'}` }, isFullCardFace ? 'Full Card Face' : 'Layered Art'),
-      React.createElement('div', { className: 'catalog-preview' },
-        warning
-          ? React.createElement('p', { className: 'catalog-warning' }, warning)
-          : null,
-        React.createElement(CharacterCardFrame, {
-          size: 'hand',
-          revealed: true,
-          controllerColorClass: 'player-color-silver',
-          displayName: card.displayName,
-          ATK: card.printedATK,
-          DEF: card.printedDEF,
-          ability: card.ability,
-          artSrc: card.artImageUrl || null,
-          fullCardFaceSrc: card.fullCardFaceImageUrl || null,
-          visualMode: card.visualMode,
-          testId: `catalog-character-preview-${card.definitionId}`,
-        }),
-      ),
-      React.createElement('div', { className: 'catalog-editor' },
-        React.createElement('label', null, 'Card Visual Mode',
-          React.createElement('select', {
-            value: card.visualMode,
-            onChange: (event: React.ChangeEvent<HTMLSelectElement>) => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, visualMode: event.currentTarget.value as 'layered-art' | 'full-card-face' }
-              : entry)),
-          },
-          React.createElement('option', { value: 'layered-art' }, 'Layered Art'),
-          React.createElement('option', { value: 'full-card-face' }, 'Full Card Face'),
-          ),
-        ),
-        React.createElement('label', null, 'Name',
-          React.createElement('input', {
-            type: 'text',
-            value: card.displayName,
-            onChange: event => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, displayName: event.currentTarget.value }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', null, 'ATK',
-          React.createElement('input', {
-            type: 'number',
-            step: '0.5',
-            value: String(card.printedATK),
-            onChange: event => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, printedATK: Number(event.currentTarget.value) || 0 }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', null, 'DEF',
-          React.createElement('input', {
-            type: 'number',
-            step: '0.5',
-            value: String(card.printedDEF),
-            onChange: event => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, printedDEF: Number(event.currentTarget.value) || 0 }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', null, 'Ability',
-          React.createElement('textarea', {
-            value: card.ability,
-            onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, ability: event.currentTarget.value }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', { className: isFullCardFace ? 'catalog-field-muted' : '' }, 'Art Image URL',
-          React.createElement('input', {
-            type: 'text',
-            value: card.artImageUrl,
-            placeholder: 'https://... or local path',
-            onChange: event => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, artImageUrl: event.currentTarget.value }
-              : entry)),
-          }),
-          React.createElement('small', { className: 'catalog-helper' }, 'Use this for artwork only. The game will place the card frame, name, stats, and rules over it.'),
-        ),
-        isFullCardFace
-          ? React.createElement('label', null, 'Full Card Face Image URL',
-              React.createElement('input', {
-                type: 'text',
-                value: card.fullCardFaceImageUrl,
-                placeholder: 'https://... or local path',
-                onChange: event => setCharacterCatalog(prev => prev.map((entry, row) => row === index
-                  ? { ...entry, fullCardFaceImageUrl: event.currentTarget.value }
-                  : entry)),
-              }),
-              React.createElement('small', { className: 'catalog-helper' }, 'Use this for a complete finished card design. The game will display this image as the visible card front.'),
-            )
-          : null,
-        warning
-          ? React.createElement('p', { className: 'catalog-warning' }, warning)
-          : null,
-      ),
-    );
-  };
+  const renderCharacterCatalogCard = (card: ReturnType<typeof createDefaultCharacterCatalogEntry>): React.ReactElement => React.createElement(
+    'button',
+    {
+      key: card.definitionId,
+      type: 'button',
+      className: `catalog-character-tile ${selectedCharacterId === card.definitionId ? 'selected' : ''}`,
+      onClick: () => setSelectedCharacterId(card.definitionId),
+      'data-testid': `catalog-character-tile-${card.definitionId}`,
+    },
+    React.createElement(CharacterCardFrame, {
+      size: 'battle',
+      revealed: true,
+      controllerColorClass: 'player-color-silver',
+      displayName: card.displayName,
+      ATK: card.printedATK,
+      DEF: card.printedDEF,
+      ability: card.ability,
+      artSrc: card.artImageUrl || null,
+      fullCardFaceSrc: card.fullCardFaceImageUrl || null,
+      visualMode: card.visualMode,
+      selected: selectedCharacterId === card.definitionId,
+      testId: `catalog-character-preview-${card.definitionId}`,
+    }),
+  );
 
-  const renderPowerCatalogCard = (card: EditablePowerCatalogCard, index: number): React.ReactElement => {
-    const isFullCardFace = card.visualMode === 'full-card-face';
-    const warning = powerCatalogWarnings[card.definitionId] ?? '';
-
-    return React.createElement(
-      'article',
-      { key: card.definitionId, className: 'catalog-card' },
-      React.createElement('span', { className: `catalog-badge catalog-badge-${isFullCardFace ? 'full' : 'layered'}` }, isFullCardFace ? 'Full Card Face' : 'Layered Art'),
-      React.createElement('div', { className: 'catalog-preview' },
-        warning
-          ? React.createElement('p', { className: 'catalog-warning' }, warning)
-          : null,
-        React.createElement(PowerCardFrame, {
-          size: 'hand',
-          displayName: card.displayName,
-          rulesText: card.rulesText,
-          artSrc: card.artImageUrl || null,
-          fullCardFaceSrc: card.fullCardFaceImageUrl || null,
-          visualMode: card.visualMode,
-          state: 'playable',
-          testId: `catalog-power-preview-${card.definitionId}`,
-        }),
-      ),
-      React.createElement('div', { className: 'catalog-editor' },
-        React.createElement('label', null, 'Card Visual Mode',
-          React.createElement('select', {
-            value: card.visualMode,
-            onChange: (event: React.ChangeEvent<HTMLSelectElement>) => setPowerCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, visualMode: event.currentTarget.value as 'layered-art' | 'full-card-face' }
-              : entry)),
-          },
-          React.createElement('option', { value: 'layered-art' }, 'Layered Art'),
-          React.createElement('option', { value: 'full-card-face' }, 'Full Card Face'),
-          ),
-        ),
-        React.createElement('label', null, 'Name',
-          React.createElement('input', {
-            type: 'text',
-            value: card.displayName,
-            onChange: event => setPowerCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, displayName: event.currentTarget.value }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', null, 'Rules',
-          React.createElement('textarea', {
-            value: card.rulesText,
-            onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => setPowerCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, rulesText: event.currentTarget.value }
-              : entry)),
-          }),
-        ),
-        React.createElement('label', { className: isFullCardFace ? 'catalog-field-muted' : '' }, 'Art Image URL',
-          React.createElement('input', {
-            type: 'text',
-            value: card.artImageUrl,
-            placeholder: 'https://... or local path',
-            onChange: event => setPowerCatalog(prev => prev.map((entry, row) => row === index
-              ? { ...entry, artImageUrl: event.currentTarget.value }
-              : entry)),
-          }),
-          React.createElement('small', { className: 'catalog-helper' }, 'Use this for artwork only. The game will place the card frame, name, stats, and rules over it.'),
-        ),
-        isFullCardFace
-          ? React.createElement('label', null, 'Full Card Face Image URL',
-              React.createElement('input', {
-                type: 'text',
-                value: card.fullCardFaceImageUrl,
-                placeholder: 'https://... or local path',
-                onChange: event => setPowerCatalog(prev => prev.map((entry, row) => row === index
-                  ? { ...entry, fullCardFaceImageUrl: event.currentTarget.value }
-                  : entry)),
-              }),
-              React.createElement('small', { className: 'catalog-helper' }, 'Use this for a complete finished card design. The game will display this image as the visible card front.'),
-            )
-          : null,
-        warning
-          ? React.createElement('p', { className: 'catalog-warning' }, warning)
-          : null,
-      ),
-    );
-  };
+  const renderPowerCatalogCard = (card: ReturnType<typeof createDefaultPowerCatalogEntry>): React.ReactElement => React.createElement(
+    'button',
+    {
+      key: card.definitionId,
+      type: 'button',
+      className: `catalog-power-tile ${selectedPowerId === card.definitionId ? 'selected' : ''}`,
+      onClick: () => setSelectedPowerId(card.definitionId),
+      'data-testid': `catalog-power-tile-${card.definitionId}`,
+    },
+    React.createElement(PowerCardFrame, {
+      size: 'battle',
+      displayName: card.displayName,
+      rulesText: card.rulesText,
+      artSrc: card.artImageUrl || null,
+      fullCardFaceSrc: card.fullCardFaceImageUrl || null,
+      visualMode: card.visualMode,
+      state: selectedPowerId === card.definitionId ? 'selected' : 'playable',
+      selected: selectedPowerId === card.definitionId,
+      testId: `catalog-power-preview-${card.definitionId}`,
+    }),
+  );
 
   if (phase === 'landing') {
     return React.createElement(
@@ -723,7 +489,7 @@ export function StartScreen({
           'aria-hidden': 'true',
         }),
         React.createElement('h1', { className: 'start-title' }, 'Card Catalog'),
-        React.createElement('p', { className: 'start-subtitle' }, 'Browse and edit Character or Power card data.'),
+        React.createElement('p', { className: 'start-subtitle' }, 'Read-only official card data. Select a card to inspect stats and coded special text.'),
       ),
       React.createElement('div', { className: 'catalog-mode-toggle' },
         React.createElement(
@@ -748,8 +514,35 @@ export function StartScreen({
         ),
       ),
       catalogMode === 'character'
-        ? React.createElement('section', { className: 'catalog-grid', 'data-testid': 'character-catalog-grid' }, characterCatalog.map(renderCharacterCatalogCard))
-        : React.createElement('section', { className: 'catalog-grid', 'data-testid': 'power-catalog-grid' }, powerCatalog.map(renderPowerCatalogCard)),
+        ? React.createElement(
+            React.Fragment,
+            null,
+            React.createElement('section', { className: 'catalog-character-grid', 'data-testid': 'character-catalog-grid' }, characterCatalog.map(renderCharacterCatalogCard)),
+            selectedCharacter
+              ? React.createElement(
+                  'section',
+                  { className: 'catalog-read-panel', 'data-testid': 'catalog-character-details' },
+                  React.createElement('h3', null, selectedCharacter.displayName),
+                  React.createElement('p', { className: 'catalog-read-stats' }, `ATK ${selectedCharacter.printedATK} | DEF ${selectedCharacter.printedDEF}`),
+                  React.createElement('p', { className: 'catalog-read-ability-title' }, 'Coded Special Ability'),
+                  React.createElement('p', { className: 'catalog-read-ability' }, selectedCharacter.ability || 'No coded special ability.'),
+                )
+              : null,
+          )
+        : React.createElement(
+            React.Fragment,
+            null,
+            React.createElement('section', { className: 'catalog-power-grid', 'data-testid': 'power-catalog-grid' }, powerCatalog.map(renderPowerCatalogCard)),
+            selectedPower
+              ? React.createElement(
+                  'section',
+                  { className: 'catalog-read-panel', 'data-testid': 'catalog-power-details' },
+                  React.createElement('h3', null, selectedPower.displayName),
+                  React.createElement('p', { className: 'catalog-read-ability-title' }, 'Official Rules Text'),
+                  React.createElement('p', { className: 'catalog-read-ability' }, selectedPower.rulesText),
+                )
+              : null,
+          ),
       React.createElement('div', { className: 'start-actions' },
         React.createElement(
           'button',

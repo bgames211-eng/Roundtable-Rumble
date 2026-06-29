@@ -7,6 +7,23 @@ export interface PowerCardDefinition {
   alphaDeckCount: number;
 }
 
+export interface PowerCardAiMetadata {
+  timing: 'battle' | 'anytime' | 'turn-only';
+  effectType:
+    | 'stat-buff'
+    | 'stat-debuff'
+    | 'stat-swap'
+    | 'conditional-clutch'
+    | 'equipment'
+    | 'swap'
+    | 'hand-disruption'
+    | 'counter'
+    | 'movement'
+    | 'replace';
+  targetType: 'self' | 'opponent' | 'both' | 'board';
+  strategicValue: 'low' | 'medium' | 'high' | 'premium';
+}
+
 export interface PowerCardInstance {
   instanceId: string;
   definitionId: string;
@@ -178,12 +195,50 @@ const POWER_CARD_DEFINITION_MAP = new Map(
   FIRST_ALPHA_POWER_CARD_DEFINITIONS.map(definition => [definition.definitionId, definition]),
 );
 
+const POWER_CARD_AI_METADATA: Record<string, PowerCardAiMetadata> = {
+  'power-alpha-001': { timing: 'battle', effectType: 'stat-debuff', targetType: 'opponent', strategicValue: 'high' },
+  'power-alpha-002': { timing: 'battle', effectType: 'stat-debuff', targetType: 'both', strategicValue: 'high' },
+  'power-alpha-003': { timing: 'battle', effectType: 'stat-swap', targetType: 'self', strategicValue: 'premium' },
+  'power-alpha-004': { timing: 'battle', effectType: 'stat-debuff', targetType: 'opponent', strategicValue: 'high' },
+  'power-alpha-005': { timing: 'battle', effectType: 'stat-debuff', targetType: 'opponent', strategicValue: 'high' },
+  'power-alpha-006': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'medium' },
+  'power-alpha-007': { timing: 'battle', effectType: 'stat-swap', targetType: 'both', strategicValue: 'medium' },
+  'power-alpha-008': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'medium' },
+  'power-alpha-009': { timing: 'battle', effectType: 'conditional-clutch', targetType: 'self', strategicValue: 'premium' },
+  'power-alpha-010': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'medium' },
+  'power-alpha-011': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-012': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-013': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-014': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-015': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-016': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'high' },
+  'power-alpha-017': { timing: 'battle', effectType: 'replace', targetType: 'self', strategicValue: 'high' },
+  'power-alpha-018': { timing: 'anytime', effectType: 'swap', targetType: 'board', strategicValue: 'high' },
+  'power-alpha-019': { timing: 'anytime', effectType: 'hand-disruption', targetType: 'opponent', strategicValue: 'high' },
+  'power-alpha-020': { timing: 'battle', effectType: 'counter', targetType: 'opponent', strategicValue: 'premium' },
+  'power-alpha-021': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-022': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'medium' },
+};
+
 export function getPowerCardDefinition(definitionId: string): PowerCardDefinition {
   const definition = POWER_CARD_DEFINITION_MAP.get(definitionId);
   if (!definition) {
     throw new Error(`Unknown power card definition: ${definitionId}`);
   }
   return definition;
+}
+
+export function getPowerCardAiMetadata(definitionId: string): PowerCardAiMetadata {
+  const metadata = POWER_CARD_AI_METADATA[definitionId];
+  if (!metadata) {
+    return {
+      timing: 'battle',
+      effectType: 'stat-buff',
+      targetType: 'self',
+      strategicValue: 'low',
+    };
+  }
+  return metadata;
 }
 
 function buildPowerInstanceId(oneBasedIndex: number): string {

@@ -239,7 +239,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('action-attack'));
 
     expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getAllByTestId('card-revealed').length).toBeGreaterThan(0);
@@ -254,7 +254,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('action-defend'));
 
     expect(screen.queryByTestId('battle-intro')).not.toBeInTheDocument();
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     expect(screen.getByTestId('battle-type')).toHaveTextContent('DEF vs DEF');
@@ -272,7 +272,7 @@ describe('Phase 5 UI', () => {
     expect(screen.getByTestId('battle-hero-overlay')).toBeInTheDocument();
     expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
 
-    await screen.findByTestId('battle-handoff-acknowledge');
+    await screen.findByTestId('battle-reveal-P1');
   });
 
   it('reduced-motion mode still renders battle screen without cutscene intro', async () => {
@@ -309,7 +309,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
     expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
     expect(screen.queryByTestId('battle-toggle-board-size')).not.toBeInTheDocument();
   });
@@ -321,9 +321,9 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
     await user.click(screen.getByTestId('battle-ready-button'));
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
     await user.click(screen.getByTestId('battle-ready-button'));
 
     expect(screen.getByTestId('battle-resolve-button')).toBeInTheDocument();
@@ -336,9 +336,9 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
     await user.click(screen.getByTestId('battle-ready-button'));
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
     await user.click(screen.getByTestId('battle-ready-button'));
     await user.click(screen.getByTestId('battle-resolve-button'));
 
@@ -352,7 +352,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
     expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
@@ -414,7 +414,7 @@ describe('Phase 5 UI', () => {
     expect(screen.queryByTestId('action-controls')).not.toBeInTheDocument();
   });
 
-  it('private hand is hidden until acknowledgment and reveals only after handoff accept', async () => {
+  it('private hand is hidden until reveal and shows only the chosen side hand', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
@@ -444,11 +444,21 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    expect(await screen.findByTestId('battle-handoff')).toHaveTextContent('Pass device to Player One');
+    expect(screen.getByTestId('battle-reveal-P1')).toHaveTextContent('Reveal');
     expect(screen.queryByTestId('battle-private-hand-P1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('battle-private-hand-P2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-hidden-back-P1-0')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-hidden-back-P2-0')).toBeInTheDocument();
 
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    expect(screen.getByTestId('battle-reveal-P1')).toHaveTextContent('Hide');
     expect(screen.getByTestId('battle-private-hand-P1')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-private-hand-P2')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-reveal-P1'));
+    expect(screen.getByTestId('battle-reveal-P1')).toHaveTextContent('Reveal');
+    expect(screen.queryByTestId('battle-private-hand-P1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('battle-hidden-back-P1-0')).toBeInTheDocument();
   });
 
   it('both real hands are never in the DOM together during battle privacy flow', async () => {
@@ -476,12 +486,12 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
     expect(screen.getByTestId('battle-private-hand-P1')).toBeInTheDocument();
     expect(screen.queryByTestId('battle-private-hand-P2')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('battle-ready-button'));
-    await user.click(screen.getByTestId('battle-handoff-acknowledge'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
     expect(screen.getByTestId('battle-private-hand-P2')).toBeInTheDocument();
     expect(screen.queryByTestId('battle-private-hand-P1')).not.toBeInTheDocument();
   });
@@ -493,7 +503,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     expect(screen.getByTestId('battle-embedded-board')).toBeInTheDocument();
     expect(screen.getByTestId('battle-score-banner')).toBeInTheDocument();
@@ -507,25 +517,31 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
     const text = screen.getByTestId('battle-event-history').textContent ?? '';
     expect(text).not.toContain('P1');
     expect(text).not.toContain('P2');
   });
 
-  it('board-phase hand stays visible for acknowledged player and battle-only cards are disabled', async () => {
+  it('board-phase hand stays visible for revealed player and battle-only cards are disabled', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId('new-game-button'));
 
     expect(screen.getByTestId('manual-handoff-row')).toBeInTheDocument();
-    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+    expect(screen.getByTestId('manual-reveal-P1')).toHaveTextContent('Reveal');
+    expect(screen.getByTestId('manual-handoff-row').querySelectorAll('[data-testid^="manual-power-"]').length).toBe(0);
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+    expect(screen.getByTestId('manual-reveal-P1')).toHaveTextContent('Hide');
 
     expect(screen.getByTestId('manual-handoff-row').querySelectorAll('[data-testid^="manual-power-"]').length).toBeGreaterThan(0);
-    expect(screen.queryByTestId('board-phase-handoff')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+    expect(screen.getByTestId('manual-reveal-P1')).toHaveTextContent('Reveal');
+    expect(screen.getByTestId('manual-handoff-row').querySelectorAll('[data-testid^="manual-power-"]').length).toBe(0);
   });
 
-  it('hand hides and handoff appears when board-phase turn changes', async () => {
+  it('hand hides and opposing reveal control appears when board-phase turn changes', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
@@ -537,7 +553,7 @@ describe('Phase 5 UI', () => {
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
 
     expect(screen.getByTestId('manual-handoff-row')).toBeInTheDocument();
 
@@ -545,7 +561,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('action-move'));
 
     expect(screen.queryByTestId('manual-handoff-row')?.querySelectorAll('[data-testid^="manual-power-"]').length ?? 0).toBe(0);
-    expect(screen.getByTestId('manual-handoff-row')).toHaveTextContent('Pass device to Player Two');
+    expect(screen.getByTestId('manual-reveal-P2')).toBeInTheDocument();
   });
 
   it('implemented battle cards show enabled Play control when legal', async () => {
@@ -572,7 +588,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('new-game-button'));
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     await user.click(screen.getByTestId('battle-card-tap-power-y-unimpl'));
     expect(screen.getByTestId('battle-inspector-play-button')).toBeEnabled();
@@ -585,9 +601,9 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
-    expect(screen.getByTestId('battle-ready-p1')).toHaveTextContent('Human Ready: No');
-    expect(screen.getByTestId('battle-ready-p2')).toHaveTextContent('Bot Ready: No');
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    expect(screen.getByTestId('battle-ready-p1')).toHaveTextContent('Player One Ready: No');
+    expect(screen.getByTestId('battle-ready-p2')).toHaveTextContent('Player Two Ready: No');
   });
 
   it('battle full-board link opens and returns to battle correctly', async () => {
@@ -602,7 +618,7 @@ describe('Phase 5 UI', () => {
     expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
     await user.click(screen.getByTestId('battle-return-to-battle'));
 
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     await user.click(screen.getByTestId('battle-open-full-board'));
     expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
@@ -612,6 +628,563 @@ describe('Phase 5 UI', () => {
 
     await user.click(screen.getByTestId('battle-open-full-board-inline'));
     expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+  });
+
+  it('battle full-board allows inspecting unrevealed cards without flipping them face-up', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p2-hidden', 'P2', 7, 7, false, 'P2_1', 'SECRET-HIDDEN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return { ...base, activePlayer: 'P1' };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P2_1'));
+
+    const readModal = screen.getByTestId('battle-fullboard-character-read');
+    expect(readModal).toBeInTheDocument();
+    expect(within(readModal).getByTestId('battle-fullboard-read-card')).toHaveClass('character-hidden');
+    expect(readModal).not.toHaveTextContent('SECRET-HIDDEN');
+  });
+
+  it('battle full-board shows Uncle Iroh anytime special button when Iroh is revealed', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-iroh', 'P1', 9, 7, false, 'P1_1', 'UNCLE IROH'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P1_1'));
+
+    expect(screen.getByTestId('battle-fullboard-anytime-special-button')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-fullboard-anytime-special-button')).toHaveTextContent('Use Uncle Iroh Counter (30s)');
+  });
+
+  it('manual battle mode shows Iroh anytime special for the current priority player', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p2-iroh', 'P2', 9, 7, false, 'P2_1', 'UNCLE IROH'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-reveal-P1'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P2_1'));
+
+    expect(screen.getByTestId('battle-fullboard-anytime-special-button')).toHaveTextContent('Use Uncle Iroh Counter (30s)');
+  });
+
+  it('manual battle SWAP CHARACTERS opens Iroh counter prompt before swap resolves', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-rapunzel', 'P1', 5, 7, false, 'P1_3', 'RAPUNZEL'),
+        createChar('p2-iroh', 'P2', 9, 7, false, 'P1_4', 'UNCLE IROH'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+        powerCardHands: {
+          ...base.powerCardHands,
+          P1: [{ instanceId: 'power-y-swap', definitionId: 'power-alpha-018' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-card-tap-power-y-swap'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('battle-swap-own-confirm'));
+    await user.click(screen.getByTestId('space-P1_4'));
+    await user.click(screen.getByTestId('battle-swap-opponent-confirm'));
+
+    const reactionModal = await screen.findByTestId('battle-nospray-reaction-modal');
+    expect(reactionModal).toHaveTextContent('Uncle Iroh Counter');
+    expect(screen.getByTestId('battle-nospray-use-button')).toHaveTextContent('Use Uncle Iroh Counter');
+    await user.click(screen.getByTestId('battle-nospray-use-button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('battle-card-tap-power-y-swap')).toBeInTheDocument();
+    });
+  });
+
+  it('does not show selected-card special button for an opponent revealed ability card', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-iroh', 'P2', 9, 7, false, 'P2_1', 'UNCLE IROH'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P2_1'));
+
+    expect(screen.queryByTestId('character-special-from-selected')).not.toBeInTheDocument();
+  });
+
+  it('battle full-board character click exposes Jeremy Jahns anytime special', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-jeremy', 'P1', 8, 7, false, 'P1_1', 'JEREMY JAHNS'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-jeremy'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('space-P1_1'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-fullboard-anytime-special-button')).toHaveTextContent('Use Jeremy Jahns Special');
+  });
+
+  it('Jeremy special modal supports view switching between full board and battle screen', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-jeremy', 'P1', 8, 7, false, 'P1_1', 'JEREMY JAHNS'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-jeremy'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('battle-fullboard-anytime-special-button'));
+
+    expect(screen.getByTestId('jeremy-special-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('jeremy-view-indicator')).toHaveTextContent('Viewing: Full Board');
+
+    await user.click(screen.getByTestId('jeremy-view-battle'));
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('jeremy-special-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('jeremy-reopen-controls')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('jeremy-return-selection'));
+    expect(screen.getByTestId('jeremy-special-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('jeremy-view-indicator')).toHaveTextContent('Viewing: Battle Screen');
+
+    await user.click(screen.getByTestId('jeremy-view-full-board'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('jeremy-special-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('jeremy-reopen-controls')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('jeremy-return-selection'));
+    expect(screen.getByTestId('jeremy-special-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('jeremy-view-indicator')).toHaveTextContent('Viewing: Full Board');
+  });
+
+  it('TAG TEAM with an unrevealed allied character behind battler does not blank battle screen', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-keith', 'P1', 8, 6, false, 'P1_3', 'KEITH'),
+        createChar('p1-behind', 'P1', 5, 4, false, 'P1_2', 'P1-BEHIND-HIDDEN'),
+        createChar('p2-iroh', 'P2', 9, 7, false, 'P1_4', 'UNCLE IROH'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          ...base.powerCardHands,
+          P1: [{ instanceId: 'power-y-tag-team', definitionId: 'power-alpha-016' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-card-tap-power-y-tag-team'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    expect(screen.getByTestId('match-screen')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+  });
+
+  it('BEHIND THE CURTAINS locks in after play and allows switching between battle and full-board views', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          ...base.powerCardHands,
+          P1: [{ instanceId: 'power-y-curtains', definitionId: 'power-alpha-019' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(screen.getByTestId('battle-reveal-P1'));
+
+    await user.click(screen.getByTestId('battle-card-tap-power-y-curtains'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    expect(screen.getByTestId('board-curtains-modal')).toBeInTheDocument();
+    expect(screen.queryByTestId('curtains-cancel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('curtains-view-indicator')).toHaveTextContent('Viewing: Full Board');
+
+    await user.click(screen.getByTestId('curtains-view-battle'));
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('curtains-reopen-controls')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('curtains-return-selection'));
+    expect(screen.getByTestId('board-curtains-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('curtains-view-indicator')).toHaveTextContent('Viewing: Battle Screen');
+
+    await user.click(screen.getByTestId('curtains-view-full-board'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('curtains-reopen-controls')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('curtains-return-selection'));
+    expect(screen.getByTestId('board-curtains-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('curtains-view-indicator')).toHaveTextContent('Viewing: Full Board');
+  });
+
+  it('main board character view shows active Uncle Iroh timer tag after arming', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-iroh', 'P1', 9, 7, false, 'P1_1', 'UNCLE IROH'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('character-special-from-selected'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('board-read-selected-card'));
+
+    const modal = screen.getByTestId('board-character-read-modal');
+    expect(within(modal).getByTestId('character-status-tag')).toHaveTextContent(/^Iroh\s+\d+s$/);
+  });
+
+  it('battle full-board character view shows active Uncle Iroh timer tag after arming', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-iroh', 'P1', 9, 7, false, 'P1_1', 'UNCLE IROH'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-iroh'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('character-special-from-selected'));
+
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P1_1'));
+
+    const modal = screen.getByTestId('battle-fullboard-character-read');
+    expect(within(modal).getByTestId('character-status-tag')).toHaveTextContent(/^Iroh\s+\d+s$/);
+  });
+
+  it('main board character view shows -1 status tag for Avatar Aang after escape is used', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-aang', 'P1', 7.5, 7.5, false, 'P1_1', 'AVATAR AANG'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-aang'
+            ? {
+                ...character,
+                revealed: true,
+                abilityUsed: true,
+                statRule: 'Permanent -1 ATK AND DEF',
+              }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('board-read-selected-card'));
+
+    const modal = screen.getByTestId('board-character-read-modal');
+    expect(within(modal).getByTestId('character-status-tag')).toHaveTextContent('-1');
+  });
+
+  it('Aang escape targeting overlay keeps board clickable and limits legal spots after battle death', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-aang', 'P1', 2, 2, false, 'P1_3', 'AVATAR AANG'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-heavy', 'P2', 10, 10, false, 'P1_4', 'P2-HEAVY'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-resolve-button'));
+
+    await user.click(await screen.findByTestId('aang-escape-use'));
+
+    const modal = screen.getByTestId('aang-escape-modal');
+    expect(modal).toHaveClass('board-targeting-overlay');
+    expect(screen.getByTestId('action-target-P1_2')).toBeInTheDocument();
+    expect(screen.getByTestId('action-target-P1_5')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-target-P1_3')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('action-target-P1_5'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('aang-escape-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('event-log')).toHaveTextContent('Avatar Aang Escape');
+    });
+  });
+
+  it('Aang escape uses attacker-start and forward-from-Aang options when Aang is attacked and loses', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 10, 10, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-aang', 'P2', 2, 2, false, 'P1_4', 'AVATAR AANG'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-resolve-button'));
+
+    await user.click(await screen.findByTestId('aang-escape-use'));
+
+    expect(screen.getByTestId('action-target-P1_3')).toBeInTheDocument();
+    expect(screen.getByTestId('action-target-P1_5')).toBeInTheDocument();
+    expect(screen.queryByTestId('action-target-P1_4')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-target-P1_2')).not.toBeInTheDocument();
+  });
+
+  it('Nightcrawler king teleport across territory triggers king draw event and FX banner', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        {
+          ...createChar('p1-nightcrawler', 'P1', 6.5, 7, true, 'P1_5', 'NIGHTCRAWLER'),
+          revealed: true,
+        },
+        createChar('p1-side', 'P1', 4, 4, false, 'P1_3', 'P1-SIDE'),
+        createChar('p2-side', 'P2', 4, 4, false, 'P2_2', 'P2-SIDE'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_5'));
+    await user.click(screen.getByTestId('character-special-from-selected'));
+
+    expect(screen.getByTestId('action-target-P2_5')).toBeInTheDocument();
+    await user.click(screen.getByTestId('action-target-P2_5'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('event-log')).toHaveTextContent('King Territory Draw');
+      expect(screen.getByTestId('king-draw-animation')).toBeInTheDocument();
+    });
   });
 
   it('card rotation stays mild and readable across the ring', async () => {
@@ -701,7 +1274,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('new-game-button'));
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
-    await user.click(await screen.findByTestId('battle-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
 
     const html = container.innerHTML;
     expect(html).not.toContain('SECRET-UNINVOLVED-BOT');
@@ -730,7 +1303,7 @@ describe('Phase 5 UI', () => {
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
 
     await user.click(screen.getByTestId('manual-power-button-power-y-swap'));
     await user.click(screen.getByTestId('board-power-card-play-button'));
@@ -777,13 +1350,13 @@ describe('Phase 5 UI', () => {
 
     render(<App createGameState={setup} />);
     await user.click(screen.getByTestId('new-game-button'));
-    await user.click(screen.getByTestId('board-phase-handoff-acknowledge'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
     expect(screen.getByTestId('game-mode-label')).toHaveTextContent('Mode: Player One vs Player Two');
 
     await user.click(screen.getByTestId('manual-power-button-power-y-curtains'));
     await user.click(screen.getByTestId('board-power-card-play-button'));
     await user.click(screen.getByTestId('curtains-confirm'));
-    await user.click(await screen.findByTestId('board-phase-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('manual-reveal-P2'));
 
     await waitFor(() => {
       expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
@@ -797,7 +1370,7 @@ describe('Phase 5 UI', () => {
       expect(screen.queryByTestId('board-curtains-modal')).not.toBeInTheDocument();
     });
 
-    await user.click(await screen.findByTestId('board-phase-handoff-acknowledge'));
+    await user.click(await screen.findByTestId('manual-reveal-P1'));
     expect(screen.getByTestId('manual-power-button-power-y-curtains')).toBeInTheDocument();
   });
 });

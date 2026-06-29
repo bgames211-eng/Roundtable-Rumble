@@ -45,7 +45,7 @@ const CHARACTER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'alpha-009': publicCardsPath('characters', 'rick grimes.JPG'),
   'alpha-010': publicCardsPath('characters', 'daryl dixon.JPG'),
   'alpha-011': publicCardsPath('characters', 'nebula.JPG'),
-  'alpha-012': publicCardsPath('characters', 'gamora.JPG'),
+  'alpha-012': publicCardsPath('characters', 'Gamora 1.JPG'),
   'alpha-013': publicCardsPath('characters', 'Larry The Lobster.JPG'),
   'alpha-014': publicCardsPath('characters', 'Patrick.JPG'),
   'alpha-015': publicCardsPath('characters', 'sandy cheeks.JPG'),
@@ -71,6 +71,7 @@ const CHARACTER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'alpha-035': publicCardsPath('characters', 'jeremy jahns.JPG'),
   'alpha-036': publicCardsPath('characters', 'skar productions.JPG'),
   'alpha-037': publicCardsPath('characters', 'bird.JPG'),
+  'alpha-038': publicCardsPath('characters', 'avatar aang.JPG'),
 };
 
 const POWER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {

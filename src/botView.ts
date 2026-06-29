@@ -1,6 +1,8 @@
-import { getBackwardSpace, getForwardSpace } from './board';
+import { getBackwardSpace, getForwardSpace, getTerritory } from './board';
 import { getBattlePublicView, type BattlePublicView } from './battleFlow';
 import {
+  canMoveForward,
+  executeMoveForward,
   getLegalActions,
   hasLegalAction,
   resolveBattle,
@@ -18,11 +20,27 @@ import {
   type PlayerSafeGameView,
   type PrivatePowerCardView,
 } from './setup';
+import { abilityStrategicScore } from './characterAbilityMetadata';
 
 export interface BotLegalActionDescriptor {
   type: 'move' | 'attack' | 'defend';
   characterId: string;
   knownBattleOutcomeForBot: 'win' | 'loss' | 'draw' | null;
+  actorIsKing: boolean;
+  actorRevealed: boolean;
+  actorBoardPosition: BoardSpace | null;
+  targetCharacterId: string | null;
+  targetIsKing: boolean | null;
+  targetRevealed: boolean | null;
+  targetBoardPosition: BoardSpace | null;
+  crossesIntoEnemyTerritory: boolean;
+  mayGainPowerCardDraw: boolean;
+  opponentKnownWinningReplies: number;
+  exposesOwnKingToKnownWinningReply: boolean;
+  actorAbilityStrategicScore: number;
+  targetAbilityStrategicScore: number | null;
+  targetKnownATK: number | null;
+  targetKnownDEF: number | null;
 }
 
 export interface BotGameView {
@@ -96,11 +114,84 @@ function toBotLegalActionDescriptors(
     return [];
   }
 
-  return getLegalActions(state).map(action => ({
-    type: action.type as BotLegalActionDescriptor['type'],
-    characterId: action.characterId,
-    knownBattleOutcomeForBot: getKnownBattleOutcome(state, botController, action),
-  }));
+  const publicView = getPlayerGameView(state);
+
+  return getLegalActions(state).map(action => {
+    const actor = publicView.boardCards.find(card => card.instanceId === action.characterId) ?? null;
+    const actorPosition = actor?.boardPosition ?? null;
+    const targetSpace = actorPosition
+      ? (action.type === 'move' || action.type === 'attack'
+        ? getForwardSpace(actorPosition)
+        : getBackwardSpace(actorPosition))
+      : null;
+    const target = targetSpace
+      ? publicView.boardCards.find(card => card.boardPosition === targetSpace && card.alive)
+      : null;
+    const crossesIntoEnemyTerritory = !!actorPosition && !!targetSpace && getTerritory(targetSpace) !== getTerritory(actorPosition);
+    const mayGainPowerCardDraw = action.type === 'move'
+      && !!actor?.isKing
+      && crossesIntoEnemyTerritory
+      && publicView.powerCards.remainingDeckCount > 0;
+
+    let opponentKnownWinningReplies = 0;
+    let exposesOwnKingToKnownWinningReply = false;
+
+    if (action.type === 'move' && canMoveForward(state, action.characterId)) {
+      const nextState = executeMoveForward(state, action.characterId);
+      const opponent: Controller = botController === 'P1' ? 'P2' : 'P1';
+      if (!nextState.pendingBattle && nextState.activePlayer === opponent && nextState.gameStatus === 'active') {
+        const opponentActions = getLegalActions(nextState);
+        const ownKing = nextState.characters.find(character => (
+          character.alive
+          && character.controller === botController
+          && character.isKing
+        ));
+
+        for (const opponentAction of opponentActions) {
+          const knownOutcome = getKnownBattleOutcome(nextState, opponent, opponentAction);
+          if (knownOutcome !== 'win') {
+            continue;
+          }
+
+          opponentKnownWinningReplies += 1;
+          if (ownKing && (opponentAction.type === 'attack' || opponentAction.type === 'defend')) {
+            const opponentActor = getCharacter(nextState, opponentAction.characterId);
+            if (opponentActor?.boardPosition) {
+              const targetSpace = opponentAction.type === 'attack'
+                ? getForwardSpace(opponentActor.boardPosition)
+                : getBackwardSpace(opponentActor.boardPosition);
+              if (ownKing.boardPosition === targetSpace) {
+                exposesOwnKingToKnownWinningReply = true;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      type: action.type as BotLegalActionDescriptor['type'],
+      characterId: action.characterId,
+      knownBattleOutcomeForBot: getKnownBattleOutcome(state, botController, action),
+      actorIsKing: !!actor?.isKing,
+      actorRevealed: !!actor?.revealed,
+      actorBoardPosition: actorPosition,
+      targetCharacterId: target?.instanceId ?? null,
+      targetIsKing: target?.isKing ?? null,
+      targetRevealed: target?.revealed ?? null,
+      targetBoardPosition: target?.boardPosition ?? null,
+      crossesIntoEnemyTerritory,
+      mayGainPowerCardDraw,
+      opponentKnownWinningReplies,
+      exposesOwnKingToKnownWinningReply,
+      actorAbilityStrategicScore: abilityStrategicScore(actor?.displayName),
+      targetAbilityStrategicScore: target
+        ? (target.revealed ? abilityStrategicScore(target.displayName) : null)
+        : null,
+      targetKnownATK: target?.revealed ? target.ATK : null,
+      targetKnownDEF: target?.revealed ? target.DEF : null,
+    };
+  });
 }
 
 export function getBotGameView(state: GameState, botController: Controller): BotGameView {

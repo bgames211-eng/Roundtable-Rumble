@@ -157,6 +157,74 @@ describe('Phase 3C battleFlow', () => {
     expect(publicView.opponentComparisonLabel).toBe('DEF');
   });
 
+  it('Rick and Carl cross-controller synergy applies +2 to battle comparison values when both are revealed/alive', () => {
+    const state = initializeGameState([
+      createChar('rick', 'P1', 9, 8, false, 'P1_3', 'RICK GRIMES'),
+      createChar('carl', 'P2', 5.5, 5, false, 'P1_4', 'CARL GRIMES'),
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const revealed = {
+      ...state,
+      characters: state.characters.map(character => (
+        character.id === 'rick' || character.id === 'carl'
+          ? { ...character, revealed: true }
+          : character
+      )),
+    };
+
+    const started = startBattle(revealed, 'attack', 'rick');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorEffectiveComparison).toBe(11);
+    expect(publicView.opponentEffectiveComparison).toBe(7);
+  });
+
+  it('Rick keeps +2 battle bonus even when Carl is dead', () => {
+    const state = initializeGameState([
+      createChar('rick', 'P1', 9, 8, false, 'P1_3', 'RICK GRIMES'),
+      createChar('enemy', 'P2', 4, 5, false, 'P1_4', 'ENEMY'),
+      {
+        ...createChar('carl', 'P2', 5.5, 5, false, 'P2_2', 'CARL GRIMES'),
+        revealed: true,
+        alive: false,
+        boardPosition: null,
+      },
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const started = startBattle(state, 'attack', 'rick');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorEffectiveComparison).toBe(11);
+    expect(publicView.opponentEffectiveComparison).toBe(5);
+  });
+
+  it('Rick does not get +2 battle bonus before Carl is revealed', () => {
+    const state = initializeGameState([
+      {
+        ...createChar('rick', 'P1', 9, 8, false, 'P1_3', 'RICK GRIMES'),
+        revealed: true,
+      },
+      createChar('enemy', 'P2', 4, 5, false, 'P1_4', 'ENEMY'),
+      {
+        ...createChar('carl', 'P2', 5.5, 5, false, 'P2_2', 'CARL GRIMES'),
+        revealed: false,
+        alive: true,
+      },
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const started = startBattle(state, 'attack', 'rick');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorEffectiveComparison).toBe(9);
+    expect(publicView.opponentEffectiveComparison).toBe(5);
+  });
+
   it('resolvePendingBattle matches existing Phase 2 resolver outcome when no Power Cards are played', () => {
     const baseline = initializeGameState([
       createChar('y-att', 'P1', 10, 4, false, 'P1_3'),

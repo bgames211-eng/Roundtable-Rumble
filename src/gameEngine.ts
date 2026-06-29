@@ -73,21 +73,20 @@ function isMrsPuffCharacter(name: string | undefined): boolean {
   return normalizeName(name) === 'MRSPUFF';
 }
 
-function hasLivingRevealedRickAndCarlForController(state: GameState, controller: Controller): boolean {
+function hasLivingRevealedRick(state: GameState): boolean {
   const hasLivingRevealedRick = state.characters.some(character => (
     character.alive
     && character.revealed
-    && character.controller === controller
     && isRickGrimes(character.displayName)
   ));
-  const hasLivingRevealedCarl = state.characters.some(character => (
-    character.alive
-    && character.revealed
-    && character.controller === controller
+  return hasLivingRevealedRick;
+}
+
+function hasRevealedCarl(state: GameState): boolean {
+  return state.characters.some(character => (
+    character.revealed
     && isCarlGrimes(character.displayName)
   ));
-
-  return hasLivingRevealedRick && hasLivingRevealedCarl;
 }
 
 function getEffectiveCoreStat(state: GameState, character: Character, stat: 'ATK' | 'DEF'): number {
@@ -95,7 +94,8 @@ function getEffectiveCoreStat(state: GameState, character: Character, stat: 'ATK
 
   if (
     (isCarlGrimes(character.displayName) || isRickGrimes(character.displayName))
-    && hasLivingRevealedRickAndCarlForController(state, character.controller)
+    && hasLivingRevealedRick(state)
+    && hasRevealedCarl(state)
   ) {
     value += 2;
   }
@@ -884,6 +884,18 @@ export function executeNightcrawlerTeleportMove(
     fromSpace,
     toSpace: destination,
   }]);
+
+  const crossed = character.isKing
+    && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
+
+  if (crossed) {
+    next = resolveKingTerritoryDraw(next, character.controller, {
+      reason: 'NIGHTCRAWLER TELEPORT',
+      characterId,
+      fromSpace,
+      toSpace: destination,
+    });
+  }
 
   next = logEvent(next, 'Nightcrawler Teleport', {
     actingPlayer,

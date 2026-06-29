@@ -418,6 +418,40 @@ describe('Requested Character Mechanics', () => {
     expect(getCharacter(next, 'nightcrawler')?.boardPosition).toBe('P2_5');
   });
 
+  it('King Nightcrawler teleport crossing territory draws one power card', () => {
+    const chars: Character[] = [
+      { ...createChar('nightcrawler-king', 'P1', 6.5, 7, true, true, 'P1_3'), displayName: 'Nightcrawler' },
+      createChar('p2-king', 'P2', 7, 7, true, false, 'P2_3'),
+    ];
+
+    const state = initializeGameState(chars);
+    const beforeDeck = state.powerCardDeck.length;
+    const next = executeNightcrawlerTeleportMove(state, 'P1', 'nightcrawler-king', 'P2_5');
+
+    expect(getCharacter(next, 'nightcrawler-king')?.boardPosition).toBe('P2_5');
+    expect(next.drawCount.P1).toBe(state.drawCount.P1 + 1);
+    expect(next.powerCardHands.P1).toHaveLength(1);
+    expect(next.powerCardDeck.length).toBe(beforeDeck - 1);
+    expect(next.eventLog.some(event => event.action === 'King Territory Draw')).toBe(true);
+  });
+
+  it('King Nightcrawler teleport crossing back across territory also draws one power card', () => {
+    const chars: Character[] = [
+      { ...createChar('nightcrawler-king', 'P1', 6.5, 7, true, true, 'P2_2'), displayName: 'Nightcrawler' },
+      createChar('p2-king', 'P2', 7, 7, true, false, 'P2_3'),
+    ];
+
+    const state = initializeGameState(chars);
+    const beforeDeck = state.powerCardDeck.length;
+    const next = executeNightcrawlerTeleportMove(state, 'P1', 'nightcrawler-king', 'P1_1');
+
+    expect(getCharacter(next, 'nightcrawler-king')?.boardPosition).toBe('P1_1');
+    expect(next.drawCount.P1).toBe(state.drawCount.P1 + 1);
+    expect(next.powerCardHands.P1).toHaveLength(1);
+    expect(next.powerCardDeck.length).toBe(beforeDeck - 1);
+    expect(next.eventLog.some(event => event.action === 'King Territory Draw')).toBe(true);
+  });
+
   it('Rapunzel special pulls the first character behind her to the open spot in front', () => {
     const chars: Character[] = [
       { ...createChar('rapunzel', 'P1', 5, 7, false, true, 'P1_3'), displayName: 'Rapunzel' },

@@ -11,6 +11,7 @@ import type { PlayerSafeGameView } from '../setup';
 import type { PlayerColor } from './StartScreen';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from '../powerCards';
 import { loadPowerCatalog } from '../cardCatalog';
+import { getBackwardSpace } from '../board';
 import './BattleScreen.css';
 
 const SEEN_BATTLE_INTROS = new Set<string>();
@@ -37,6 +38,10 @@ interface BattleScreenProps {
   isBotMode?: boolean;
   onOpenFullBoard?: () => void;
   playerColors?: { P1: PlayerColor; P2: PlayerColor };
+  characterStatusById?: Record<string, string>;
+  manualHandsByController?: { P1: PrivateBattleHandView; P2: PrivateBattleHandView } | null;
+  revealedHandFor?: Controller | null;
+  onRevealHand?: (controller: Controller) => void;
   onAcknowledgeHandoff: (player: Controller) => void;
   onAcknowledgeBotPowerReveal?: () => void;
   onSetReady: (ready: boolean) => void;
@@ -99,6 +104,7 @@ function renderMatchupCard(
   attachedPowerCards: React.ReactNode,
   tagTeamSupportCard: React.ReactNode,
   cardVisual: { artSrc: string | null; fullCardFaceSrc: string | null; visualMode: 'layered-art' | 'full-card-face' },
+  statusTag: string | null,
   onOpenCharacterCard?: (characterId: string) => void,
   resolveRoleClass?: string,
 ): React.ReactElement {
@@ -132,6 +138,7 @@ function renderMatchupCard(
       visualMode: cardVisual.visualMode,
       isKing: card.isKing,
       isFrozen: card.isFrozen,
+      statusTag,
       testId: `battle-name-${card.id}`,
     }),
   );
@@ -172,6 +179,7 @@ function renderCinematicRevealCard(
   card: BattlePublicView['initiator'],
   revealed: boolean,
   cardVisual: { artSrc: string | null; fullCardFaceSrc: string | null; visualMode: 'layered-art' | 'full-card-face' },
+  statusTag: string | null,
 ): React.ReactElement {
   return React.createElement(
     'div',
@@ -190,6 +198,7 @@ function renderCinematicRevealCard(
       visualMode: cardVisual.visualMode,
       isKing: card.isKing,
       isFrozen: card.isFrozen,
+      statusTag: revealed ? statusTag : null,
       testId: `battle-cinematic-${card.id}`,
     }),
   );
@@ -208,6 +217,10 @@ export function BattleScreen({
   isBotMode = false,
   onOpenFullBoard,
   playerColors,
+  characterStatusById = {},
+  manualHandsByController = null,
+  revealedHandFor = null,
+  onRevealHand,
   onAcknowledgeHandoff,
   onAcknowledgeBotPowerReveal,
   onSetReady,
@@ -230,14 +243,17 @@ export function BattleScreen({
   const isCurrentReady = battle.readyPlayers[battle.currentPriorityPlayer];
   const readyToggleLockedForBot = isBotMode && battle.currentPriorityPlayer === 'P2';
   const privateCards = privateHand?.cards ?? [];
-  const scoreLabel = `${battle.initiatorComparisonLabel} ${battle.initiatorEffectiveComparison} vs ${battle.opponentComparisonLabel} ${battle.opponentEffectiveComparison}`;
+  const manualP1Cards = manualHandsByController?.P1.cards ?? [];
+  const manualP2Cards = manualHandsByController?.P2.cards ?? [];
+  const p1ReadyLabel = isBotMode ? 'Human' : 'Player One';
+  const p2ReadyLabel = isBotMode ? 'Bot' : 'Player Two';
+  const priorityLabel = battle.currentPriorityPlayer === 'P1' ? p1ReadyLabel : p2ReadyLabel;
+  const visibleManualCards = !isBotMode
+    ? (revealedHandFor === 'P1' ? manualP1Cards : revealedHandFor === 'P2' ? manualP2Cards : [])
+    : privateCards;
   const scoreDelta = battle.initiatorEffectiveComparison - battle.opponentEffectiveComparison;
-  const initiatorOutcome: 'leading' | 'trailing' | 'tied' = scoreDelta > 0 ? 'leading' : scoreDelta < 0 ? 'trailing' : 'tied';
-  const opponentOutcome: 'leading' | 'trailing' | 'tied' = scoreDelta < 0 ? 'leading' : scoreDelta > 0 ? 'trailing' : 'tied';
   const humanCard = battle.initiator.controller === 'P1' ? battle.initiator : battle.opponent;
   const rivalCard = battle.initiator.controller === 'P2' ? battle.initiator : battle.opponent;
-  const humanOutcome = battle.initiator.controller === 'P1' ? initiatorOutcome : opponentOutcome;
-  const rivalOutcome = battle.initiator.controller === 'P2' ? initiatorOutcome : opponentOutcome;
   const humanScoreValue = battle.initiator.controller === humanCard.controller
     ? battle.initiatorEffectiveComparison
     : battle.opponentEffectiveComparison;
@@ -250,6 +266,10 @@ export function BattleScreen({
   const rivalActiveComparisonLabel = battle.initiator.controller === rivalCard.controller
     ? battle.initiatorComparisonLabel
     : battle.opponentComparisonLabel;
+  const scoreLabel = `${humanActiveComparisonLabel} ${humanScoreValue} vs ${rivalActiveComparisonLabel} ${rivalScoreValue}`;
+  const sideScoreDelta = humanScoreValue - rivalScoreValue;
+  const humanOutcome: 'leading' | 'trailing' | 'tied' = sideScoreDelta > 0 ? 'leading' : sideScoreDelta < 0 ? 'trailing' : 'tied';
+  const rivalOutcome: 'leading' | 'trailing' | 'tied' = sideScoreDelta < 0 ? 'leading' : sideScoreDelta > 0 ? 'trailing' : 'tied';
   const p1ColorClass = colorClassFor(playerColors?.P1);
   const p2ColorClass = colorClassFor(playerColors?.P2);
   const powerCatalogById = useMemo(
@@ -387,16 +407,16 @@ export function BattleScreen({
         },
       ]
     : sharedEffectCards;
-  const expandedPowerCard = privateCards.find(card => card.instanceId === expandedPowerCardId) ?? null;
+  const expandedPowerCard = visibleManualCards.find(card => card.instanceId === expandedPowerCardId) ?? null;
   const expandedChoice = expandedPowerCard ? selectedChoices[expandedPowerCard.instanceId] : undefined;
   const expandedRequiresChoice = !!expandedPowerCard && expandedPowerCard.allowedChoices.length > 0;
   const expandedCanPlay = !!expandedPowerCard
     && expandedPowerCard.isPlayable
     && (!expandedRequiresChoice || !!expandedChoice);
   const isFinalKingDuel = battle.initiator.isKing && battle.opponent.isKing;
-  const winningController = scoreDelta === 0
+  const winningController = sideScoreDelta === 0
     ? null
-    : (scoreDelta > 0 ? battle.initiator.controller : battle.opponent.controller);
+    : (sideScoreDelta > 0 ? 'P1' : 'P2');
   const canAdvanceAfterResolve = !battle.isFinalKingDuel && battle.battleType === 'attack' && winningController === battle.initiator.controller;
   const usedCardsForResolve = usedPowerCardsThisBattle.slice(-3);
   const riddlerReferences = [
@@ -568,7 +588,7 @@ export function BattleScreen({
     }
 
     const target = boardView.boardCards.find(card => card.instanceId === targetCharacterId);
-    if (!target) {
+    if (!target || !target.boardPosition) {
       return null;
     }
 
@@ -598,7 +618,7 @@ export function BattleScreen({
       React.createElement('p', { className: 'battle-tag-team-label' }, 'Tag Team'),
       React.createElement(CharacterCardFrame, {
         size: 'compact',
-        revealed: true,
+        revealed: support.revealed,
         controllerColorClass: support.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
         displayName: support.displayName,
         ATK: support.ATK,
@@ -609,6 +629,7 @@ export function BattleScreen({
         visualMode: support.visualMode,
         isKing: support.isKing,
         isFrozen: support.isFrozen,
+        statusTag: characterStatusById[support.instanceId] ?? null,
         testId: `battle-tag-team-card-${support.instanceId}`,
       }),
     );
@@ -640,6 +661,59 @@ export function BattleScreen({
   };
 
   const leftHandPanel = useMemo(() => {
+    if (!isBotMode) {
+      const cards = revealedHandFor === 'P1' ? manualP1Cards : [];
+      if (cards.length === 0) {
+        const hiddenCount = manualP1Cards.length;
+        return React.createElement(
+          'div',
+          { className: 'battle-hand-placeholder', 'data-testid': 'battle-hand-placeholder-P1' },
+          React.createElement('p', null, 'Cards hidden. Press Reveal to view Player One hand.'),
+          hiddenCount > 0
+            ? React.createElement(
+                'div',
+                { className: 'battle-opponent-column', 'data-testid': 'battle-hidden-hand-P1' },
+                Array.from({ length: hiddenCount }).map((_, idx) => React.createElement(PowerCardFrame, {
+                  key: `battle-hidden-back-P1-${idx}`,
+                  size: 'hand',
+                  state: 'back',
+                  testId: `battle-hidden-back-P1-${idx}`,
+                })),
+              )
+            : null,
+        );
+      }
+
+      return React.createElement(
+        'div',
+        { className: 'battle-private-hand', 'data-testid': 'battle-private-hand-P1' },
+        cards.map(card => React.createElement(
+          'div',
+          { key: card.instanceId, className: 'battle-private-card', 'data-testid': `battle-private-card-${card.instanceId}` },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'battle-hand-card-button',
+              onClick: () => setExpandedPowerCardId(card.instanceId),
+              'data-testid': `battle-card-tap-${card.instanceId}`,
+            },
+            React.createElement(PowerCardFrame, {
+              size: 'hand',
+              displayName: card.displayName,
+              rulesText: card.rulesText,
+              artSrc: card.artImageUrl ?? null,
+              fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
+              visualMode: card.visualMode ?? 'layered-art',
+              state: card.isPlayable ? (expandedPowerCardId === card.instanceId ? 'selected' : 'playable') : 'disabled',
+              selected: expandedPowerCardId === card.instanceId,
+              testId: `battle-private-card-frame-${card.instanceId}`,
+            }),
+          ),
+        )),
+      );
+    }
+
     if (handoffRequiredFor) {
       return React.createElement(
         'div',
@@ -678,7 +752,71 @@ export function BattleScreen({
         );
       }),
     );
-  }, [expandedPowerCardId, handoffRequiredFor, privateCards]);
+  }, [expandedPowerCardId, handoffRequiredFor, isBotMode, manualP1Cards, privateCards, revealedHandFor]);
+
+  const rightHandPanel = useMemo(() => {
+    if (isBotMode) {
+      return React.createElement('div', { className: 'battle-opponent-column' },
+        Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => React.createElement(PowerCardFrame, {
+          key: `battle-opponent-back-${idx}`,
+          size: 'hand',
+          state: 'back',
+          testId: `battle-opponent-back-${idx}`,
+        })),
+      );
+    }
+
+    const cards = revealedHandFor === 'P2' ? manualP2Cards : [];
+    if (cards.length === 0) {
+      const hiddenCount = manualP2Cards.length;
+      return React.createElement(
+        'div',
+        { className: 'battle-hand-placeholder', 'data-testid': 'battle-hand-placeholder-P2' },
+        React.createElement('p', null, 'Cards hidden. Press Reveal to view Player Two hand.'),
+        hiddenCount > 0
+          ? React.createElement(
+              'div',
+              { className: 'battle-opponent-column', 'data-testid': 'battle-hidden-hand-P2' },
+              Array.from({ length: hiddenCount }).map((_, idx) => React.createElement(PowerCardFrame, {
+                key: `battle-hidden-back-P2-${idx}`,
+                size: 'hand',
+                state: 'back',
+                testId: `battle-hidden-back-P2-${idx}`,
+              })),
+            )
+          : null,
+      );
+    }
+
+    return React.createElement(
+      'div',
+      { className: 'battle-private-hand', 'data-testid': 'battle-private-hand-P2' },
+      cards.map(card => React.createElement(
+        'div',
+        { key: card.instanceId, className: 'battle-private-card', 'data-testid': `battle-private-card-${card.instanceId}` },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'battle-hand-card-button',
+            onClick: () => setExpandedPowerCardId(card.instanceId),
+            'data-testid': `battle-card-tap-${card.instanceId}`,
+          },
+          React.createElement(PowerCardFrame, {
+            size: 'hand',
+            displayName: card.displayName,
+            rulesText: card.rulesText,
+            artSrc: card.artImageUrl ?? null,
+            fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
+            visualMode: card.visualMode ?? 'layered-art',
+            state: card.isPlayable ? (expandedPowerCardId === card.instanceId ? 'selected' : 'playable') : 'disabled',
+            selected: expandedPowerCardId === card.instanceId,
+            testId: `battle-private-card-frame-${card.instanceId}`,
+          }),
+        ),
+      )),
+    );
+  }, [battle.powerCardHandCount.P2, expandedPowerCardId, isBotMode, manualP2Cards, revealedHandFor]);
 
   return React.createElement(
     'section',
@@ -701,8 +839,10 @@ export function BattleScreen({
       React.createElement(Board, {
         view: boardView,
         selectedCardId: null,
-        onCardClick: () => undefined,
+        onCardClick: (characterId: string) => onOpenCharacterCard?.(characterId),
         readOnly: true,
+        inspectAllCards: true,
+        characterStatusById,
         playerColors,
       }),
     ),
@@ -758,6 +898,7 @@ export function BattleScreen({
                 visualMode: entry.source.visualMode,
                 isKing: false,
                 isFrozen: false,
+                statusTag: characterStatusById[entry.owner.id] ?? null,
                 testId: `battle-riddler-fx-card-${entry.owner.id}`,
               }),
             )),
@@ -784,17 +925,17 @@ export function BattleScreen({
             : null,
           React.createElement('div', { className: 'battle-cinematic-duel' },
             isBotMode
-              ? renderCinematicRevealCard('Human Character', humanCard, cinematicPhase !== 'clash', battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' })
-              : renderCinematicRevealCard('Opponent', rivalCard, cinematicPhase !== 'clash', battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }),
+              ? renderCinematicRevealCard('Human Character', humanCard, cinematicPhase !== 'clash', battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }, characterStatusById[humanCard.id] ?? null)
+              : renderCinematicRevealCard('Opponent', rivalCard, cinematicPhase !== 'clash', battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }, characterStatusById[rivalCard.id] ?? null),
             React.createElement('div', { className: 'battle-vs-divider' }, 'VS'),
             isBotMode
-              ? renderCinematicRevealCard('Bot Character', rivalCard, cinematicPhase !== 'clash', battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' })
-              : renderCinematicRevealCard('Your Character', humanCard, cinematicPhase !== 'clash', battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }),
+              ? renderCinematicRevealCard('Bot Character', rivalCard, cinematicPhase !== 'clash', battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }, characterStatusById[rivalCard.id] ?? null)
+              : renderCinematicRevealCard('Your Character', humanCard, cinematicPhase !== 'clash', battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }, characterStatusById[humanCard.id] ?? null),
           ),
         )
       : null,
 
-    cinematicPhase === 'main' && handoffRequiredFor
+    cinematicPhase === 'main' && handoffRequiredFor && isBotMode
       ? React.createElement(
           'section',
           { className: 'battle-handoff', 'data-testid': 'battle-handoff' },
@@ -827,7 +968,18 @@ export function BattleScreen({
     cinematicPhase === 'main'
       ? React.createElement('div', { className: 'battle-main-grid' },
         React.createElement('aside', { className: 'battle-side-column battle-side-left', 'data-testid': 'battle-inline-hand' },
-          React.createElement('h3', null, isBotMode ? 'Human Power Cards' : `${playerLabel(battle.currentPriorityPlayer)} Power Cards`),
+          React.createElement('h3', null, isBotMode ? 'Human Power Cards' : 'Player One Power Cards'),
+          !isBotMode && onRevealHand
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => onRevealHand('P1'),
+                  'data-testid': 'battle-reveal-P1',
+                },
+                revealedHandFor === 'P1' ? 'Hide' : 'Reveal',
+              )
+            : null,
           botPriorityPanel
             ? React.createElement(
                 'div',
@@ -840,44 +992,29 @@ export function BattleScreen({
         React.createElement('section', { className: 'battle-center-stage', 'data-testid': 'battle-hero-overlay' },
           React.createElement('div', { className: 'battle-sr-meta' },
             React.createElement('p', { className: 'battle-score-banner', 'data-testid': 'battle-score-banner' }, scoreLabel),
-            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-type' }, `${battle.initiatorComparisonLabel} vs ${battle.opponentComparisonLabel}`),
-            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-priority' }, `Current Priority: ${battle.currentPriorityPlayer === 'P1' ? 'Human' : 'Bot'}`),
-            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-ready-p1' }, `Human Ready: ${battle.readyPlayers.P1 ? 'Yes' : 'No'}`),
-            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-ready-p2' }, `Bot Ready: ${battle.readyPlayers.P2 ? 'Yes' : 'No'}`),
+            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-type' }, `${humanActiveComparisonLabel} vs ${rivalActiveComparisonLabel}`),
+            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-priority' }, `Current Priority: ${priorityLabel}`),
+            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-ready-p1' }, `${p1ReadyLabel} Ready: ${battle.readyPlayers.P1 ? 'Yes' : 'No'}`),
+            React.createElement('p', { className: 'battle-line', 'data-testid': 'battle-ready-p2' }, `${p2ReadyLabel} Ready: ${battle.readyPlayers.P2 ? 'Yes' : 'No'}`),
             React.createElement('p', { className: 'battle-effective-line', 'data-testid': 'battle-effective-preview' }, `Comparison: ${scoreLabel}`),
           ),
           React.createElement('div', { className: 'battle-duel-row' },
-            isBotMode
-              ? renderMatchupCard(
-                  'Human Character',
-                  humanCard,
-                  humanOutcome,
-                  'human',
-                  humanActiveComparisonLabel,
-                  humanScoreValue,
-                  humanCard.controller === 'P1' ? p1ColorClass : p2ColorClass,
-                  humanActiveComparisonLabel,
-                  renderAttachedPowerCardsFor(humanCard.id),
-                  renderTagTeamSupportFor(humanCard.id),
-                  battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
-                  onOpenCharacterCard,
-                  resolvingAnimationActive ? (winningController === humanCard.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
-                )
-              : renderMatchupCard(
-                  'Initiator',
-                  battle.initiator,
-                  initiatorOutcome,
-                  'human',
-                  battle.initiatorComparisonLabel,
-                  battle.initiatorEffectiveComparison,
-                  battle.initiator.controller === 'P1' ? p1ColorClass : p2ColorClass,
-                  battle.initiatorComparisonLabel,
-                  renderAttachedPowerCardsFor(battle.initiator.id),
-                  renderTagTeamSupportFor(battle.initiator.id),
-                  battleVisualById.get(battle.initiator.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
-                  onOpenCharacterCard,
-                  resolvingAnimationActive ? (winningController === battle.initiator.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
-                ),
+            renderMatchupCard(
+              isBotMode ? 'Human Character' : 'Player One Character',
+              humanCard,
+              humanOutcome,
+              'human',
+              humanActiveComparisonLabel,
+              humanScoreValue,
+              humanCard.controller === 'P1' ? p1ColorClass : p2ColorClass,
+              humanActiveComparisonLabel,
+              renderAttachedPowerCardsFor(humanCard.id),
+              renderTagTeamSupportFor(humanCard.id),
+              battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
+              characterStatusById[humanCard.id] ?? null,
+              onOpenCharacterCard,
+              resolvingAnimationActive ? (winningController === humanCard.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
+            ),
             React.createElement('div', { className: 'battle-mid-lane' },
               React.createElement('div', { className: 'battle-vs-divider' }, 'VS'),
               sharedEffectsForRender.length > 0
@@ -902,37 +1039,22 @@ export function BattleScreen({
                   )
                 : null,
             ),
-            isBotMode
-              ? renderMatchupCard(
-                  'Bot Character',
-                  rivalCard,
-                  rivalOutcome,
-                  'bot',
-                  rivalActiveComparisonLabel,
-                  rivalScoreValue,
-                  rivalCard.controller === 'P1' ? p1ColorClass : p2ColorClass,
-                  rivalActiveComparisonLabel,
-                  renderAttachedPowerCardsFor(rivalCard.id),
-                  renderTagTeamSupportFor(rivalCard.id),
-                  battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
-                  onOpenCharacterCard,
-                  resolvingAnimationActive ? (winningController === rivalCard.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
-                )
-              : renderMatchupCard(
-                  'Opponent',
-                  battle.opponent,
-                  opponentOutcome,
-                  'bot',
-                  battle.opponentComparisonLabel,
-                  battle.opponentEffectiveComparison,
-                  battle.opponent.controller === 'P1' ? p1ColorClass : p2ColorClass,
-                  battle.opponentComparisonLabel,
-                  renderAttachedPowerCardsFor(battle.opponent.id),
-                  renderTagTeamSupportFor(battle.opponent.id),
-                  battleVisualById.get(battle.opponent.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
-                  onOpenCharacterCard,
-                  resolvingAnimationActive ? (winningController === battle.opponent.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
-                ),
+            renderMatchupCard(
+              isBotMode ? 'Bot Character' : 'Player Two Character',
+              rivalCard,
+              rivalOutcome,
+              'bot',
+              rivalActiveComparisonLabel,
+              rivalScoreValue,
+              rivalCard.controller === 'P1' ? p1ColorClass : p2ColorClass,
+              rivalActiveComparisonLabel,
+              renderAttachedPowerCardsFor(rivalCard.id),
+              renderTagTeamSupportFor(rivalCard.id),
+              battleVisualById.get(rivalCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' },
+              characterStatusById[rivalCard.id] ?? null,
+              onOpenCharacterCard,
+              resolvingAnimationActive ? (winningController === rivalCard.controller ? 'resolve-winner' : winningController ? 'resolve-loser' : 'resolve-neutral') : '',
+            ),
           ),
           riddlerReferences.length > 0
             ? React.createElement(
@@ -956,6 +1078,7 @@ export function BattleScreen({
                     visualMode: entry.source.visualMode,
                     isKing: false,
                     isFrozen: false,
+                    statusTag: characterStatusById[entry.owner.id] ?? null,
                     testId: `battle-riddler-reference-${entry.owner.id}`,
                   }),
                 )),
@@ -981,7 +1104,7 @@ export function BattleScreen({
                     onClick: () => onSetReady(true),
                     'data-testid': 'battle-ready-button',
                   },
-                  `Ready ${battle.currentPriorityPlayer === 'P1' ? 'Human' : 'Bot'}`,
+                    `Ready ${priorityLabel}`,
                 )
               : null,
             canReadyToggle && isCurrentReady && !readyToggleLockedForBot
@@ -992,7 +1115,7 @@ export function BattleScreen({
                     onClick: () => onSetReady(false),
                     'data-testid': 'battle-unready-button',
                   },
-                  `Unready ${battle.currentPriorityPlayer === 'P1' ? 'Human' : 'Bot'}`,
+                    `Unready ${priorityLabel}`,
                 )
               : null,
             canResolve
@@ -1031,15 +1154,19 @@ export function BattleScreen({
           ),
         ),
         React.createElement('aside', { className: 'battle-side-column battle-side-right', 'data-testid': 'battle-opponent-face-down' },
-          React.createElement('h3', null, 'Opponent Power Cards'),
-          React.createElement('div', { className: 'battle-opponent-column' },
-            Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => React.createElement(PowerCardFrame, {
-              key: `battle-opponent-back-${idx}`,
-              size: 'hand',
-              state: 'back',
-              testId: `battle-opponent-back-${idx}`,
-            })),
-          ),
+          React.createElement('h3', null, isBotMode ? 'Opponent Power Cards' : 'Player Two Power Cards'),
+          !isBotMode && onRevealHand
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => onRevealHand('P2'),
+                  'data-testid': 'battle-reveal-P2',
+                },
+                revealedHandFor === 'P2' ? 'Hide' : 'Reveal',
+              )
+            : null,
+          rightHandPanel,
         ),
       )
       : null,
@@ -1070,7 +1197,7 @@ export function BattleScreen({
         )
       : null,
 
-    cinematicPhase === 'main' && expandedPowerCard && !handoffRequiredFor
+    cinematicPhase === 'main' && expandedPowerCard
       ? React.createElement(
           'section',
           { className: 'battle-card-inspector-overlay', 'data-testid': 'battle-card-inspector' },

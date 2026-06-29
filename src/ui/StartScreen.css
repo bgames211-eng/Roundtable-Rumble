@@ -51,94 +51,84 @@
   gap: 0.75rem;
 }
 
-.catalog-grid {
+.catalog-character-grid,
+.catalog-power-grid {
   border: 1px solid rgba(245, 237, 220, 0.35);
   border-radius: 16px;
   background: rgba(0, 0, 0, 0.2);
   padding: 0.9rem;
   display: grid;
-  gap: 0.8rem;
+  gap: 0.95rem;
   max-height: 56vh;
   overflow: auto;
 }
 
-.catalog-card {
-  border: 1px solid rgba(245, 237, 220, 0.3);
-  border-radius: 14px;
+.catalog-character-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.catalog-power-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.catalog-character-tile,
+.catalog-power-tile {
+  border: 1px solid rgba(245, 237, 220, 0.24);
+  border-radius: 16px;
   background: rgba(0, 0, 0, 0.22);
   padding: 0.7rem;
   display: grid;
-  grid-template-columns: 118px minmax(0, 1fr);
-  grid-template-areas:
-    'badge badge'
-    'preview editor';
-  gap: 0.8rem;
-  align-items: start;
-}
-
-.catalog-badge {
-  grid-area: badge;
-  justify-self: start;
-  border-radius: 999px;
-  padding: 0.18rem 0.65rem;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.catalog-badge-layered {
-  background: rgba(97, 201, 232, 0.18);
-  color: #d8fbff;
-  border: 1px solid rgba(97, 201, 232, 0.4);
-}
-
-.catalog-badge-full {
-  background: rgba(242, 190, 74, 0.18);
-  color: #fff0c7;
-  border: 1px solid rgba(242, 190, 74, 0.45);
-}
-
-.catalog-preview {
-  grid-area: preview;
-  display: grid;
   justify-items: center;
-  align-content: start;
-  gap: 0.45rem;
+  align-items: center;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.catalog-editor {
-  grid-area: editor;
+.catalog-character-tile:hover,
+.catalog-power-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(245, 237, 220, 0.6);
+}
+
+.catalog-character-tile.selected,
+.catalog-power-tile.selected {
+  border-color: rgba(242, 190, 74, 0.95);
+  box-shadow: 0 0 0 2px rgba(242, 190, 74, 0.45);
+}
+
+.catalog-read-panel {
+  border: 1px solid rgba(245, 237, 220, 0.35);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.24);
+  padding: 0.95rem 1rem;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 
-.catalog-editor label {
-  display: grid;
-  gap: 0.2rem;
-  font-weight: 700;
+.catalog-read-panel h3 {
+  margin: 0;
   color: var(--cream);
+  font-size: 1.22rem;
 }
 
-.catalog-editor input,
-.catalog-editor textarea {
-  border: 1px solid rgba(245, 237, 220, 0.4);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
-  color: var(--cream);
-  padding: 0.45rem 0.55rem;
-  font-size: 1rem;
+.catalog-read-stats {
+  margin: 0;
+  color: #ffeab4;
+  font-weight: 800;
 }
 
-.catalog-editor textarea {
-  min-height: 74px;
-  resize: vertical;
+.catalog-read-ability-title {
+  margin: 0.35rem 0 0;
+  color: #61c9e8;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.9rem;
 }
 
-.catalog-helper {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: rgba(244, 231, 207, 0.86);
+.catalog-read-ability {
+  margin: 0;
+  color: #f4e7cf;
+  line-height: 1.28;
 }
 
 .catalog-warning {
@@ -150,10 +140,6 @@
   color: #ffe7ae;
   font-size: 0.9rem;
   font-weight: 700;
-}
-
-.catalog-field-muted {
-  opacity: 0.8;
 }
 
 .rps-hero {
@@ -589,6 +575,20 @@
   100% { transform: scale(0.94) skewX(-12deg); opacity: 0.45; }
 }
 
+@media (max-width: 1120px) {
+  .catalog-character-grid,
+  .catalog-power-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .catalog-character-grid,
+  .catalog-power-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 760px) {
   .color-columns {
     grid-template-columns: 1fr;
@@ -614,16 +614,18 @@
     flex-direction: column;
   }
 
-  .catalog-card {
+  .catalog-character-grid,
+  .catalog-power-grid {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      'badge'
-      'preview'
-      'editor';
-    justify-items: center;
   }
 
-  .catalog-editor {
-    width: 100%;
+  .catalog-character-tile,
+  .catalog-power-tile {
+    padding: 0.45rem;
+  }
+
+  .catalog-character-tile .character-card-battle,
+  .catalog-power-tile .power-card-battle {
+    width: 168px;
   }
 }

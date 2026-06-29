@@ -276,16 +276,13 @@ function getConditionalBattleStatModifier(
     const hasLivingRevealedRick = state.characters.some(character => (
       character.alive
       && character.revealed
-      && character.controller === self.controller
       && isRickGrimes(character.displayName)
     ));
-    const hasLivingRevealedCarl = state.characters.some(character => (
-      character.alive
-      && character.revealed
-      && character.controller === self.controller
+    const hasRevealedCarl = state.characters.some(character => (
+      character.revealed
       && isCarlGrimes(character.displayName)
     ));
-    if (hasLivingRevealedRick && hasLivingRevealedCarl) {
+    if (hasLivingRevealedRick && hasRevealedCarl) {
       total += 2;
     }
   }
@@ -1183,12 +1180,25 @@ export function playBattlePowerCard(
       throw new Error('Cannot play card: TAG TEAM requires a living allied character directly behind your battler');
     }
 
+    if (!behind.revealed) {
+      state = {
+        ...state,
+        characters: state.characters.map(character => (
+          character.id === behind.id
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    }
+
+    const supportCharacter = getCharacter(state, behind.id) ?? behind;
+
     const ownLabel = getCurrentComparisonLabelForController(updatedBattle, actingPlayer);
     const amount = ownLabel === 'ATK'
-      ? getEffectiveBattleStat(state, updatedBattle, behind.id, 'ATK')
-      : getEffectiveBattleStat(state, updatedBattle, behind.id, 'DEF');
+      ? getEffectiveBattleStat(state, updatedBattle, supportCharacter.id, 'ATK')
+      : getEffectiveBattleStat(state, updatedBattle, supportCharacter.id, 'DEF');
 
-    effectSummary = `TAG TEAM adds ${amount} ${ownLabel} from ${behind.displayName ?? behind.id}`;
+    effectSummary = `TAG TEAM adds ${amount} ${ownLabel} from ${supportCharacter.displayName ?? supportCharacter.id}`;
     updatedBattle = applyModifier(
       updatedBattle,
       cardInHand.instanceId,
@@ -1394,10 +1404,7 @@ export function playBattlePowerCard(
 
     const nextInitiatorId = replacementFor(updatedBattle.initiatorId);
     const nextOpponentId = replacementFor(updatedBattle.opponentId);
-    const swappedOutBattlerIds = [
-      nextInitiatorId !== updatedBattle.initiatorId ? updatedBattle.initiatorId : null,
-      nextOpponentId !== updatedBattle.opponentId ? updatedBattle.opponentId : null,
-    ].filter((id): id is string => !!id);
+    const nextBattlerIds = new Set([nextInitiatorId, nextOpponentId]);
 
     if (nextInitiatorId !== updatedBattle.initiatorId || nextOpponentId !== updatedBattle.opponentId) {
       const forceRevealIds = new Set([nextInitiatorId, nextOpponentId]);
@@ -1413,7 +1420,7 @@ export function playBattlePowerCard(
 
     const nextRiddlerSources: Record<string, CharacterDeckCard> = {};
     for (const [characterId, source] of Object.entries(updatedBattle.riddlerStatSourceByCharacterId)) {
-      if (!swappedOutBattlerIds.includes(characterId)) {
+      if (nextBattlerIds.has(characterId)) {
         nextRiddlerSources[characterId] = source;
       }
     }
@@ -1422,7 +1429,9 @@ export function playBattlePowerCard(
       ...updatedBattle,
       initiatorId: nextInitiatorId,
       opponentId: nextOpponentId,
-      temporaryModifiers: updatedBattle.temporaryModifiers.filter(modifier => !swappedOutBattlerIds.includes(modifier.targetCharacterId)),
+      // Temporary battle modifiers are tied to character IDs, not sides.
+      // Keep modifiers for whichever two characters remain in the battle after swap.
+      temporaryModifiers: updatedBattle.temporaryModifiers.filter(modifier => nextBattlerIds.has(modifier.targetCharacterId)),
       riddlerStatSourceByCharacterId: nextRiddlerSources,
     };
 

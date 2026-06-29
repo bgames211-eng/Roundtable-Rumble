@@ -69,9 +69,10 @@ describe('Phase 3A Card Definitions', () => {
       { definitionId: 'alpha-035', displayName: 'JEREMY JAHNS', printedATK: 6, printedDEF: 6.5 },
       { definitionId: 'alpha-036', displayName: 'SKAR PRODUCTIONS', printedATK: 7.5, printedDEF: 6 },
       { definitionId: 'alpha-037', displayName: 'BIRD', printedATK: 2, printedDEF: 2 },
+      { definitionId: 'alpha-038', displayName: 'AVATAR AANG', printedATK: 8.5, printedDEF: 8.5 },
     ];
 
-    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(37);
+    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(38);
     expect(
       ALPHA_1_CHARACTER_DEFINITIONS.map(def => ({
         definitionId: def.definitionId,
@@ -199,7 +200,7 @@ describe('Phase 3A Standard Setup', () => {
     expect(target?.definitionId).toBeDefined();
   });
 
-  it('Rick and Carl show +2 ATK/DEF label and stat boost only while both are alive and revealed', () => {
+  it('Rick and Carl gain +2 while Rick is alive/revealed, and Rick keeps +2 after Carl is defeated', () => {
     const state = initializeGameState([
       {
         id: 'rick',
@@ -261,6 +262,21 @@ describe('Phase 3A Standard Setup', () => {
     const rick = state.characters.find(character => character.id === 'rick');
     const carl = state.characters.find(character => character.id === 'carl');
 
+    const onlyRickRevealed = {
+      ...state,
+      characters: state.characters.map(character => (
+        character.id === rick?.id
+          ? { ...character, revealed: true }
+          : character
+      )),
+    };
+
+    const noBonusBeforeCarlReveal = getPlayerGameView(onlyRickRevealed);
+    const noBonusRickBeforeCarlReveal = noBonusBeforeCarlReveal.boardCards.find(card => card.instanceId === 'rick');
+    expect(noBonusRickBeforeCarlReveal?.ATK).toBe(rick?.ATK);
+    expect(noBonusRickBeforeCarlReveal?.DEF).toBe(rick?.DEF);
+    expect(noBonusRickBeforeCarlReveal?.statRule ?? '').not.toContain('+2 ATK / +2 DEF');
+
     const bothRevealed = {
       ...state,
       characters: state.characters.map(character => {
@@ -291,11 +307,71 @@ describe('Phase 3A Standard Setup', () => {
       )),
     };
 
-    const noBonusView = getPlayerGameView(carlDefeated);
-    const noBonusRick = noBonusView.boardCards.find(card => card.instanceId === 'rick');
-    expect(noBonusRick?.ATK).toBe(rick?.ATK);
-    expect(noBonusRick?.DEF).toBe(rick?.DEF);
-    expect(noBonusRick?.statRule ?? '').not.toContain('+2 ATK / +2 DEF');
+    const postCarlDefeatView = getPlayerGameView(carlDefeated);
+    const postCarlDefeatRick = postCarlDefeatView.boardCards.find(card => card.instanceId === 'rick');
+    expect(postCarlDefeatRick?.ATK).toBe((rick?.ATK ?? 0) + 2);
+    expect(postCarlDefeatRick?.DEF).toBe((rick?.DEF ?? 0) + 2);
+    expect(postCarlDefeatRick?.statRule ?? '').toContain('+2 ATK / +2 DEF');
+  });
+
+  it('Rick and Carl gain +2 ATK/DEF even when on opposing controllers if both are alive and revealed', () => {
+    const state = initializeGameState([
+      {
+        id: 'rick',
+        controller: 'P1',
+        ATK: 9,
+        DEF: 8,
+        isKing: false,
+        boardPosition: 'P1_2',
+        revealed: true,
+        alive: true,
+        displayName: 'RICK GRIMES',
+      } as Character,
+      {
+        id: 'carl',
+        controller: 'P2',
+        ATK: 5.5,
+        DEF: 5,
+        isKing: false,
+        boardPosition: 'P2_2',
+        revealed: true,
+        alive: true,
+        displayName: 'CARL GRIMES',
+      } as Character,
+      {
+        id: 'p1-king',
+        controller: 'P1',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P1_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P1 KING',
+      } as Character,
+      {
+        id: 'p2-king',
+        controller: 'P2',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P2_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P2 KING',
+      } as Character,
+    ]);
+
+    const view = getPlayerGameView(state);
+    const rick = view.boardCards.find(card => card.instanceId === 'rick');
+    const carl = view.boardCards.find(card => card.instanceId === 'carl');
+
+    expect(rick?.ATK).toBe(11);
+    expect(rick?.DEF).toBe(10);
+    expect(carl?.ATK).toBe(7.5);
+    expect(carl?.DEF).toBe(7);
+    expect(rick?.statRule ?? '').toContain('+2 ATK / +2 DEF');
+    expect(carl?.statRule ?? '').toContain('+2 ATK / +2 DEF');
   });
 
   it('starts each player with 3 actual Power Cards and drawCount preserved at 0', () => {

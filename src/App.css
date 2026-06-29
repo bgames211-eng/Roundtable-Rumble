@@ -244,6 +244,23 @@ input:focus-visible {
   animation: roomba-draw-travel 3s ease forwards;
 }
 
+.mrs-puff-puff-overlay {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 62;
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  pointer-events: none;
+}
+
+.mrs-puff-puff-card {
+  animation: mrs-puff-puff-grow 3s cubic-bezier(0.16, 0.76, 0.24, 1) forwards;
+  filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.38));
+}
+
 .ant-draw-travel {
   position: fixed;
   left: var(--draw-start-x, 0px);
@@ -661,6 +678,29 @@ input:focus-visible {
   }
   100% {
     transform: translate(calc(-50% + var(--to-hand-x, -520px)), calc(-50% + var(--to-hand-y, -220px))) scale(0.65);
+    opacity: 0;
+  }
+}
+
+@keyframes mrs-puff-puff-grow {
+  0% {
+    transform: scale(0.88);
+    opacity: 0;
+  }
+  20% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  55% {
+    transform: scale(1.32);
+    opacity: 1;
+  }
+  78% {
+    transform: scale(1.2);
+    opacity: 0.96;
+  }
+  100% {
+    transform: scale(1.04);
     opacity: 0;
   }
 }
@@ -1294,6 +1334,8 @@ input:focus-visible {
 
 .board-character-card-modal-panel {
   position: relative;
+  max-height: 92vh;
+  overflow-y: auto;
 }
 
 .board-modal-close {
@@ -1309,9 +1351,17 @@ input:focus-visible {
 }
 
 .board-character-card-modal-panel .character-card-battle {
-  transform: scale(2.06);
-  transform-origin: center center;
+  width: min(72vw, 360px);
+  transform: none;
   box-shadow: 0 14px 24px rgba(0, 0, 0, 0.44);
+  margin: 1.2rem 0 1.6rem;
+}
+
+.board-character-card-modal-panel .board-modal-anytime-special {
+  position: relative;
+  z-index: 2;
+  margin-top: 0.4rem;
+  text-align: center;
 }
 
 .board-power-card-modal-panel .power-card-battle {
@@ -1329,6 +1379,28 @@ input:focus-visible {
 .board-character-card-modal-panel .power-popover-controls,
 .board-power-card-modal-panel .power-popover-controls {
   margin-top: 0.4rem;
+}
+
+.board-power-card-modal-panel .power-card-row {
+  justify-content: center;
+}
+
+.board-power-card-modal-panel .jeremy-top-card-button .power-card-hand {
+  width: min(30vw, 220px);
+  border-radius: 14px;
+}
+
+.board-power-card-modal-panel .jeremy-top-card-button.selected {
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 4px #ffe08a,
+    0 0 22px rgba(255, 224, 138, 0.72);
+}
+
+.board-power-card-modal-panel .jeremy-top-card-button.selected .power-card-frame {
+  box-shadow:
+    0 0 0 4px #ffe08a,
+    0 0 22px rgba(255, 224, 138, 0.72);
 }
 
 .board-targeting-overlay {
@@ -1476,6 +1548,17 @@ input:focus-visible {
   position: relative;
   z-index: 1;
   justify-content: center;
+}
+
+.board-curtains-panel-static::before,
+.board-curtains-panel-static::after {
+  animation: none;
+  transform: scaleX(0.03);
+  opacity: 0.3;
+}
+
+.board-curtains-panel-static .board-curtains-content {
+  animation: none;
 }
 
 .board-curtains-swap-overlay {

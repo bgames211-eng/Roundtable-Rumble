@@ -29,6 +29,7 @@ interface BoardProps {
   swapCharacterMotion?: {
     first: {
       characterId: string;
+      revealed: boolean;
       displayName: string;
       ATK: number;
       DEF: number;
@@ -43,8 +44,9 @@ interface BoardProps {
       artImageUrl?: string;
       fullCardFaceImageUrl?: string;
     };
-    second: {
+    second?: {
       characterId: string;
+      revealed: boolean;
       displayName: string;
       ATK: number;
       DEF: number;
@@ -119,6 +121,8 @@ interface BoardProps {
   kingDuelRumbleIds?: string[];
   thawingCharacterIds?: string[];
   boardImploding?: boolean;
+  inspectAllCards?: boolean;
+  characterStatusById?: Record<string, string>;
 }
 
 const ringOrder = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_5', 'P2_4', 'P2_3', 'P2_2', 'P2_1'] as const;
@@ -169,6 +173,8 @@ function renderRingSpace(
   portalSourceCharacterId: string | null,
   actionTargetFx: BoardProps['actionTargetFx'],
   readOnly: boolean,
+  inspectAllCards: boolean,
+  characterStatusById: Record<string, string>,
   powerCatalogById: Map<string, { visualMode: 'layered-art' | 'full-card-face'; artImageUrl: string; fullCardFaceImageUrl: string }>,
   playerColors?: { P1: PlayerColor; P2: PlayerColor },
   cardMotion?: BoardProps['cardMotion'],
@@ -187,6 +193,7 @@ function renderRingSpace(
   const actionTargetClickable = !readOnly && !!actionTarget && !!onActionTargetClick;
   const selectable = !readOnly && !!card && card.controller === view.activePlayer && view.gameStatus === 'active' && !actionTargetClickable;
   const inspectableOpponent = !readOnly && !!card && card.revealed && card.controller !== view.activePlayer && !actionTargetClickable;
+  const inspectableAny = !!card && inspectAllCards && !actionTargetClickable;
   const selectableViaActionTarget = !!card && actionTargetClickable && allowCardClickOnActionTargets;
   const weaponTargetClickable = !!card && allowWeaponTargetClicks && card.alive && !actionTargetClickable;
   const portalRetargetClickable = !!card
@@ -194,7 +201,7 @@ function renderRingSpace(
     && card.alive
     && card.controller === view.activePlayer;
   const portalSourceSelected = !!card && portalSourceCharacterId === card.instanceId;
-  const cardClickable = selectable || inspectableOpponent || selectableViaActionTarget || weaponTargetClickable || portalRetargetClickable;
+  const cardClickable = selectable || inspectableOpponent || inspectableAny || selectableViaActionTarget || weaponTargetClickable || portalRetargetClickable;
   const actionTargetFxClass = actionTarget && actionTarget === 'move' && actionTargetFx
     ? ` action-target-${actionTargetFx}`
     : '';
@@ -210,7 +217,9 @@ function renderRingSpace(
     && !!swapCharacterMotion
     && (
       (card.instanceId === swapCharacterMotion.first.characterId && position === swapCharacterMotion.first.fromPosition)
-      || (card.instanceId === swapCharacterMotion.second.characterId && position === swapCharacterMotion.second.fromPosition)
+      || (!!swapCharacterMotion.second
+        && card.instanceId === swapCharacterMotion.second.characterId
+        && position === swapCharacterMotion.second.fromPosition)
     );
   const revealAnimated = !!card && revealAnimationIds.includes(card.instanceId);
   const rumbleAnimated = !!card && kingDuelRumbleIds.includes(card.instanceId);
@@ -269,6 +278,7 @@ function renderRingSpace(
             isKing: card.isKing,
             isFrozen: card.isFrozen,
             isThawing: thawAnimated,
+            statusTag: characterStatusById[card.instanceId] ?? null,
             selected: isSelected,
             tilt: layout.tilt,
             testId: card.revealed ? 'card-revealed' : 'card-back',
@@ -318,7 +328,7 @@ function renderRingSpace(
   );
 }
 
-export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], boardImploding = false }: BoardProps): React.ReactElement {
+export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {} }: BoardProps): React.ReactElement {
   const segments = ringOrder.map((position, index) => [position, ringOrder[(index + 1) % ringOrder.length]] as const);
   const animatedCard = cardMotion ? view.boardCards.find(card => card.instanceId === cardMotion.characterId) : null;
   const animatedControllerClass = animatedCard ? colorClassFor(playerColors?.[animatedCard.controller]) : 'player-color-blue';
@@ -351,8 +361,8 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
 
   const swapFirstFromLayout = swapCharacterMotion ? RING_LAYOUT[swapCharacterMotion.first.fromPosition] : null;
   const swapFirstToLayout = swapCharacterMotion ? RING_LAYOUT[swapCharacterMotion.first.toPosition] : null;
-  const swapSecondFromLayout = swapCharacterMotion ? RING_LAYOUT[swapCharacterMotion.second.fromPosition] : null;
-  const swapSecondToLayout = swapCharacterMotion ? RING_LAYOUT[swapCharacterMotion.second.toPosition] : null;
+  const swapSecondFromLayout = swapCharacterMotion?.second ? RING_LAYOUT[swapCharacterMotion.second.fromPosition] : null;
+  const swapSecondToLayout = swapCharacterMotion?.second ? RING_LAYOUT[swapCharacterMotion.second.toPosition] : null;
 
   const swapFirstStyle = swapFirstFromLayout && swapFirstToLayout
     ? {
@@ -434,7 +444,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
         }),
       ),
       React.createElement('div', { className: 'territory-divider', 'data-testid': 'territory-divider' }),
-      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds)),
+      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds)),
       rapunzelHairPoints
         ? React.createElement(
             'svg',
@@ -518,7 +528,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
             },
             React.createElement(CharacterCardFrame, {
               size: 'board',
-              revealed: true,
+              revealed: swapCharacterMotion.first.revealed,
               controllerColorClass: colorClassFor(playerColors?.[swapCharacterMotion.first.fromController]),
               displayName: swapCharacterMotion.first.displayName,
               ATK: swapCharacterMotion.first.ATK,
@@ -536,7 +546,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
               : null,
           )
         : null,
-      swapCharacterMotion && swapSecondFromLayout && swapSecondToLayout && swapSecondStyle
+      swapCharacterMotion && swapCharacterMotion.second && swapSecondFromLayout && swapSecondToLayout && swapSecondStyle
         ? React.createElement(
             'div',
             {
@@ -546,7 +556,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
             },
             React.createElement(CharacterCardFrame, {
               size: 'board',
-              revealed: true,
+              revealed: swapCharacterMotion.second.revealed,
               controllerColorClass: colorClassFor(playerColors?.[swapCharacterMotion.second.fromController]),
               displayName: swapCharacterMotion.second.displayName,
               ATK: swapCharacterMotion.second.ATK,
