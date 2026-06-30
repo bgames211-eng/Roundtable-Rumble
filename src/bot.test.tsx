@@ -594,6 +594,37 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('pass');
   });
 
+  it('hard battle mode avoids wasting Freeze Gun into king tie-loss line', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 9,
+        opponentComparisonValue: 4,
+        winningMargin: 5,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'freeze-gun-1', targetCharacterId: 'p2-battler' },
+          displayName: 'FREEZE GUN',
+          definitionId: 'power-alpha-014',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 9,
+            opponentComparisonValue: 9,
+            winningMargin: 0,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      botBattlerIsKing: false,
+      opponentBattlerIsKing: true,
+      remainingBattleHandCount: 2,
+    });
+
+    expect(decision.kind).toBe('pass');
+  });
+
   it('standard battle mode allows non-king draw trade when it removes top revealed threat', () => {
     const decision = chooseBotBattleDecision({
       botController: 'P2',

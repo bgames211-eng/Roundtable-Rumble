@@ -113,6 +113,11 @@ function marginForController(controller: 'P1' | 'P2', result: ProjectedBattleRes
   if (result.winner === 'draw') {
     return 0;
   }
+  // In king tie-break lines, winner can be the opponent with winningMargin = 0.
+  // Normalize that case to a real negative margin so conservation logic treats it as a loss.
+  if (result.winningMargin === 0) {
+    return -0.5;
+  }
   return -result.winningMargin;
 }
 
@@ -246,8 +251,12 @@ function battleCandidateScore(
     score -= impactCost * (difficulty === 'Hard' ? 6 : difficulty === 'Standard' ? 10 : 4) * conservationMultiplier;
   }
 
-  // Do not dump equipment into a line that is still clearly losing unless it creates real swing.
-  if (cardMetadata.effectType === 'equipment' && projectedMarginForBot < 0) {
+  // Equipment should generally be conserved unless it creates a true winning line.
+  // This avoids wasteful equips where the battler still dies (including king tie-loss lines).
+  if (cardMetadata.effectType === 'equipment' && projectedMarginForBot <= 0) {
+    if (projectedMarginForBot === 0) {
+      score -= (difficulty === 'Hard' ? 220 : difficulty === 'Standard' ? 190 : 80) * conservationMultiplier;
+    }
     if (delta < 3) {
       score -= (difficulty === 'Hard' ? 140 : difficulty === 'Standard' ? 110 : 45) * conservationMultiplier;
     }
