@@ -673,6 +673,8 @@ export function chooseBotBattleDecision(
   const evaluated = candidates.map(candidate => {
     const projectedMargin = marginForController(botController, candidate.projectedResult);
     const delta = projectedMargin - currentMargin;
+    const isEquipment = getPowerCardAiMetadata(candidate.definitionId).effectType === 'equipment';
+    const isNonWinningEquipment = isEquipment && projectedMargin <= 0;
     let score = battleCandidateScore(
       candidate,
       projectedMargin,
@@ -706,8 +708,21 @@ export function chooseBotBattleDecision(
       projectedMargin,
       delta,
       score,
+      isNonWinningEquipment,
     };
-  });
+  }).filter(entry => !entry.isNonWinningEquipment);
+
+  const blockedEquipmentCount = candidates.length - evaluated.length;
+
+  if (evaluated.length === 0) {
+    return {
+      kind: 'pass',
+      explanation: blockedEquipmentCount > 0
+        ? 'Bot passes: will not spend equipment unless it creates a winning battle line.'
+        : 'Bot passes: no legal battle card candidates to evaluate.',
+      alternativesConsidered: candidates.length,
+    };
+  }
 
   const winning = evaluated.filter(entry => entry.projectedMargin > 0);
   if (winning.length > 0) {
