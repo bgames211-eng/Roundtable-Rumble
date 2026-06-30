@@ -30,7 +30,12 @@ export type BotBoardDecisionContext = Pick<
   | 'gameStatus'
   | 'pendingBattle'
   | 'legalActions'
->;
+> & {
+  recentBotActionType?: 'move' | 'attack' | 'defend' | null;
+  recentBotActionStreak?: number;
+  ownPowerCardCount?: number;
+  opponentPowerCardCount?: number;
+};
 
 export type BotBattleDecision =
   | {
@@ -398,7 +403,7 @@ function describeBattleCandidateChoice(
   return `${entry.candidate.displayName} (projected ${entry.projectedMargin}, score ${entry.score})`;
 }
 
-function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
+function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
   const isKingActor = action.actorIsKing;
   const isActorRevealed = action.actorRevealed;
   const isTargetKing = !!action.targetIsKing;
@@ -554,6 +559,25 @@ function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, d
     if (isTargetKing && action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 120 : 95;
       reasons.push('defensive line can remove enemy king threat');
+    }
+  }
+
+  const recentType = view.recentBotActionType ?? null;
+  const recentStreak = view.recentBotActionStreak ?? 0;
+  if (recentType && recentType === action.type && recentStreak >= 2) {
+    const isClearlyHighValue = (
+      (action.type === 'attack' && action.knownBattleOutcomeForBot === 'win' && !!action.targetIsKing)
+      || (action.type === 'move' && action.mayGainPowerCardDraw)
+    );
+    if (!isClearlyHighValue) {
+      const repeatPenaltyBase = recentStreak >= 3 ? 28 : 16;
+      const repeatPenalty = difficulty === 'Hard'
+        ? repeatPenaltyBase
+        : difficulty === 'Standard'
+          ? Math.round(repeatPenaltyBase * 1.2)
+          : Math.round(repeatPenaltyBase * 0.8);
+      score -= repeatPenalty;
+      reasons.push('anti-loop penalty: repeated same action pattern');
     }
   }
 

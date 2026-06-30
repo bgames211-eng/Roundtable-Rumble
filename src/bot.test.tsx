@@ -364,6 +364,71 @@ describe('Phase 5 Bot', () => {
     }
   });
 
+  it('standard mode anti-loop shifts away from repeated move pattern when alternatives are close', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 17,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      recentBotActionType: 'move',
+      recentBotActionStreak: 3,
+      legalActions: [
+        action('move', 'repeat-move', null, {
+          actorIsKing: false,
+          crossesIntoEnemyTerritory: true,
+          mayGainPowerCardDraw: false,
+        }),
+        action('defend', 'switch-defend', 'draw', {
+          actorIsKing: false,
+          targetCharacterId: 'p1-front',
+          targetRevealed: true,
+        }),
+      ],
+    }, 'Standard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('defend');
+      expect(decision.action.characterId).toBe('switch-defend');
+    }
+  });
+
+  it('anti-loop does not suppress clear king-kill winning attack', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 18,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      recentBotActionType: 'attack',
+      recentBotActionStreak: 4,
+      legalActions: [
+        action('attack', 'king-kill-attack', 'win', {
+          actorIsKing: false,
+          targetCharacterId: 'p1-king',
+          targetIsKing: true,
+          targetRevealed: true,
+        }),
+        action('move', 'safe-move', null, {
+          actorIsKing: false,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('attack');
+      expect(decision.action.characterId).toBe('king-kill-attack');
+    }
+  });
+
   it('bot battle decision chooses pass when already projected to win', () => {
     const decision = chooseBotBattleDecision('P2', {
       winner: 'P2',
