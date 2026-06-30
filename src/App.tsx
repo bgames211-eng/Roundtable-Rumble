@@ -56,6 +56,7 @@ import { getBotGameView } from './botView';
 import { getBackwardSpace, getForwardSpace } from './board';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from './powerCards';
 import { loadPowerCatalog } from './cardCatalog';
+import { createMultiplayerClient, type MultiplayerClient } from './multiplayer';
 
 function toPublicEventText(events: Array<{ turn: number; activePlayer: Controller; action: string }>): string[] {
   return [...events]
@@ -415,6 +416,7 @@ interface PostBattleBoardAnimation {
 }
 
 export function App({ createGameState }: AppProps = {}): React.ReactElement {
+  const multiplayerStorageKey = 'roundtable-rumble-multiplayer-room';
   const [screen, setScreen] = useState<'start' | 'match'>('start');
   const [firstPlayer, setFirstPlayer] = useState<Controller>('P1');
   const [gameMode, setGameMode] = useState<GameMode>('manual-two-player');
@@ -428,6 +430,21 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [sessionRpsResult, setSessionRpsResult] = useState('');
   const [sessionRpsBattle, setSessionRpsBattle] = useState<SessionRpsBattle | null>(null);
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('Standard');
+  const [multiplayerRoomCode, setMultiplayerRoomCode] = useState<string | null>(null);
+  const [multiplayerJoinCode, setMultiplayerJoinCode] = useState('');
+  const [multiplayerStatus, setMultiplayerStatus] = useState<string | null>(null);
+  const [multiplayerPlayer, setMultiplayerPlayer] = useState<'P1' | 'P2' | null>(null);
+  const [multiplayerMode, setMultiplayerMode] = useState(false);
+  const multiplayerClientRef = useRef<MultiplayerClient | null>(null);
+  const suppressNextMultiplayerSyncRef = useRef(false);
+
+  const saveMultiplayerSession = (roomCode: string, player: 'P1' | 'P2'): void => {
+    window.localStorage.setItem(multiplayerStorageKey, JSON.stringify({ roomCode, player }));
+  };
+
+  const clearMultiplayerSession = (): void => {
+    window.localStorage.removeItem(multiplayerStorageKey);
+  };
   const [gameCatalogOpen, setGameCatalogOpen] = useState(false);
   const [playerColors, setPlayerColors] = useState<{ P1: PlayerColor; P2: PlayerColor }>({
     P1: 'Blue',
@@ -498,6 +515,52 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const previousFrozenByIdRef = useRef<Map<string, boolean>>(new Map());
   const scoredSessionGamesRef = useRef<Set<number>>(new Set());
   const rapunzelTimerRefs = useRef<number[]>([]);
+
+  useEffect(() => {
+    const client = createMultiplayerClient();
+    multiplayerClientRef.current = client;
+
+    const handleRoomUpdate = (room: { code: string; state: GameState | null; players: { P1: string | null; P2: string | null } }) => {
+      if (room.code !== multiplayerRoomCode) {
+        return;
+      }
+
+      if (room.state) {
+        suppressNextMultiplayerSyncRef.current = true;
+        setState(room.state);
+      }
+    };
+
+    client.socket.on('room:update', handleRoomUpdate);
+
+    const storedSessionText = window.localStorage.getItem(multiplayerStorageKey);
+    if (storedSessionText) {
+      try {
+        const storedSession = JSON.parse(storedSessionText) as { roomCode?: string; player?: 'P1' | 'P2' };
+        if (storedSession.roomCode && storedSession.player) {
+          setMultiplayerMode(true);
+          setMultiplayerRoomCode(storedSession.roomCode);
+          setMultiplayerPlayer(storedSession.player);
+          setMultiplayerStatus(`Reconnecting to room ${storedSession.roomCode}...`);
+          void client.requestState(storedSession.roomCode).then(room => {
+            if (room?.state) {
+              suppressNextMultiplayerSyncRef.current = true;
+              setState(room.state);
+              setMultiplayerStatus(`Rejoined room ${storedSession.roomCode} as ${storedSession.player}.`);
+            }
+          });
+        }
+      } catch {
+        clearMultiplayerSession();
+      }
+    }
+
+    return () => {
+      client.socket.off('room:update', handleRoomUpdate);
+      client.disconnect();
+      multiplayerClientRef.current = null;
+    };
+  }, [multiplayerRoomCode]);
 
   const clearRapunzelTimers = (): void => {
     for (const timer of rapunzelTimerRefs.current) {
@@ -2215,6 +2278,65 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       sessionUsedCharacterPile: [],
       sessionUsedPowerCardPile: [],
     }, effectiveFirstPlayer);
+
+    if (multiplayerMode && multiplayerRoomCode && multiplayerClientRef.current) {
+      multiplayerClientRef.current.syncState(multiplayerRoomCode, {
+        ...next,
+        sessionMode: 'single-game',
+        sessionGameNumber: 1,
+        sessionRunoutOccurred: false,
+        sessionUsedCharacterPile: [],
+        sessionUsedPowerCardPile: [],
+      });
+    }
+  };
+
+  const createMultiplayerRoom = async (): Promise<void> => {
+    const client = multiplayerClientRef.current;
+    if (!client) {
+      setMultiplayerStatus('Multiplayer is not connected. Start the local server first.');
+      return;
+    }
+
+    setMultiplayerStatus('Creating room...');
+    try {
+      const result = await client.createRoom();
+      setMultiplayerMode(true);
+      setMultiplayerRoomCode(result.roomCode);
+      setMultiplayerPlayer('P1');
+      saveMultiplayerSession(result.roomCode, 'P1');
+      setMultiplayerStatus(`Room created. Give code ${result.roomCode} to your friend.`);
+    } catch (error) {
+      setMultiplayerStatus(error instanceof Error ? error.message : 'Could not create room.');
+    }
+  };
+
+  const joinMultiplayerRoom = async (): Promise<void> => {
+    const client = multiplayerClientRef.current;
+    if (!client) {
+      setMultiplayerStatus('Multiplayer is not connected. Start the local server first.');
+      return;
+    }
+
+    if (!multiplayerJoinCode.trim()) {
+      setMultiplayerStatus('Enter a room code first.');
+      return;
+    }
+
+    setMultiplayerStatus('Joining room...');
+    try {
+      const result = await client.joinRoom(multiplayerJoinCode);
+      setMultiplayerMode(true);
+      setMultiplayerRoomCode(result.code);
+      setMultiplayerPlayer(result.player);
+      saveMultiplayerSession(result.code, result.player);
+      setMultiplayerStatus(`Joined room ${result.code} as ${result.player}.`);
+      if (result.state) {
+        setState(result.state);
+      }
+    } catch (error) {
+      setMultiplayerStatus(error instanceof Error ? error.message : 'Could not join room.');
+    }
   };
 
   const continueSession = (firstPlayerOverride?: Controller): void => {
@@ -2256,6 +2378,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setSessionRpsBattle(null);
     setSessionRpsLocked(false);
     setSessionRpsResult('');
+    clearMultiplayerSession();
     setState(null);
     setScreen('start');
   };
@@ -2326,6 +2449,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       draw: prev.draw + (winner === 'draw' ? 1 : 0),
     }));
   }, [state]);
+
+  useEffect(() => {
+    if (!multiplayerMode || !multiplayerRoomCode || !multiplayerClientRef.current || !state) {
+      return;
+    }
+
+    if (suppressNextMultiplayerSyncRef.current) {
+      suppressNextMultiplayerSyncRef.current = false;
+      return;
+    }
+
+    multiplayerClientRef.current.syncState(multiplayerRoomCode, state);
+  }, [multiplayerMode, multiplayerRoomCode, state]);
 
   useEffect(() => {
     if (pendingCurtainsPlay) {
@@ -5343,11 +5479,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       gameMode,
       sessionMode,
       botDifficulty,
+      multiplayerRoomCode,
+      multiplayerStatus,
+      multiplayerJoinCode,
       playerColors,
       onFirstPlayerChange: setFirstPlayer,
       onGameModeChange: setGameMode,
       onSessionModeChange: setSessionMode,
       onBotDifficultyChange: setBotDifficulty,
+      onMultiplayerJoinCodeChange: setMultiplayerJoinCode,
+      onCreateMultiplayerRoom: () => { void createMultiplayerRoom(); },
+      onJoinMultiplayerRoom: () => { void joinMultiplayerRoom(); },
       onPlayerColorChange: (player, color) => {
         setPlayerColors(prev => ({ ...prev, [player]: color }));
       },

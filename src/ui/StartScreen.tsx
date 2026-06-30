@@ -98,11 +98,17 @@ interface StartScreenProps {
   gameMode: GameMode;
   sessionMode: SessionMode;
   botDifficulty: BotDifficulty;
+  multiplayerRoomCode?: string | null;
+  multiplayerStatus?: string | null;
+  multiplayerJoinCode?: string;
   playerColors: { P1: PlayerColor; P2: PlayerColor };
   onFirstPlayerChange: (next: Controller) => void;
   onGameModeChange: (next: GameMode) => void;
   onSessionModeChange: (next: SessionMode) => void;
   onBotDifficultyChange: (next: BotDifficulty) => void;
+  onMultiplayerJoinCodeChange?: (next: string) => void;
+  onCreateMultiplayerRoom?: () => void;
+  onJoinMultiplayerRoom?: () => void;
   onPlayerColorChange: (player: Controller, color: PlayerColor) => void;
   onNewGame: (firstPlayerOverride?: Controller) => void;
   initialPhase?: SetupPhase;
@@ -125,11 +131,17 @@ export function StartScreen({
   gameMode,
   sessionMode,
   botDifficulty,
+  multiplayerRoomCode = null,
+  multiplayerStatus = null,
+  multiplayerJoinCode = '',
   playerColors = { P1: 'Blue', P2: 'Red' },
   onFirstPlayerChange,
   onGameModeChange,
   onSessionModeChange,
   onBotDifficultyChange,
+  onMultiplayerJoinCodeChange,
+  onCreateMultiplayerRoom,
+  onJoinMultiplayerRoom,
   onPlayerColorChange,
   onNewGame,
   initialPhase,
@@ -438,6 +450,37 @@ export function StartScreen({
     }),
   );
 
+  const multiplayerSection = React.createElement(
+    'section',
+    { className: 'first-player-field', 'data-testid': 'multiplayer-section' },
+    React.createElement('legend', null, 'Online Room'),
+    React.createElement('p', { className: 'mode-confirm-copy' }, 'Create a room on one device, then join it on another.'),
+    React.createElement('div', { className: 'mode-toggle-row' },
+      React.createElement(
+        'button',
+        { type: 'button', className: 'begin-button', onClick: onCreateMultiplayerRoom, 'data-testid': 'create-room-button' },
+        'Host Game',
+      ),
+      React.createElement(
+        'input',
+        {
+          type: 'text',
+          value: multiplayerJoinCode,
+          onChange: event => onMultiplayerJoinCodeChange?.(event.currentTarget.value),
+          placeholder: 'Enter game code',
+          'data-testid': 'join-room-input',
+        },
+      ),
+      React.createElement(
+        'button',
+        { type: 'button', className: 'mode-button', onClick: onJoinMultiplayerRoom, 'data-testid': 'join-room-button' },
+        'Join Game',
+      ),
+    ),
+    multiplayerRoomCode ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-code-display' }, `Room Code: ${multiplayerRoomCode}`) : null,
+    multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status' }, multiplayerStatus) : null,
+  );
+
   if (phase === 'landing') {
     return React.createElement(
       'main',
@@ -565,6 +608,7 @@ export function StartScreen({
         React.createElement('h1', { className: 'start-title' }, 'Roundtable Rumble'),
         React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
       ),
+      multiplayerSection,
       React.createElement(
         'fieldset',
         { className: 'first-player-field', 'data-testid': 'game-mode-field' },
