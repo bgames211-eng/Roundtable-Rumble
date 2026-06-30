@@ -121,6 +121,10 @@ function marginForController(controller: 'P1' | 'P2', result: ProjectedBattleRes
   return -result.winningMargin;
 }
 
+function isEquipmentDefinition(definitionId: string): boolean {
+  return getPowerCardAiMetadata(definitionId).effectType === 'equipment';
+}
+
 function strategicValueScore(definitionId: string): number {
   const strategicValue = getPowerCardAiMetadata(definitionId).strategicValue;
   if (strategicValue === 'premium') {
@@ -594,7 +598,7 @@ export function chooseBotBoardDecision(
   const bandSize = Math.max(1, Math.ceil(ranked.length * ratio));
   const topBand = ranked.slice(0, bandSize);
 
-  const easyMistake = difficulty === 'Easy' && topBand.length > 1 && randomFn() < 0.04;
+  const easyMistake = difficulty === 'Easy' && topBand.length > 1 && randomFn() < 0.02;
   const chosen = easyMistake ? topBand[topBand.length - 1] : topBand[0];
 
   return {
@@ -673,8 +677,6 @@ export function chooseBotBattleDecision(
   const evaluated = candidates.map(candidate => {
     const projectedMargin = marginForController(botController, candidate.projectedResult);
     const delta = projectedMargin - currentMargin;
-    const isEquipment = getPowerCardAiMetadata(candidate.definitionId).effectType === 'equipment';
-    const isNonWinningEquipment = isEquipment && projectedMargin <= 0;
     let score = battleCandidateScore(
       candidate,
       projectedMargin,
@@ -708,23 +710,32 @@ export function chooseBotBattleDecision(
       projectedMargin,
       delta,
       score,
-      isNonWinningEquipment,
     };
-  }).filter(entry => !entry.isNonWinningEquipment);
+  });
 
-  const blockedEquipmentCount = candidates.length - evaluated.length;
+  const filteredEvaluated = (difficulty === 'Hard' || difficulty === 'Standard')
+    ? evaluated.filter(entry => {
+      if (!isEquipmentDefinition(entry.candidate.definitionId)) {
+        return true;
+      }
 
-  if (evaluated.length === 0) {
-    return {
-      kind: 'pass',
-      explanation: blockedEquipmentCount > 0
-        ? 'Bot passes: will not spend equipment unless it creates a winning battle line.'
-        : 'Bot passes: no legal battle card candidates to evaluate.',
-      alternativesConsidered: candidates.length,
-    };
-  }
+      // Hard/Standard conserve equipment unless it wins now.
+      if (entry.projectedMargin > 0) {
+        return true;
+      }
 
-  const winning = evaluated.filter(entry => entry.projectedMargin > 0);
+      // King emergency override: allow equipment if it improves the line.
+      if (imminentKingLoss && entry.delta > 0) {
+        return true;
+      }
+
+      return false;
+    })
+    : evaluated;
+
+  const candidatePool = filteredEvaluated.length > 0 ? filteredEvaluated : evaluated;
+
+  const winning = candidatePool.filter(entry => entry.projectedMargin > 0);
   if (winning.length > 0) {
     let winningPool = [...winning];
 
@@ -777,7 +788,7 @@ export function chooseBotBattleDecision(
       explanation: `Bot plays ${bestWin.candidate.displayName}: chooses resilient minimum-margin win (projected ${bestWin.projectedMargin}, score ${bestWin.score}).`,
       projectedMarginForBot: bestWin.projectedMargin,
       score: bestWin.score,
-      alternativesConsidered: evaluated.length,
+      alternativesConsidered: candidatePool.length,
       counterStabilityMarginForBot: bestWin.candidate.opponentBestCounterMarginForBot,
       deepCounterStabilityMarginForBot: bestWin.candidate.opponentBestCounterAfterBotBestRejoinderMarginForBot,
       expectedDeepCounterStabilityMarginForBot: bestWin.candidate.opponentExpectedCounterAfterBotBestRejoinderMarginForBot,
@@ -787,16 +798,16 @@ export function chooseBotBattleDecision(
   const shouldReserveForFutureBattle = !imminentKingLoss && !botBattlerIsKing;
   const drawTradeThreshold = difficulty === 'Hard' ? 35 : difficulty === 'Standard' ? 45 : 28;
   const improving = imminentKingLoss
-    ? evaluated.filter(entry => entry.delta >= 0)
+    ? candidatePool.filter(entry => entry.delta >= 0)
     : shouldReserveForFutureBattle
-      ? evaluated.filter(entry => (
+      ? candidatePool.filter(entry => (
         entry.delta > 0
         && (
           entry.projectedMargin > 0
           || (entry.projectedMargin === 0 && entry.score >= drawTradeThreshold)
         )
       ))
-      : evaluated.filter(entry => entry.delta > 0);
+      : candidatePool.filter(entry => entry.delta > 0);
 
   if (improving.length === 0) {
     return {
@@ -804,7 +815,7 @@ export function chooseBotBattleDecision(
       explanation: shouldReserveForFutureBattle
         ? 'Bot passes: no legal card reaches draw/win in this non-king battle.'
         : 'Bot passes: no legal card improves projected battle outcome.',
-      alternativesConsidered: evaluated.length,
+      alternativesConsidered: candidatePool.length,
     };
   }
 
@@ -826,7 +837,7 @@ export function chooseBotBattleDecision(
     return left.candidate.input.instanceId.localeCompare(right.candidate.input.instanceId);
   });
 
-  const easyMistake = difficulty === 'Easy' && improving.length > 1 && randomFn() < 0.04;
+  const easyMistake = difficulty === 'Easy' && improving.length > 1 && randomFn() < 0.02;
   const bestImprove = easyMistake ? improving[improving.length - 1] : improving[0];
   const isReserveLine = shouldReserveForFutureBattle && bestImprove.projectedMargin <= 0;
   const shouldUseImprove = imminentKingLoss
@@ -836,12 +847,12 @@ export function chooseBotBattleDecision(
         ? bestImprove.score >= 45
         : difficulty === 'Standard'
           ? bestImprove.score >= 70
-          : false
+          : bestImprove.score >= 90
     : difficulty === 'Hard'
       ? bestImprove.score >= 5
       : difficulty === 'Standard'
         ? bestImprove.score >= 25
-        : false;
+        : bestImprove.score >= 15;
 
   if (
     shouldUseImprove
@@ -851,7 +862,7 @@ export function chooseBotBattleDecision(
     return {
       kind: 'pass',
       explanation: 'Bot passes: conserving last high-impact card in close non-king draw-trade edge case.',
-      alternativesConsidered: evaluated.length,
+      alternativesConsidered: candidatePool.length,
     };
   }
 
@@ -859,7 +870,7 @@ export function chooseBotBattleDecision(
     return {
       kind: 'pass',
       explanation: `Bot passes: best improvement score (${bestImprove.score}) does not meet ${difficulty} threshold.`,
-      alternativesConsidered: evaluated.length,
+      alternativesConsidered: candidatePool.length,
     };
   }
 
@@ -871,7 +882,7 @@ export function chooseBotBattleDecision(
     explanation: `Bot plays ${bestImprove.candidate.displayName}: improves projected margin by ${bestImprove.delta} (score ${bestImprove.score}).`,
     projectedMarginForBot: bestImprove.projectedMargin,
     score: bestImprove.score,
-    alternativesConsidered: evaluated.length,
+    alternativesConsidered: candidatePool.length,
     counterStabilityMarginForBot: bestImprove.candidate.opponentBestCounterMarginForBot,
     deepCounterStabilityMarginForBot: bestImprove.candidate.opponentBestCounterAfterBotBestRejoinderMarginForBot,
     expectedDeepCounterStabilityMarginForBot: bestImprove.candidate.opponentExpectedCounterAfterBotBestRejoinderMarginForBot,

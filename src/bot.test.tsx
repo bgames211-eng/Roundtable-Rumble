@@ -625,7 +625,70 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('pass');
   });
 
-  it('hard battle mode never spends equipment in a still-losing line, even during imminent king loss', () => {
+  it('standard battle mode conserves equipment on non-winning non-emergency line', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 11,
+        opponentComparisonValue: 6,
+        winningMargin: 5,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'freeze-gun-standard', targetCharacterId: 'p2-battler' },
+          displayName: 'FREEZE GUN',
+          definitionId: 'power-alpha-014',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 11,
+            opponentComparisonValue: 9,
+            winningMargin: 2,
+          },
+        },
+      ],
+      difficulty: 'Standard',
+      imminentKingLoss: false,
+      botBattlerIsKing: false,
+    });
+
+    expect(decision.kind).toBe('pass');
+  });
+
+  it('hard battle mode allows equipment when king loss is imminent and line improves', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 12,
+        opponentComparisonValue: 6,
+        winningMargin: 6,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'freeze-gun-king-save', targetCharacterId: 'p2-king' },
+          displayName: 'FREEZE GUN',
+          definitionId: 'power-alpha-014',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 12,
+            opponentComparisonValue: 10,
+            winningMargin: 2,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      imminentKingLoss: true,
+      botBattlerIsKing: true,
+    });
+
+    expect(decision.kind).toBe('play');
+    if (decision.kind === 'play') {
+      expect(decision.definitionId).toBe('power-alpha-014');
+    }
+  });
+
+  it('hard battle mode can spend equipment in king-emergency lines when it meaningfully improves survival odds', () => {
     const decision = chooseBotBattleDecision({
       botController: 'P2',
       currentResult: {
@@ -653,7 +716,10 @@ describe('Phase 5 Bot', () => {
       remainingBattleHandCount: 1,
     });
 
-    expect(decision.kind).toBe('pass');
+    expect(decision.kind).toBe('play');
+    if (decision.kind === 'play') {
+      expect(decision.definitionId).toBe('power-alpha-014');
+    }
   });
 
   it('hard battle mode can still spend equipment when it creates a winning line', () => {
