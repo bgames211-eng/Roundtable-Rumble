@@ -291,9 +291,10 @@ function battleCandidateScore(
     }
 
     score += drawTradeSignal;
-    score -= difficulty === 'Hard' ? 110 : difficulty === 'Standard' ? 160 : 90;
+    score += Math.max(0, 4 - impactCost) * (difficulty === 'Hard' ? 26 : difficulty === 'Standard' ? 20 : 14);
+    score -= difficulty === 'Hard' ? 92 : difficulty === 'Standard' ? 130 : 72;
     if (drawTradeSignal <= 0) {
-      score -= difficulty === 'Hard' ? 90 : difficulty === 'Standard' ? 120 : 60;
+      score -= difficulty === 'Hard' ? 78 : difficulty === 'Standard' ? 102 : 52;
     }
   }
 
@@ -389,6 +390,12 @@ function isCloseStandardDrawTradeEdge(
 
   // Near-threshold draw-trade value band where either spend/save can be correct.
   return entry.score >= 45 && entry.score <= 95;
+}
+
+function describeBattleCandidateChoice(
+  entry: { candidate: BattlePlayCandidate; projectedMargin: number; score: number },
+): string {
+  return `${entry.candidate.displayName} (projected ${entry.projectedMargin}, score ${entry.score})`;
 }
 
 function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
@@ -778,14 +785,15 @@ export function chooseBotBattleDecision(
       return left.candidate.input.instanceId.localeCompare(right.candidate.input.instanceId);
     });
 
-    const easyMistake = difficulty === 'Easy' && winningPool.length > 1 && randomFn() < 0.04;
+    const easyMistake = difficulty === 'Easy' && winningPool.length > 1 && randomFn() < 0.02;
     const bestWin = easyMistake ? winningPool[winningPool.length - 1] : winningPool[0];
+    const rejectedWin = winningPool.find(entry => entry !== bestWin);
     return {
       kind: 'play',
       input: bestWin.candidate.input,
       displayName: bestWin.candidate.displayName,
       definitionId: bestWin.candidate.definitionId,
-      explanation: `Bot plays ${bestWin.candidate.displayName}: chooses resilient minimum-margin win (projected ${bestWin.projectedMargin}, score ${bestWin.score}).`,
+      explanation: `Bot plays ${bestWin.candidate.displayName}: chooses resilient minimum-margin win (projected ${bestWin.projectedMargin}, score ${bestWin.score}).${rejectedWin ? ` Rejected: ${describeBattleCandidateChoice(rejectedWin)}.` : ''}`,
       projectedMarginForBot: bestWin.projectedMargin,
       score: bestWin.score,
       alternativesConsidered: candidatePool.length,
@@ -839,6 +847,7 @@ export function chooseBotBattleDecision(
 
   const easyMistake = difficulty === 'Easy' && improving.length > 1 && randomFn() < 0.02;
   const bestImprove = easyMistake ? improving[improving.length - 1] : improving[0];
+  const rejectedImprove = improving.find(entry => entry !== bestImprove);
   const isReserveLine = shouldReserveForFutureBattle && bestImprove.projectedMargin <= 0;
   const shouldUseImprove = imminentKingLoss
     ? bestImprove.score >= -120
@@ -869,7 +878,7 @@ export function chooseBotBattleDecision(
   if (!shouldUseImprove) {
     return {
       kind: 'pass',
-      explanation: `Bot passes: best improvement score (${bestImprove.score}) does not meet ${difficulty} threshold.`,
+      explanation: `Bot passes: best improvement score (${bestImprove.score}) does not meet ${difficulty} threshold.${rejectedImprove ? ` Top candidate: ${describeBattleCandidateChoice(bestImprove)}.` : ''}`,
       alternativesConsidered: candidatePool.length,
     };
   }
@@ -879,7 +888,7 @@ export function chooseBotBattleDecision(
     input: bestImprove.candidate.input,
     displayName: bestImprove.candidate.displayName,
     definitionId: bestImprove.candidate.definitionId,
-    explanation: `Bot plays ${bestImprove.candidate.displayName}: improves projected margin by ${bestImprove.delta} (score ${bestImprove.score}).`,
+    explanation: `Bot plays ${bestImprove.candidate.displayName}: improves projected margin by ${bestImprove.delta} (score ${bestImprove.score}).${rejectedImprove ? ` Rejected: ${describeBattleCandidateChoice(rejectedImprove)}.` : ''}`,
     projectedMarginForBot: bestImprove.projectedMargin,
     score: bestImprove.score,
     alternativesConsidered: candidatePool.length,
