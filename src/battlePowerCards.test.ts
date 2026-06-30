@@ -786,6 +786,31 @@ describe('Phase 4A Step 3 battle power cards', () => {
     expect(view.opponentEffectiveDEF).toBe(11);
   });
 
+  it('SWAP CHARACTERS during battle transfers king status to the incoming replacement and keeps the swapped-out king non-king', () => {
+    const state = {
+      ...createBattleState(),
+      powerCardHands: {
+        P1: [{ instanceId: 'power-y-swap', definitionId: 'power-alpha-018' }],
+        P2: [],
+      },
+    };
+
+    const afterPlay = playBattlePowerCard(openBattleAndAcknowledge(state), 'P1', {
+      instanceId: 'power-y-swap',
+      targetCharacterId: 'y-att',
+      secondTargetCharacterId: 'a-king',
+    });
+
+    const yAtt = afterPlay.characters.find(character => character.id === 'y-att');
+    const aKing = afterPlay.characters.find(character => character.id === 'a-king');
+
+    expect(afterPlay.pendingBattle?.initiatorId).toBe('a-king');
+    expect(yAtt?.controller).toBe('P2');
+    expect(aKing?.controller).toBe('P1');
+    expect(yAtt?.isKing).toBe(true);
+    expect(aKing?.isKing).toBe(false);
+  });
+
   it('SWAP CHARACTERS swapping RIDDLER into battle immediately uses bottom deck stats', () => {
     const state = {
       ...createBattleState(),

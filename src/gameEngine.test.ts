@@ -364,6 +364,24 @@ describe('Board Phase Power Relocation Cards', () => {
     expect(getCharacter(next, 'p2-king')?.isKing).toBe(true);
   });
 
+  it('SWAP CHARACTERS transfers king status to the incoming replacement when swapping with one king', () => {
+    const chars: Character[] = [
+      createChar('p1-genghis', 'P1', 7, 7, false, false, 'P1_2'),
+      createChar('p1-king', 'P1', 8, 8, true, false, 'P1_3'),
+      createChar('p2-koolaid', 'P2', 9, 9, true, false, 'P2_3'),
+      createChar('p2-filler', 'P2', 6, 6, false, false, 'P2_4'),
+    ];
+
+    const state = initializeGameState(chars);
+    const next = executeSwapCharactersMove(state, 'P1', 'p1-genghis', 'p2-koolaid');
+
+    expect(getCharacter(next, 'p1-genghis')?.controller).toBe('P2');
+    expect(getCharacter(next, 'p2-koolaid')?.controller).toBe('P1');
+    expect(getCharacter(next, 'p1-genghis')?.isKing).toBe(true);
+    expect(getCharacter(next, 'p2-koolaid')?.isKing).toBe(false);
+    expect(getCharacter(next, 'p1-king')?.isKing).toBe(true);
+  });
+
   it('BEHIND THE CURTAINS swaps one selected hand card each', () => {
     const chars: Character[] = [
       createChar('p1-own', 'P1', 6, 6, true, false, 'P1_3'),

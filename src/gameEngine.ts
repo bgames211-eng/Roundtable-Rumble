@@ -1083,6 +1083,8 @@ export function executeSwapCharactersMove(
 
   const ownFrom = ownCharacter.boardPosition;
   const opponentFrom = opponentCharacter.boardPosition;
+  const ownWasKing = ownCharacter.isKing;
+  const opponentWasKing = opponentCharacter.isKing;
 
   let next: GameState = {
     ...state,
@@ -1103,12 +1105,16 @@ export function executeSwapCharactersMove(
     }),
   };
 
-  // King status is reassigned immediately by king-space occupancy.
+  // King status transfers by swap participants, not by the board spaces they land on.
   next = {
     ...next,
     characters: next.characters.map(character => ({
       ...character,
-      isKing: character.alive && (character.boardPosition === 'P1_3' || character.boardPosition === 'P2_3'),
+      isKing: character.id === ownCharacterId
+        ? opponentWasKing
+        : character.id === opponentCharacterId
+          ? ownWasKing
+          : character.isKing,
     })),
   };
 

@@ -60,7 +60,7 @@ Legend for digital support:
 ### Page 15
 
 6. SWAP CHARACTERS
-- Exact card text: Any time, including battle: swap one living card with one opponent living card. Can be used on Kings. If swapping with a King, the card in the King spot becomes that player's new King.
+- Exact card text: Any time, including battle: swap one living card with one opponent living card. Can be used on Kings. If a player's current King is swapped out, the incoming opponent character immediately becomes that player's new King. The former King immediately loses King status.
 - Source page: 15
 - Timing classification: either phase
 - Target type: own character + enemy character
@@ -958,7 +958,7 @@ Notes:
 | PHONE A FRIEND | 2 | 0 |
 | WATER BOTTLE | 2 | 0 |
 | BOOM !! BOMB | 2 | 2 |
-| SWAP CHARACTERS | Needs Brendan ruling (not printed) | 0 |
+| SWAP CHARACTERS | done | king status transfers to the incoming replacement when a current King is swapped out |
 | MYSTERY CARD | 2 | 0 |
 | CHAMPION'S ADVANTAGE | 2 | 2 |
 | BEHIND THE CURTAINS | Needs Brendan ruling (not printed) | 0 |

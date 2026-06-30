@@ -35,7 +35,7 @@ Status legend: `todo` | `in-progress` | `done` | `blocked`
 |---|---|---|
 | Tag Team | done | battle legality + directly-behind relevant-stat bonus implemented |
 | Phone a Friend | done | battle deck swap-in implemented with target selection support in engine and bot options |
-| Swap Characters | done | board targeting + swap execution + king-spot reassignment flow implemented |
+| Swap Characters | done | board targeting + swap execution + king-transfer flow implemented |
 | Behind the Curtains | done | board hand-inspection modal + optional one-for-one hand swap implemented |
 | No Spray | done | battle reaction implemented to cancel latest cancelable opponent in-battle card effect |
 | Back It Up | done | board targeting + backward relocation flow implemented |
