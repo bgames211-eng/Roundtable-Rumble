@@ -396,21 +396,34 @@ export function createMultiGameSessionSetup(
     throw new Error('Cannot create setup: fewer than 6 power cards are available across session decks');
   }
 
-  const characterSupplements = neededCharactersFromUsed > 0
-    ? shuffleCharacterInstances(usedCharacters, randomFn).slice(0, neededCharactersFromUsed)
-    : [];
-  const powerSupplements = neededPowerFromUsed > 0
-    ? shufflePowerCardInstances(usedPower, randomFn).slice(0, neededPowerFromUsed)
-    : [];
+  const shuffledUsedCharacters = shuffleCharacterInstances(usedCharacters, randomFn);
+  const shuffledUsedPower = shufflePowerCardInstances(usedPower, randomFn);
+
+  const characterSupplements = shuffledUsedCharacters.slice(0, neededCharactersFromUsed);
+  const powerSupplements = shuffledUsedPower.slice(0, neededPowerFromUsed);
 
   const characterDeckForGame = [...unusedCharacters, ...characterSupplements];
   const powerDeckForGame = [...unusedPower, ...powerSupplements];
 
-  return buildGameStateFromDecks(
+  // During the final runout setup, cards from used piles that were not dealt
+  // into this game become backup draw piles for any in-game draw effects.
+  const backupCharacterPile = shuffledUsedCharacters.slice(neededCharactersFromUsed);
+  const backupPowerPile = shuffledUsedPower.slice(neededPowerFromUsed);
+
+  const usesRunoutTopUp = neededCharactersFromUsed > 0 || neededPowerFromUsed > 0;
+
+  const nextState = buildGameStateFromDecks(
     firstPlayer,
     characterDeckForGame,
     powerDeckForGame,
   );
+
+  return {
+    ...nextState,
+    sessionRunoutOccurred: usesRunoutTopUp,
+    sessionUsedCharacterPile: backupCharacterPile,
+    sessionUsedPowerCardPile: backupPowerPile,
+  };
 }
 
 export function collectSessionUsedCardIds(state: GameState): SessionUsedCardIds {

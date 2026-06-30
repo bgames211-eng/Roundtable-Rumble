@@ -96,23 +96,17 @@
   border-radius: 999px;
 }
 
-.battle-open-full-board-fab {
-  position: fixed;
-  top: 0.8rem;
-  right: 0.9rem;
-  z-index: 999;
+.battle-open-full-board-top {
+  position: absolute;
+  top: 0.55rem;
+  left: calc(50% + min(39vw, 390px));
+  transform: translateX(-100%);
+  z-index: 7;
+  min-height: 52px;
+  padding: 0.7rem 1rem;
+  font-size: 1rem;
   border-radius: 999px;
-  padding: 0.72rem 1.1rem;
-  font-size: 1.14rem;
-  pointer-events: auto;
-}
 
-.battle-inline-full-board-button {
-  min-height: 58px;
-  padding: 0.8rem 1.25rem;
-  font-size: 1.05rem;
-  font-weight: 800;
-  border-radius: 999px;
 }
 
 .battle-riddler-fx-overlay {
@@ -673,6 +667,7 @@
 .battle-controls-centered {
   justify-content: center;
   width: 100%;
+  margin-top: 2.75rem;
 }
 
 .battle-controls-centered button {
@@ -683,14 +678,10 @@
   border-radius: 14px;
 }
 
-.battle-controls-centered button[data-testid='battle-open-full-board-inline'] {
-  min-width: 280px;
-}
-
 .battle-history-toggle {
   position: absolute;
   left: 0.8rem;
-  bottom: 0.8rem;
+  bottom: -2.2rem;
   z-index: 4;
   display: flex;
   justify-content: flex-start;
@@ -1272,12 +1263,6 @@
     margin-bottom: 1.8rem;
   }
 
-  .battle-open-full-board-fab {
-    top: auto;
-    bottom: 0.9rem;
-    right: 0.9rem;
-  }
-
   .battle-orientation-human .character-card-battle {
     transform: scale(1.56);
   }
@@ -1318,6 +1303,13 @@
   .battle-top-board .board-wrap {
     transform: scale(0.42);
     height: 138px;
+  }
+
+  .battle-open-full-board-top {
+    left: calc(50% + min(45vw, 270px));
+    min-height: 48px;
+    padding: 0.62rem 0.85rem;
+    font-size: 0.95rem;
   }
 }
 

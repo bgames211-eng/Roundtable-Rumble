@@ -668,3 +668,153 @@
     width: 168px;
   }
 }
+
+@media (max-width: 560px) {
+  .start-screen {
+    width: min(100vw, 100%);
+    margin: 0;
+    padding: 0.95rem;
+    border-radius: 0;
+  }
+
+  .start-screen-landing,
+  .start-screen-rps,
+  .start-screen-catalog {
+    min-height: calc(100vh - 0.95rem);
+    gap: 0.85rem;
+  }
+
+  .start-hero {
+    padding: 0.2rem 0 0.7rem;
+    gap: 0.25rem;
+  }
+
+  .start-logo-image {
+    width: min(92vw, 520px);
+  }
+
+  .start-logo-image-small {
+    width: min(82vw, 440px);
+  }
+
+  .start-title {
+    font-size: clamp(2rem, 13vw, 3.05rem);
+    letter-spacing: 0.04em;
+  }
+
+  .start-subtitle {
+    font-size: clamp(0.98rem, 4.8vw, 1.2rem);
+  }
+
+  .bangers-subtitle {
+    font-size: clamp(1.35rem, 6vw, 2.05rem);
+  }
+
+  .first-player-field {
+    padding: 0.9rem;
+    margin-top: 0.65rem;
+  }
+
+  .first-player-field legend {
+    font-size: 1.04rem;
+  }
+
+  .mode-toggle-row,
+  .premium-buttons,
+  .first-player-options {
+    gap: 0.5rem;
+  }
+
+  .mode-button {
+    padding: 0.72rem 1rem;
+    font-size: 1rem;
+  }
+
+  .mode-confirm-copy {
+    margin-top: 0.55rem;
+    font-size: 1rem;
+  }
+
+  .room-code-display {
+    margin-top: 0.65rem;
+    font-size: 1.55rem;
+  }
+
+  .start-actions {
+    margin-top: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .start-actions button {
+    min-width: 0;
+    width: 100%;
+    padding: 0.82rem 1rem;
+    font-size: 1.05rem;
+  }
+
+  .color-columns {
+    gap: 0.7rem;
+  }
+
+  .catalog-mode-toggle {
+    gap: 0.5rem;
+  }
+
+  .catalog-character-grid,
+  .catalog-power-grid {
+    padding: 0.65rem;
+    gap: 0.7rem;
+    max-height: 48vh;
+  }
+
+  .catalog-character-tile,
+  .catalog-power-tile {
+    padding: 0.4rem;
+    border-radius: 12px;
+  }
+
+  .catalog-read-panel {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .catalog-read-panel h3 {
+    font-size: 1.05rem;
+  }
+
+  .catalog-read-stats,
+  .catalog-read-ability,
+  .catalog-warning {
+    font-size: 0.85rem;
+  }
+
+  .rps-battle {
+    width: min(100%, 100vw);
+    gap: 0.55rem;
+  }
+
+  .rps-fighter {
+    min-height: 150px;
+    border-radius: 14px;
+  }
+
+  .rps-fighter-icon {
+    font-size: 3rem;
+  }
+
+  .rps-versus {
+    font-size: 1.5rem;
+  }
+
+  .rps-choice {
+    min-height: 150px;
+    border-radius: 14px;
+  }
+
+  .rps-choice-art {
+    font-size: 2.4rem;
+  }
+
+  .rps-result {
+    font-size: 1.1rem;
+  }
+}

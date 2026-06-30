@@ -29,6 +29,8 @@ export interface BotLegalActionDescriptor {
   actorIsKing: boolean;
   actorRevealed: boolean;
   actorBoardPosition: BoardSpace | null;
+  actorKnownATK: number | null;
+  actorKnownDEF: number | null;
   targetCharacterId: string | null;
   targetIsKing: boolean | null;
   targetRevealed: boolean | null;
@@ -176,6 +178,8 @@ function toBotLegalActionDescriptors(
       actorIsKing: !!actor?.isKing,
       actorRevealed: !!actor?.revealed,
       actorBoardPosition: actorPosition,
+      actorKnownATK: actor?.revealed ? actor.ATK : null,
+      actorKnownDEF: actor?.revealed ? actor.DEF : null,
       targetCharacterId: target?.instanceId ?? null,
       targetIsKing: target?.isKing ?? null,
       targetRevealed: target?.revealed ?? null,

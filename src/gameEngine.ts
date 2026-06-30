@@ -566,7 +566,7 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
   // Step 4 & 5: Move winning attacker + King Territory Draw
   let charAfterBattle = getCharacter(newState, attacker.id)!;
 
-  if (winnerId === attacker.id) {
+  if (winnerId === attacker.id && !bothDie) {
     // Attacker wins: move to defender's space
     charAfterBattle = updateCharacter(charAfterBattle, {
       boardPosition: forwardSpace,
@@ -1219,7 +1219,7 @@ export function executeRapunzelSpecial(state: GameState, characterId: string): G
   });
 
   validateBoardStateInvariants(next);
-  return endTurn(next);
+  return next;
 }
 
 export function canUseMrsPuffSpecial(state: GameState, characterId: string): boolean {

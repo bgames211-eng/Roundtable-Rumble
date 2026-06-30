@@ -1032,17 +1032,6 @@ export function BattleScreen({
     React.createElement('div', { className: `battle-top-board expanded ${cinematicPhase === 'main' ? '' : 'staged-hidden'}`, 'data-testid': 'battle-embedded-board' },
       React.createElement('div', { className: 'battle-board-header' },
         React.createElement('h3', null, 'Battle Board Background'),
-        onOpenFullBoard
-          ? React.createElement(
-              'button',
-              {
-                type: 'button',
-                onClick: () => onOpenFullBoard(),
-                'data-testid': 'battle-open-full-board-header',
-              },
-              'View Full Board',
-            )
-          : null,
       ),
       React.createElement(Board, {
         view: boardView,
@@ -1058,16 +1047,18 @@ export function BattleScreen({
       }),
     ),
 
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'battle-open-full-board-fab',
-        onClick: () => onOpenFullBoard?.(),
-        'data-testid': 'battle-open-full-board',
-      },
-      'View Full Board',
-    ),
+    onOpenFullBoard
+      ? React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'battle-open-full-board-top',
+            onClick: () => onOpenFullBoard(),
+            'data-testid': 'battle-open-full-board-header',
+          },
+          'View Full Board',
+        )
+      : null,
 
     riddlerFxActive && riddlerReferences.length > 0
       ? React.createElement(
@@ -1122,18 +1113,6 @@ export function BattleScreen({
           'section',
           { className: `battle-cinematic-layer phase-${cinematicPhase}`, 'data-testid': 'battle-intro' },
           React.createElement('p', { className: 'battle-score-banner', 'data-testid': 'battle-score-banner' }, scoreLabel),
-          onOpenFullBoard
-            ? React.createElement(
-                'button',
-                {
-                  type: 'button',
-                  className: 'battle-inline-full-board-button',
-                  onClick: () => onOpenFullBoard(),
-                  'data-testid': 'battle-open-full-board-intro',
-                },
-                'View Full Board',
-              )
-            : null,
           React.createElement('div', { className: 'battle-cinematic-duel' },
             isBotMode
               ? renderCinematicRevealCard('Human Character', humanCard, cinematicPhase !== 'clash', battleVisualById.get(humanCard.id) ?? { artSrc: null, fullCardFaceSrc: null, visualMode: 'layered-art' }, characterStatusById[humanCard.id] ?? null)
@@ -1152,18 +1131,6 @@ export function BattleScreen({
           { className: 'battle-handoff', 'data-testid': 'battle-handoff' },
           React.createElement('h2', null, `Pass device to ${playerLabel(handoffRequiredFor)}. ${playerLabel(handoffRequiredFor)} may view their hand.`),
           React.createElement('p', null, `${playerLabel(handoffRequiredFor)}, acknowledge to continue.`),
-          onOpenFullBoard
-            ? React.createElement(
-                'button',
-                {
-                  type: 'button',
-                  className: 'battle-inline-full-board-button',
-                  onClick: () => onOpenFullBoard(),
-                  'data-testid': 'battle-open-full-board-handoff',
-                },
-                'View Full Board',
-              )
-            : null,
           React.createElement(
             'button',
             {
@@ -1296,17 +1263,6 @@ export function BattleScreen({
               )
             : null,
           React.createElement('div', { className: 'battle-controls battle-controls-centered' },
-            onOpenFullBoard
-              ? React.createElement(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => onOpenFullBoard(),
-                    'data-testid': 'battle-open-full-board-inline',
-                  },
-                  'Open Full Board',
-                )
-              : null,
             canReadyToggle && !isCurrentReady && !readyToggleLocked
               ? React.createElement(
                   'button',

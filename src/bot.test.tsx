@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
-import { chooseBotBattleDecision, chooseBotBoardDecision, chooseBotCurtainsSwap } from './bot';
+import { chooseBotBattleDecision, chooseBotBoardDecision, chooseBotCurtainsSwap, getBackItUpTempoPenalty } from './bot';
 import { initializeGameState, type Character, type Controller } from './gameState';
 import type { BotLegalActionDescriptor } from './botView';
 
@@ -47,6 +47,8 @@ describe('Phase 5 Bot', () => {
     actorIsKing: false,
     actorRevealed: true,
     actorBoardPosition: 'P2_2',
+    actorKnownATK: 5,
+    actorKnownDEF: 5,
     targetCharacterId: null,
     targetIsKing: null,
     targetRevealed: null,
@@ -266,6 +268,144 @@ describe('Phase 5 Bot', () => {
     }
   });
 
+  it('hard mode avoids Mrs Puff-style weak self-defend into a 10 DEF target', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 9,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('defend', 'mrs-puff-line', null, {
+          actorIsKing: false,
+          actorKnownATK: 1,
+          actorKnownDEF: 2,
+          targetCharacterId: 'armored-target',
+          targetRevealed: true,
+          targetKnownATK: 2,
+          targetKnownDEF: 10,
+        }),
+        action('move', 'safe-move', null, {
+          actorIsKing: false,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('move');
+      expect(decision.action.characterId).toBe('safe-move');
+    }
+  });
+
+  it('hard mode avoids non-winning defend into a target with higher DEF than ATK', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 10,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('defend', 'turtle-line', null, {
+          actorIsKing: false,
+          actorKnownATK: 4,
+          actorKnownDEF: 6,
+          targetCharacterId: 'hard-target',
+          targetRevealed: true,
+          targetKnownATK: 4,
+          targetKnownDEF: 8,
+        }),
+        action('move', 'advance-line', null, {
+          actorIsKing: false,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('move');
+      expect(decision.action.characterId).toBe('advance-line');
+    }
+  });
+
+  it('hard mode prefers attack target with better math margin when outcomes are unknown', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 10,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('attack', 'atk-high-def', null, {
+          actorKnownATK: 6,
+          targetCharacterId: 'target-high-def',
+          targetRevealed: true,
+          targetKnownDEF: 8,
+        }),
+        action('attack', 'atk-low-def', null, {
+          actorKnownATK: 6,
+          targetCharacterId: 'target-low-def',
+          targetRevealed: true,
+          targetKnownDEF: 4,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.characterId).toBe('atk-low-def');
+    }
+  });
+
+  it('hard mode avoids repeating defend loops when a move alternative exists', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 11,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      recentBotActionType: 'defend',
+      legalActions: [
+        action('defend', 'loop-defend', null, {
+          actorIsKing: false,
+          actorKnownDEF: 8,
+          targetCharacterId: 'def-target',
+          targetRevealed: true,
+          targetKnownATK: 6,
+          targetKnownDEF: 7,
+        }),
+        action('move', 'break-loop-move', null, {
+          actorIsKing: false,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('move');
+      expect(decision.action.characterId).toBe('break-loop-move');
+    }
+  });
+
+  it('Back It Up applies a tempo penalty to one-step non-king retreats', () => {
+    expect(getBackItUpTempoPenalty(false, true, 'Hard')).toBeGreaterThan(0);
+    expect(getBackItUpTempoPenalty(false, true, 'Hard')).toBe(140);
+    expect(getBackItUpTempoPenalty(true, true, 'Hard')).toBe(0);
+    expect(getBackItUpTempoPenalty(false, false, 'Hard')).toBe(0);
+  });
+
   it('hard mode prefers king-hunt unknown attack over uncertain non-king defend', () => {
     const decision = chooseBotBoardDecision({
       botController: 'P2',
@@ -464,6 +604,53 @@ describe('Phase 5 Bot', () => {
     );
 
     expect(decision.kind).toBe('pass');
+  });
+
+  it('hard battle mode rejects Mongol Empire in a DEF self-defend line', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 8,
+        opponentComparisonValue: 6,
+        winningMargin: 2,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'mongol-empire' },
+          displayName: 'MONGOL EMPIRE',
+          definitionId: 'power-alpha-010',
+          projectedResult: {
+            winner: 'P2',
+            initiatorComparisonValue: 8,
+            opponentComparisonValue: 7,
+            winningMargin: 1,
+          },
+          actingComparisonLabel: 'DEF',
+          opponentComparisonLabel: 'DEF',
+        },
+        {
+          input: { instanceId: 'brick-wall' },
+          displayName: 'BRICK WALL',
+          definitionId: 'power-alpha-008',
+          projectedResult: {
+            winner: 'P2',
+            initiatorComparisonValue: 8,
+            opponentComparisonValue: 7,
+            winningMargin: 1,
+          },
+          actingComparisonLabel: 'DEF',
+          opponentComparisonLabel: 'DEF',
+        },
+      ],
+      difficulty: 'Hard',
+    });
+
+    expect(decision.kind).toBe('play');
+    if (decision.kind === 'play') {
+      expect(decision.definitionId).toBe('power-alpha-008');
+      expect(decision.input.instanceId).toBe('brick-wall');
+    }
   });
 
   it('hard battle mode uses Phone a Friend in imminent king-loss line instead of passing', () => {
@@ -923,6 +1110,38 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('pass');
   });
 
+  it('never plays SWAP CHARACTERS in battle when projected line is still losing', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 12,
+        opponentComparisonValue: 6,
+        winningMargin: 6,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'swap-losing' },
+          displayName: 'SWAP CHARACTERS',
+          definitionId: 'power-alpha-018',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 11,
+            opponentComparisonValue: 8,
+            winningMargin: 3,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      // Even in king emergency context, losing SWAP lines are invalid.
+      botBattlerIsKing: true,
+      imminentKingLoss: true,
+      remainingBattleHandCount: 1,
+    });
+
+    expect(decision.kind).toBe('pass');
+  });
+
   it('standard battle mode prefers lower-impact winning card when both secure comparable wins', () => {
     const decision = chooseBotBattleDecision(
       'P2',
@@ -1151,11 +1370,11 @@ describe('Phase 5 Bot', () => {
     const decision = chooseBotCurtainsSwap(
       [
         { instanceId: 'btc', definitionId: 'power-alpha-019' },
-        { instanceId: 'own-low', definitionId: 'power-alpha-006' },
+        { instanceId: 'own-low', definitionId: 'power-alpha-999' },
         { instanceId: 'own-mid', definitionId: 'power-alpha-008' },
       ],
       [
-        { instanceId: 'opp-high', definitionId: 'power-alpha-009' },
+        { instanceId: 'opp-high', definitionId: 'power-alpha-016' },
         { instanceId: 'opp-low', definitionId: 'power-alpha-006' },
       ],
       'btc',
@@ -1181,6 +1400,23 @@ describe('Phase 5 Bot', () => {
     );
 
     expect(decision.shouldPlay).toBe(false);
+  });
+
+  it('bot curtains decision skips when the only opponent target is a premium card', () => {
+    const decision = chooseBotCurtainsSwap(
+      [
+        { instanceId: 'btc', definitionId: 'power-alpha-019' },
+        { instanceId: 'own-low', definitionId: 'power-alpha-006' },
+      ],
+      [
+        { instanceId: 'opp-premium', definitionId: 'power-alpha-009' },
+      ],
+      'btc',
+      'Hard',
+    );
+
+    expect(decision.shouldPlay).toBe(false);
+    expect(decision.explanation).toContain('premium cards worth protecting');
   });
 
   it('bot board turn runs automatically in bot mode when P2 is active', async () => {

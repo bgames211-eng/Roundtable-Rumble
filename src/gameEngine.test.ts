@@ -483,6 +483,7 @@ describe('Requested Character Mechanics', () => {
 
     expect(getCharacter(next, 'target')?.boardPosition).toBe('P1_4');
     expect(getCharacter(next, 'rapunzel')?.abilityUsed).toBe(true);
+    expect(next.activePlayer).toBe('P1');
   });
 
   it('Mrs. Puff special pushes adjacent front and back characters outward', () => {
@@ -708,6 +709,23 @@ describe('[P2-17] Attack Forward: Tie, Neither King', () => {
     expect(getCharacter(newState, 'a1')!.alive).toBe(false);
     expect(newState.graveyard.length).toBe(2);
     expect(newState.gameStatus).toBe('active');
+  });
+
+  it('Roomba attack tie does not draw a power card when both die', () => {
+    const chars: Character[] = [
+      { ...createChar('roomba', 'P1', 5, 5, false, true, 'P1_3'), displayName: 'Roomba' },
+      createChar('a1', 'P2', 5, 5, false, false, 'P1_4'),
+      createChar('y-king', 'P1', 8, 8, true, false, 'P1_1'),
+      createChar('a-king', 'P2', 8, 8, true, false, 'P2_3'),
+    ];
+    const state = initializeGameState(chars);
+    const beforeHand = state.powerCardHands.P1.length;
+    const newState = executeAttackForward(state, 'roomba');
+
+    expect(getCharacter(newState, 'roomba')!.alive).toBe(false);
+    expect(getCharacter(newState, 'a1')!.alive).toBe(false);
+    expect(newState.powerCardHands.P1).toHaveLength(beforeHand);
+    expect(newState.drawCount.P1).toBe(state.drawCount.P1);
   });
 });
 

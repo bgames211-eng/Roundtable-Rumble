@@ -30,7 +30,9 @@ export type BotBoardDecisionContext = Pick<
   | 'gameStatus'
   | 'pendingBattle'
   | 'legalActions'
->;
+> & {
+  recentBotActionType?: BotLegalActionDescriptor['type'] | null;
+};
 
 export type BotBattleDecision =
   | {
@@ -57,6 +59,8 @@ export interface BattlePlayCandidate {
   displayName: string;
   definitionId: string;
   projectedResult: ProjectedBattleResult;
+  actingComparisonLabel?: 'ATK' | 'DEF';
+  opponentComparisonLabel?: 'ATK' | 'DEF';
   opponentBestCounterMarginForBot?: number | null;
   opponentReplyOptionCount?: number;
   opponentBestCounterAfterBotBestRejoinderMarginForBot?: number | null;
@@ -85,6 +89,26 @@ export interface BotCurtainsDecision {
   opponentSwapCardInstanceId: string | null;
   strategicGain: number;
   explanation: string;
+}
+
+export function getBackItUpTempoPenalty(
+  isKing: boolean,
+  isImmediateRetreat: boolean,
+  difficulty: BotDifficulty,
+): number {
+  if (isKing || !isImmediateRetreat) {
+    return 0;
+  }
+
+  if (difficulty === 'Hard') {
+    return 140;
+  }
+
+  if (difficulty === 'Standard') {
+    return 100;
+  }
+
+  return 60;
 }
 
 const BATTLE_PRIORITY_BY_DEFINITION_ID: string[] = [
@@ -123,6 +147,36 @@ function marginForController(controller: 'P1' | 'P2', result: ProjectedBattleRes
 
 function isEquipmentDefinition(definitionId: string): boolean {
   return getPowerCardAiMetadata(definitionId).effectType === 'equipment';
+}
+
+function isObviousDeadBattlePlay(candidate: BattlePlayCandidate): boolean {
+  if (candidate.actingComparisonLabel === undefined) {
+    return false;
+  }
+
+  if (candidate.definitionId === 'power-alpha-010') {
+    return candidate.actingComparisonLabel === 'DEF';
+  }
+
+  if (candidate.definitionId === 'power-alpha-008') {
+    return candidate.actingComparisonLabel === 'ATK';
+  }
+
+  if (candidate.definitionId === 'power-alpha-006' && candidate.input.selectedChoice) {
+    return candidate.input.selectedChoice !== candidate.actingComparisonLabel;
+  }
+
+  if (
+    (candidate.definitionId === 'power-alpha-001'
+      || candidate.definitionId === 'power-alpha-004'
+      || candidate.definitionId === 'power-alpha-005')
+    && candidate.input.selectedChoice
+    && candidate.opponentComparisonLabel
+  ) {
+    return candidate.input.selectedChoice !== candidate.opponentComparisonLabel;
+  }
+
+  return false;
 }
 
 function strategicValueScore(definitionId: string): number {
@@ -164,7 +218,18 @@ export function chooseBotCurtainsSwap(
     return left.instanceId.localeCompare(right.instanceId);
   })[0];
 
-  const opponentHighest = [...opponentHand].sort((left, right) => {
+  const opponentCandidates = opponentHand.filter(card => strategicValueScore(card.definitionId) < strategicValueScore('power-alpha-020'));
+  if (opponentCandidates.length === 0) {
+    return {
+      shouldPlay: false,
+      ownSwapCardInstanceId: null,
+      opponentSwapCardInstanceId: null,
+      strategicGain: 0,
+      explanation: 'Skip BEHIND THE CURTAINS: opponent only has premium cards worth protecting.',
+    };
+  }
+
+  const opponentHighest = [...opponentCandidates].sort((left, right) => {
     const delta = strategicValueScore(right.definitionId) - strategicValueScore(left.definitionId);
     if (delta !== 0) {
       return delta;
@@ -232,6 +297,10 @@ function battleCandidateScore(
   opponentPowerCardCount = 0,
   remainingBattleHandCount = 0,
 ): number {
+  if (isObviousDeadBattlePlay(candidate)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
   const impactCost = cardImpactCost(candidate.definitionId);
   const cardMetadata = getPowerCardAiMetadata(candidate.definitionId);
   const outcomeTier = outcomeTierForMargin(projectedMarginForBot);
@@ -398,11 +467,13 @@ function describeBattleCandidateChoice(
   return `${entry.candidate.displayName} (projected ${entry.projectedMargin}, score ${entry.score})`;
 }
 
-function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
+function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
   const isKingActor = action.actorIsKing;
   const isActorRevealed = action.actorRevealed;
   const isTargetKing = !!action.targetIsKing;
   const isTargetHidden = action.targetRevealed === false;
+  const actorKnownATK = action.actorKnownATK;
+  const actorKnownDEF = action.actorKnownDEF;
   const targetKnownATK = action.targetKnownATK;
   const targetKnownDEF = action.targetKnownDEF;
   const actorAbilityValue = action.actorAbilityStrategicScore;
@@ -451,6 +522,17 @@ function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, d
   if (action.type === 'attack') {
     score += difficulty === 'Hard' ? 26 : 18;
     reasons.push('creates immediate pressure');
+
+    if (actorKnownATK !== null && targetKnownDEF !== null) {
+      const attackMargin = actorKnownATK - targetKnownDEF;
+      score += attackMargin * (difficulty === 'Hard' ? 24 : difficulty === 'Standard' ? 18 : 10);
+      reasons.push('math: attack margin against target DEF');
+
+      if (attackMargin < 0 && action.knownBattleOutcomeForBot !== 'win') {
+        score -= difficulty === 'Hard' ? 120 : difficulty === 'Standard' ? 90 : 55;
+        reasons.push('math: avoid negative attack margin line');
+      }
+    }
 
     if (action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 130 : difficulty === 'Standard' ? 115 : 85;
@@ -517,6 +599,17 @@ function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, d
     score += difficulty === 'Hard' ? 10 : difficulty === 'Standard' ? 24 : 14;
     reasons.push('defensive board stabilization');
 
+    if (actorKnownDEF !== null && targetKnownDEF !== null) {
+      const defendMargin = actorKnownDEF - targetKnownDEF;
+      score += defendMargin * (difficulty === 'Hard' ? 26 : difficulty === 'Standard' ? 20 : 12);
+      reasons.push('math: defend margin against target DEF');
+
+      if (defendMargin < 0 && action.knownBattleOutcomeForBot !== 'win') {
+        score -= difficulty === 'Hard' ? 140 : difficulty === 'Standard' ? 110 : 70;
+        reasons.push('math: avoid negative defend margin line');
+      }
+    }
+
     if (action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 118 : difficulty === 'Standard' ? 102 : 74;
       reasons.push('known favorable self-defend outcome');
@@ -546,6 +639,36 @@ function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, d
       }
     }
 
+    if (
+      actorKnownATK !== null
+      && targetKnownDEF !== null
+      && actorKnownATK <= 1
+      && targetKnownDEF >= 10
+      && action.knownBattleOutcomeForBot !== 'win'
+    ) {
+      score = Number.NEGATIVE_INFINITY;
+      reasons.push('hard reject tiny self-defend into heavily armored target');
+    }
+
+    if (
+      targetKnownATK !== null
+      && targetKnownDEF !== null
+      && targetKnownDEF > targetKnownATK
+      && action.knownBattleOutcomeForBot !== 'win'
+    ) {
+      score = Number.NEGATIVE_INFINITY;
+      reasons.push('hard reject non-winning defend into a higher-DEF target');
+    }
+
+    if (
+      actorKnownDEF !== null
+      && actorKnownDEF <= 2
+      && action.knownBattleOutcomeForBot !== 'win'
+    ) {
+      score -= difficulty === 'Hard' ? 120 : difficulty === 'Standard' ? 80 : 40;
+      reasons.push('fragile defender should not trade into a bad self-defend');
+    }
+
     if (actorAbilityValue > 0) {
       score += actorAbilityValue * (difficulty === 'Hard' ? 3 : 2);
       reasons.push('maintains board value of revealed utility unit');
@@ -554,6 +677,20 @@ function scoreBoardAction(view: BotGameView, action: BotLegalActionDescriptor, d
     if (isTargetKing && action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 120 : 95;
       reasons.push('defensive line can remove enemy king threat');
+    }
+  }
+
+  if (view.recentBotActionType === action.type) {
+    const repeatPenalty = action.type === 'move'
+      ? (difficulty === 'Hard' ? 44 : difficulty === 'Standard' ? 36 : 20)
+      : action.type === 'defend'
+        ? (difficulty === 'Hard' ? 70 : difficulty === 'Standard' ? 52 : 26)
+        : (difficulty === 'Hard' ? 34 : difficulty === 'Standard' ? 24 : 12);
+
+    const canIgnoreRepeatPenalty = action.type !== 'move' && action.knownBattleOutcomeForBot === 'win';
+    if (!canIgnoreRepeatPenalty) {
+      score -= repeatPenalty;
+      reasons.push('loop guard: penalize repeating previous action type');
     }
   }
 
@@ -720,8 +857,10 @@ export function chooseBotBattleDecision(
     };
   });
 
+  const baseEvaluated = evaluated.filter(entry => !(entry.candidate.definitionId === 'power-alpha-018' && entry.projectedMargin < 0));
+
   const filteredEvaluated = (difficulty === 'Hard' || difficulty === 'Standard')
-    ? evaluated.filter(entry => {
+    ? baseEvaluated.filter(entry => {
       if (!isEquipmentDefinition(entry.candidate.definitionId)) {
         return true;
       }
@@ -738,9 +877,9 @@ export function chooseBotBattleDecision(
 
       return false;
     })
-    : evaluated;
+    : baseEvaluated;
 
-  const candidatePool = filteredEvaluated.length > 0 ? filteredEvaluated : evaluated;
+  const candidatePool = filteredEvaluated.length > 0 ? filteredEvaluated : baseEvaluated;
 
   const winning = candidatePool.filter(entry => entry.projectedMargin > 0);
   if (winning.length > 0) {

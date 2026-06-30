@@ -460,6 +460,8 @@ describe('Multi-game session setup', () => {
     expect(state.powerCardHands.P1).toHaveLength(3);
     expect(state.powerCardHands.P2).toHaveLength(3);
     expect(state.powerCardDeck).toHaveLength(totalPowerCards - 6);
+    expect(state.sessionUsedCharacterPile).toHaveLength(0);
+    expect(state.sessionUsedPowerCardPile).toHaveLength(0);
   });
 
   it('advances session pools by moving all game-used cards out of unused pools', () => {
@@ -515,5 +517,34 @@ describe('Multi-game session setup', () => {
 
     expect(supplementalCharacterCount).toBe(1);
     expect(supplementalPowerCount).toBe(1);
+    expect(state.sessionUsedCharacterPile).toHaveLength(pools.usedCharacterPile.length - supplementalCharacterCount);
+    expect(state.sessionUsedPowerCardPile).toHaveLength(pools.usedPowerCardPile.length - supplementalPowerCount);
+
+    for (const card of state.sessionUsedCharacterPile) {
+      expect(gameCharacterIds.has(card.instanceId)).toBe(false);
+    }
+    for (const card of state.sessionUsedPowerCardPile) {
+      expect(gamePowerIds.has(card.instanceId)).toBe(false);
+    }
+  });
+
+  it('preloads backup piles for both deck types in the final runout game', () => {
+    const initialPools = createInitialSessionDeckPools(sequenceRandom([0.05, 0.19, 0.33, 0.47, 0.61, 0.75]));
+    const pools = {
+      // Trigger runout from characters only.
+      unusedCharacterDeck: initialPools.unusedCharacterDeck.slice(0, 9),
+      usedCharacterPile: initialPools.unusedCharacterDeck.slice(9, 24),
+      // Keep enough unused power for setup so power does not need top-up.
+      unusedPowerDeck: initialPools.unusedPowerDeck.slice(0, 10),
+      usedPowerCardPile: initialPools.unusedPowerDeck.slice(10, 18),
+    };
+
+    const state = createMultiGameSessionSetup('P1', sequenceRandom([0.14, 0.28, 0.42, 0.56, 0.7]), pools);
+
+    expect(state.sessionRunoutOccurred).toBe(true);
+    // One used character was consumed to complete setup, remaining used characters stay in backup.
+    expect(state.sessionUsedCharacterPile).toHaveLength(pools.usedCharacterPile.length - 1);
+    // No used power was required for setup, so all prior-session used power remains in backup.
+    expect(state.sessionUsedPowerCardPile).toHaveLength(pools.usedPowerCardPile.length);
   });
 });

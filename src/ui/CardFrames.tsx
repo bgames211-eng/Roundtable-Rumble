@@ -20,6 +20,7 @@ interface CharacterCardFrameProps {
   isKing?: boolean;
   isFrozen?: boolean;
   isThawing?: boolean;
+  isFreezing?: boolean;
   selected?: boolean;
   tilt?: number;
   statusTag?: string | null;
@@ -54,6 +55,7 @@ export function CharacterCardFrame({
   isKing = false,
   isFrozen = false,
   isThawing = false,
+  isFreezing = false,
   selected = false,
   tilt = 0,
   statusTag = null,
@@ -116,7 +118,7 @@ export function CharacterCardFrame({
             React.createElement('div', { className: 'stat-row stat-row-def' }, React.createElement('span', null, 'DEF'), React.createElement('span', null, defDisplay)),
             React.createElement('div', { className: 'ability-box' }, ability ?? ''),
             statRule
-              ? React.createElement('div', { className: 'ability-box' }, statRule)
+              ? React.createElement('div', { className: `ability-box ${statRule.includes('-1') ? 'ability-box-emphasis' : ''}` }, statRule)
               : null,
           )
         : null
@@ -134,11 +136,11 @@ export function CharacterCardFrame({
             : React.createElement('span', { className: 'character-back-logo' }, 'RR'),
         ),
     isKing ? React.createElement('span', { className: 'king-sleeve', 'aria-hidden': 'true' }) : null,
-    (isFrozen || isThawing)
+    (isFrozen || isThawing || isFreezing)
       ? React.createElement(
           'span',
           {
-            className: `frozen-overlay ${isThawing ? 'frozen-overlay-thawing' : ''}`,
+            className: `frozen-overlay ${isThawing ? 'frozen-overlay-thawing' : ''} ${isFreezing ? 'frozen-overlay-freezing' : ''}`,
             'aria-hidden': 'true',
           },
         )

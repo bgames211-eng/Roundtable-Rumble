@@ -8,9 +8,10 @@ import {
   createStandardGameSetup,
   getPlayerGameView,
   getPrivatePowerCardHand,
+  shuffleCharacterInstances,
   type SessionDeckPools,
 } from './setup';
-import { getPowerCardDefinition, getPowerCardAiMetadata } from './powerCards';
+import { getPowerCardDefinition, getPowerCardAiMetadata, shufflePowerCardInstances } from './powerCards';
 import { Board } from './ui/Board';
 import { CharacterCardFrame, PowerCardFrame } from './ui/CardFrames';
 import { StartScreen, type GameMode, type PlayerColor, type SessionMode } from './ui/StartScreen';
@@ -52,7 +53,7 @@ import {
   type PrivateBattleHandView,
   type PlayBattlePowerCardInput,
 } from './battleFlow';
-import { chooseBotBattleDecision, chooseBotBoardDecision, chooseBotCurtainsSwap, type BotDifficulty } from './bot';
+import { chooseBotBattleDecision, chooseBotBoardDecision, chooseBotCurtainsSwap, getBackItUpTempoPenalty, type BotDifficulty } from './bot';
 import { getBotGameView } from './botView';
 import { getBackwardSpace, getForwardSpace } from './board';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from './powerCards';
@@ -146,6 +147,29 @@ function isWeaponDefinitionId(definitionId: string): boolean {
     'power-alpha-014',
     'power-alpha-015',
   ].includes(definitionId);
+}
+
+function toPhoneFriendAnimationState(details: Record<string, unknown>): PhoneFriendAnimationState | null {
+  if (typeof details.oldDisplayName !== 'string' || typeof details.newDisplayName !== 'string') {
+    return null;
+  }
+
+  return {
+    oldCharacterId: typeof details.targetCharacterId === 'string' ? details.targetCharacterId : 'unknown',
+    oldController: details.oldController === 'P2' ? 'P2' : 'P1',
+    oldDisplayName: details.oldDisplayName,
+    oldATK: typeof details.oldATK === 'number' ? details.oldATK : 0,
+    oldDEF: typeof details.oldDEF === 'number' ? details.oldDEF : 0,
+    oldVisualMode: details.oldVisualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+    oldArtImageUrl: typeof details.oldArtImageUrl === 'string' ? details.oldArtImageUrl : undefined,
+    oldFullCardFaceImageUrl: typeof details.oldFullCardFaceImageUrl === 'string' ? details.oldFullCardFaceImageUrl : undefined,
+    newDisplayName: details.newDisplayName,
+    newATK: typeof details.newATK === 'number' ? details.newATK : 0,
+    newDEF: typeof details.newDEF === 'number' ? details.newDEF : 0,
+    newVisualMode: details.newVisualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+    newArtImageUrl: typeof details.newArtImageUrl === 'string' ? details.newArtImageUrl : undefined,
+    newFullCardFaceImageUrl: typeof details.newFullCardFaceImageUrl === 'string' ? details.newFullCardFaceImageUrl : undefined,
+  };
 }
 
 interface AppProps {
@@ -464,7 +488,35 @@ interface PostBattleBoardAnimation {
   } | null;
 }
 
+interface PersistedGameSnapshotV1 {
+  version: 1;
+  savedAt: number;
+  screen: 'start' | 'match';
+  firstPlayer: Controller;
+  gameMode: GameMode;
+  sessionMode: SessionMode;
+  sessionDeckPools: SessionDeckPools | null;
+  sessionGameNumber: number;
+  sessionWinHistory: Array<'P1' | 'P2' | 'draw'>;
+  sessionScore: { P1: number; P2: number; draw: number };
+  sessionRpsPromptOpen: boolean;
+  sessionRpsLocked: boolean;
+  sessionRpsResult: string;
+  sessionRpsBattle: SessionRpsBattle | null;
+  botDifficulty: BotDifficulty;
+  playerColors: { P1: PlayerColor; P2: PlayerColor };
+  state: GameState | null;
+  multiplayerMode: boolean;
+  multiplayerRoomCode: string | null;
+  multiplayerPlayer: 'P1' | 'P2' | null;
+  multiplayerJoinCode: string;
+}
+
+const GAME_SNAPSHOT_STORAGE_KEY = 'roundtable-rumble-game-snapshot-v1';
+const MULTIPLAYER_RESUME_WINDOW_MS = 10 * 60 * 1000;
+
 export function App({ createGameState }: AppProps = {}): React.ReactElement {
+  const isJsdomTestEnv = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
   const multiplayerStorageKey = 'roundtable-rumble-multiplayer-room';
   const [screen, setScreen] = useState<'start' | 'match'>('start');
   const [firstPlayer, setFirstPlayer] = useState<Controller>('P1');
@@ -518,6 +570,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBotBattleReveal, setPendingBotBattleReveal] = useState<PendingBotBattleReveal | null>(null);
   const [queuedBotBattleReveal, setQueuedBotBattleReveal] = useState<PendingBotBattleReveal | null>(null);
   const [pendingBattleReactionWindow, setPendingBattleReactionWindow] = useState<PendingBattleReactionWindow | null>(null);
+  const [battleNoSprayCardViewOpen, setBattleNoSprayCardViewOpen] = useState(false);
   const [pendingBoardReactionWindow, setPendingBoardReactionWindow] = useState<PendingBoardReactionWindow | null>(null);
   const [battleReactionSecondsLeft, setBattleReactionSecondsLeft] = useState<number | null>(null);
   const [boardReactionSecondsLeft, setBoardReactionSecondsLeft] = useState<number | null>(null);
@@ -560,6 +613,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [endgameRevealOpponentHand, setEndgameRevealOpponentHand] = useState(false);
   const [endgameMessageVisible, setEndgameMessageVisible] = useState(false);
   const [thawingCharacterIds, setThawingCharacterIds] = useState<string[]>([]);
+  const [freezingCharacterIds, setFreezingCharacterIds] = useState<string[]>([]);
   const [freezeSpecialSourceId, setFreezeSpecialSourceId] = useState<string | null>(null);
   const [freezeSpecialTargetId, setFreezeSpecialTargetId] = useState<string | null>(null);
   const [pendingBoardPowerPlay, setPendingBoardPowerPlay] = useState<PendingBoardPowerPlay | null>(null);
@@ -587,6 +641,168 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const previousFrozenByIdRef = useRef<Map<string, boolean>>(new Map());
   const scoredSessionGamesRef = useRef<Set<number>>(new Set());
   const rapunzelTimerRefs = useRef<number[]>([]);
+  const [savedGameContinueAvailable, setSavedGameContinueAvailable] = useState(false);
+  const [savedGameContinueDisabledReason, setSavedGameContinueDisabledReason] = useState<string | null>(null);
+
+  const evaluateSnapshotContinueAvailability = (snapshot: PersistedGameSnapshotV1): {
+    available: boolean;
+    disabledReason: string | null;
+  } => {
+    if (!snapshot.state) {
+      return { available: false, disabledReason: null };
+    }
+
+    if (snapshot.multiplayerMode && Date.now() - snapshot.savedAt > MULTIPLAYER_RESUME_WINDOW_MS) {
+      return {
+        available: false,
+        disabledReason: 'Saved multiplayer game expired after 10 minutes offline. Start a new game.',
+      };
+    }
+
+    return { available: true, disabledReason: null };
+  };
+
+  const loadSavedSnapshot = (): PersistedGameSnapshotV1 | null => {
+    if (typeof window === 'undefined' || isJsdomTestEnv) {
+      return null;
+    }
+
+    const raw = window.localStorage.getItem(GAME_SNAPSHOT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as PersistedGameSnapshotV1;
+      if (parsed.version !== 1) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const updateSavedContinueStateFromSnapshot = (snapshot: PersistedGameSnapshotV1 | null): void => {
+    if (!snapshot) {
+      setSavedGameContinueAvailable(false);
+      setSavedGameContinueDisabledReason(null);
+      return;
+    }
+
+    const next = evaluateSnapshotContinueAvailability(snapshot);
+    setSavedGameContinueAvailable(next.available);
+    setSavedGameContinueDisabledReason(next.disabledReason);
+  };
+
+  useEffect(() => {
+    if (isJsdomTestEnv) {
+      return;
+    }
+
+    const snapshot = loadSavedSnapshot();
+    if (!snapshot) {
+      updateSavedContinueStateFromSnapshot(null);
+      return;
+    }
+
+    const continueState = evaluateSnapshotContinueAvailability(snapshot);
+    if (!continueState.available && continueState.disabledReason) {
+      window.localStorage.removeItem(GAME_SNAPSHOT_STORAGE_KEY);
+      setSavedGameContinueAvailable(false);
+      setSavedGameContinueDisabledReason(continueState.disabledReason);
+      return;
+    }
+
+    setFirstPlayer(snapshot.firstPlayer);
+    setGameMode(snapshot.gameMode);
+    setSessionMode(snapshot.sessionMode);
+    setSessionDeckPools(snapshot.sessionDeckPools);
+    setSessionGameNumber(snapshot.sessionGameNumber);
+    setSessionWinHistory(snapshot.sessionWinHistory);
+    setSessionScore(snapshot.sessionScore);
+    setSessionRpsPromptOpen(snapshot.sessionRpsPromptOpen);
+    setSessionRpsLocked(snapshot.sessionRpsLocked);
+    setSessionRpsResult(snapshot.sessionRpsResult);
+    setSessionRpsBattle(snapshot.sessionRpsBattle);
+    setBotDifficulty(snapshot.botDifficulty);
+    setPlayerColors(snapshot.playerColors);
+    setState(snapshot.state);
+    setScreen(snapshot.screen);
+
+    setMultiplayerMode(snapshot.multiplayerMode);
+    setMultiplayerRoomCode(snapshot.multiplayerRoomCode);
+    multiplayerRoomCodeRef.current = snapshot.multiplayerRoomCode;
+    setMultiplayerPlayer(snapshot.multiplayerPlayer);
+    multiplayerPlayerRef.current = snapshot.multiplayerPlayer;
+    setMultiplayerJoinCode(snapshot.multiplayerJoinCode);
+
+    if (snapshot.multiplayerMode && snapshot.multiplayerRoomCode && snapshot.multiplayerPlayer) {
+      saveMultiplayerSession(snapshot.multiplayerRoomCode, snapshot.multiplayerPlayer);
+    }
+
+    updateSavedContinueStateFromSnapshot(snapshot);
+  }, [isJsdomTestEnv]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isJsdomTestEnv) {
+      return;
+    }
+
+    if (!state) {
+      window.localStorage.removeItem(GAME_SNAPSHOT_STORAGE_KEY);
+      updateSavedContinueStateFromSnapshot(null);
+      return;
+    }
+
+    const snapshot: PersistedGameSnapshotV1 = {
+      version: 1,
+      savedAt: Date.now(),
+      screen,
+      firstPlayer,
+      gameMode,
+      sessionMode,
+      sessionDeckPools,
+      sessionGameNumber,
+      sessionWinHistory,
+      sessionScore,
+      sessionRpsPromptOpen,
+      sessionRpsLocked,
+      sessionRpsResult,
+      sessionRpsBattle,
+      botDifficulty,
+      playerColors,
+      state,
+      multiplayerMode,
+      multiplayerRoomCode,
+      multiplayerPlayer,
+      multiplayerJoinCode,
+    };
+
+    window.localStorage.setItem(GAME_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot));
+    updateSavedContinueStateFromSnapshot(snapshot);
+  }, [
+    botDifficulty,
+    firstPlayer,
+    gameMode,
+    multiplayerJoinCode,
+    multiplayerMode,
+    multiplayerPlayer,
+    multiplayerRoomCode,
+    playerColors,
+    screen,
+    sessionDeckPools,
+    sessionGameNumber,
+    sessionMode,
+    sessionRpsBattle,
+    sessionRpsLocked,
+    sessionRpsPromptOpen,
+    sessionRpsResult,
+    sessionScore,
+    sessionWinHistory,
+    state,
+    isJsdomTestEnv,
+  ]);
 
   const toCurtainsCardSnapshot = (card: { instanceId: string; definitionId: string }): {
     instanceId: string;
@@ -848,6 +1064,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       multiplayerPlayerRef.current = null;
       multiplayerRoomCodeRef.current = null;
       setMultiplayerRpsResult(null);
+      setState(null);
       clearMultiplayerSession();
       setScreen('start');
     };
@@ -979,6 +1196,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const closeInGameCatalog = (): void => {
     setGameCatalogOpen(false);
     setScreen('match');
+  };
+
+  const continueSavedGame = (): void => {
+    if (!state) {
+      return;
+    }
+    setGameCatalogOpen(false);
+    setScreen('match');
+  };
+
+  const endGameToHome = (): void => {
+    setGameCatalogOpen(false);
+    setScreen('start');
   };
 
   const sessionRpsIcon = (choice: SessionRpsChoice): string => {
@@ -1570,9 +1800,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const defaultTarget = state.characters.find(character => character.alive)?.id ?? null;
     setFreezeSpecialSourceId(sourceCharacterId);
-    setFreezeSpecialTargetId(defaultTarget);
+    setFreezeSpecialTargetId(null);
+    setExpandedAttachmentCardView(null);
+    setExpandedBoardCharacterId(null);
+
+    if (state.pendingBattle) {
+      setShowBattleFullBoard(true);
+    }
   };
 
   const handleAttachmentCardClick = (characterId: string, attachmentInstanceId: string): void => {
@@ -1729,27 +1964,20 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
   };
 
-  const freezeSpecialTargetOptions = useMemo(() => {
-    if (!state || !safeView) {
-      return [] as Array<{ id: string; label: string }>;
-    }
-
-    return safeView.boardCards
-      .filter(card => card.alive)
-      .map(card => ({
-        id: card.instanceId,
-        label: card.revealed && card.displayName
-          ? `${card.displayName} (${card.boardPosition})`
-          : `Face-down card (${card.boardPosition})`,
-      }));
-  }, [safeView, state]);
-
   const freezeSpecialSourceCharacter = useMemo(() => {
     if (!state || !freezeSpecialSourceId) {
       return null;
     }
     return state.characters.find(character => character.id === freezeSpecialSourceId) ?? null;
   }, [freezeSpecialSourceId, state]);
+
+  const freezeSpecialTargetCharacter = useMemo(() => {
+    if (!state || !freezeSpecialTargetId) {
+      return null;
+    }
+
+    return state.characters.find(character => character.id === freezeSpecialTargetId) ?? null;
+  }, [freezeSpecialTargetId, state]);
 
   const curtainsSourceController = useMemo<Controller | null>(() => {
     return pendingCurtainsPlay?.sourceController ?? null;
@@ -1919,21 +2147,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       && pendingIrohCounter.controller !== sourceController
       && pendingIrohCounter.expiresAt > Date.now()
     ) {
-      let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+      const canceled = applyIrohCounterCancellation(state, {
         counterController: pendingIrohCounter.controller,
+        counterCharacterId: pendingIrohCounter.characterId,
         sourceController,
         cardDefinitionId: sourceCard.definitionId,
         cardInstanceId: sourceCard.instanceId,
         phase: 'board',
       });
-      canceled = {
-        ...canceled,
-        characters: canceled.characters.map(character => (
-          character.id === pendingIrohCounter.characterId
-            ? { ...character, abilityUsed: true }
-            : character
-        )),
-      };
       setState(canceled);
       setPendingIrohCounter(null);
       setPendingCurtainsPlay(null);
@@ -2217,8 +2438,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       }
 
       if (reaction.irohCounterCharacterId) {
-        let next = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+        const next = applyIrohCounterCancellation(state, {
           counterController: reaction.responder,
+          counterCharacterId: reaction.irohCounterCharacterId,
           sourceController: reaction.sourceController,
           cardDefinitionId: reaction.definitionId,
           cardInstanceId: reaction.cardInstanceId,
@@ -2228,18 +2450,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         canceledBattleCardPlayIdsRef.current.add(reaction.cardInstanceId);
         clearPendingBattleCardPlayUi();
 
-        next = {
-          ...next,
-          characters: next.characters.map(character => (
-            character.id === reaction.irohCounterCharacterId
-              ? { ...character, abilityUsed: true }
-              : character
-          )),
-        };
-
         setState(next);
         setPendingBattleReactionWindow(null);
         setBattleReactionSecondsLeft(null);
+        setBattleNoSprayCardViewOpen(false);
         setPendingIrohCounter(null);
         return;
       }
@@ -2250,6 +2464,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setState(nextState);
     setPendingBattleReactionWindow(null);
     setBattleReactionSecondsLeft(null);
+    setBattleNoSprayCardViewOpen(false);
   };
 
   const phoneFriendSelectableTargets = useMemo(() => {
@@ -2561,21 +2776,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       && pendingIrohCounter.controller !== state.activePlayer
       && pendingIrohCounter.expiresAt > Date.now()
     ) {
-      let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+      const canceled = applyIrohCounterCancellation(state, {
         counterController: pendingIrohCounter.controller,
+        counterCharacterId: pendingIrohCounter.characterId,
         sourceController: state.activePlayer,
         cardDefinitionId: pendingBoardPowerPlay.definitionId,
         cardInstanceId: pendingBoardPowerPlay.cardInstanceId,
         phase: 'board',
       });
-      canceled = {
-        ...canceled,
-        characters: canceled.characters.map(character => (
-          character.id === pendingIrohCounter.characterId
-            ? { ...character, abilityUsed: true }
-            : character
-        )),
-      };
       setState(canceled);
       setPendingIrohCounter(null);
       setPendingBoardPowerPlay(null);
@@ -2653,21 +2861,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       && pendingIrohCounter.controller !== pendingBattleSwapPlay.actor
       && pendingIrohCounter.expiresAt > Date.now()
     ) {
-      let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+      const canceled = applyIrohCounterCancellation(state, {
         counterController: pendingIrohCounter.controller,
+        counterCharacterId: pendingIrohCounter.characterId,
         sourceController: pendingBattleSwapPlay.actor,
         cardDefinitionId: sourceCard.definitionId,
         cardInstanceId: sourceCard.instanceId,
         phase: 'battle',
       });
-      canceled = {
-        ...canceled,
-        characters: canceled.characters.map(character => (
-          character.id === pendingIrohCounter.characterId
-            ? { ...character, abilityUsed: true }
-            : character
-        )),
-      };
       setState(canceled);
       setPendingIrohCounter(null);
       setPendingBattleSwapPlay(null);
@@ -2697,34 +2898,54 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   useEffect(() => {
     if (!state) {
       previousFrozenByIdRef.current = new Map();
+      setThawingCharacterIds([]);
+      setFreezingCharacterIds([]);
       return;
     }
 
     const previous = previousFrozenByIdRef.current;
     const current = new Map<string, boolean>();
     const thawedIds: string[] = [];
+    const newlyFrozenIds: string[] = [];
 
     for (const character of state.characters) {
       const isFrozen = !!character.isFrozen;
       current.set(character.id, isFrozen);
       if ((previous.get(character.id) ?? false) && !isFrozen) {
         thawedIds.push(character.id);
+      } else if (!(previous.get(character.id) ?? false) && isFrozen) {
+        newlyFrozenIds.push(character.id);
       }
     }
 
     previousFrozenByIdRef.current = current;
 
-    if (thawedIds.length === 0) {
+    const timers: number[] = [];
+
+    if (thawedIds.length > 0) {
+      setThawingCharacterIds(prev => Array.from(new Set([...prev, ...thawedIds])));
+      const thawTimer = window.setTimeout(() => {
+        setThawingCharacterIds(prev => prev.filter(id => !thawedIds.includes(id)));
+      }, 1200);
+      timers.push(thawTimer);
+    }
+
+    if (newlyFrozenIds.length > 0) {
+      setFreezingCharacterIds(prev => Array.from(new Set([...prev, ...newlyFrozenIds])));
+      const freezeTimer = window.setTimeout(() => {
+        setFreezingCharacterIds(prev => prev.filter(id => !newlyFrozenIds.includes(id)));
+      }, 1000);
+      timers.push(freezeTimer);
+    }
+
+    if (timers.length === 0) {
       return;
     }
 
-    setThawingCharacterIds(prev => Array.from(new Set([...prev, ...thawedIds])));
-    const timer = window.setTimeout(() => {
-      setThawingCharacterIds(prev => prev.filter(id => !thawedIds.includes(id)));
-    }, 1200);
-
     return () => {
-      window.clearTimeout(timer);
+      for (const timer of timers) {
+        window.clearTimeout(timer);
+      }
     };
   }, [state]);
 
@@ -2747,6 +2968,63 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       setBoardHandoffRequiredFor(null);
     }
   }, [state, boardHandVisibleFor, boardHandoffRequiredFor, isBotMode]);
+
+  useEffect(() => {
+    if (!state || state.sessionMode !== 'multi-game' || !state.sessionRunoutOccurred) {
+      return;
+    }
+    if (
+      !sessionDeckPools
+      || (
+        (state.sessionUsedCharacterPile.length > 0 || sessionDeckPools.usedCharacterPile.length === 0)
+        && (state.sessionUsedPowerCardPile.length > 0 || sessionDeckPools.usedPowerCardPile.length === 0)
+      )
+    ) {
+      return;
+    }
+
+    let patched = false;
+    let nextState = state;
+
+    if (state.sessionUsedCharacterPile.length === 0 && sessionDeckPools.usedCharacterPile.length > 0) {
+      const inGameCharacterIds = new Set<string>([
+        ...state.characters.map(character => character.id),
+        ...state.characterDeck.map(card => card.instanceId),
+        ...state.graveyard.map(character => character.id),
+      ]);
+      const characterFallback = sessionDeckPools.usedCharacterPile.filter(card => !inGameCharacterIds.has(card.instanceId));
+      if (characterFallback.length > 0) {
+        nextState = {
+          ...nextState,
+          sessionUsedCharacterPile: shuffleCharacterInstances(characterFallback, Math.random),
+        };
+        patched = true;
+      }
+    }
+
+    if (state.sessionUsedPowerCardPile.length === 0 && sessionDeckPools.usedPowerCardPile.length > 0) {
+      const inGamePowerIds = new Set<string>([
+        ...state.powerCardHands.P1.map(card => card.instanceId),
+        ...state.powerCardHands.P2.map(card => card.instanceId),
+        ...state.powerCardDeck.map(card => card.instanceId),
+        ...state.usedPowerCardPile.map(card => card.instanceId),
+      ]);
+      const powerFallback = sessionDeckPools.usedPowerCardPile.filter(card => !inGamePowerIds.has(card.instanceId));
+      if (powerFallback.length > 0) {
+        nextState = {
+          ...nextState,
+          sessionUsedPowerCardPile: shufflePowerCardInstances(powerFallback, Math.random),
+        };
+        patched = true;
+      }
+    }
+
+    if (!patched) {
+      return;
+    }
+
+    setState(nextState);
+  }, [sessionDeckPools, state]);
 
   useEffect(() => {
     if (!pendingIrohCounter) {
@@ -2850,6 +3128,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setEndgameRevealCharacterIds([]);
     setEndgameRevealOpponentHand(false);
     setEndgameMessageVisible(false);
+    setThawingCharacterIds([]);
+    setFreezingCharacterIds([]);
     setGameCatalogOpen(false);
     setScreen('match');
   };
@@ -2876,8 +3156,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         sessionMode: 'multi-game',
         sessionGameNumber: 1,
         sessionRunoutOccurred: setupRunoutOccurred,
-        sessionUsedCharacterPile: [],
-        sessionUsedPowerCardPile: [],
       }, effectiveFirstPlayer);
       return;
     }
@@ -2992,8 +3270,37 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const effectiveFirstPlayer = firstPlayerOverride ?? firstPlayer;
     const nextPools = advanceSessionDeckPools(sessionDeckPools, state);
     const nextGameNumber = sessionGameNumber + 1;
-    const nextGame = createMultiGameSessionSetup(effectiveFirstPlayer, Math.random, nextPools);
+    let nextGame = createMultiGameSessionSetup(effectiveFirstPlayer, Math.random, nextPools);
     const setupRunoutOccurred = nextPools.unusedCharacterDeck.length < 10 || nextPools.unusedPowerDeck.length < 6;
+
+    if (setupRunoutOccurred && nextGame.sessionUsedCharacterPile.length === 0 && nextPools.usedCharacterPile.length > 0) {
+      const inGameCharacterIds = new Set<string>([
+        ...nextGame.characters.map(character => character.id),
+        ...nextGame.characterDeck.map(card => card.instanceId),
+      ]);
+      const backupCharacterFallback = nextPools.usedCharacterPile.filter(card => !inGameCharacterIds.has(card.instanceId));
+      if (backupCharacterFallback.length > 0) {
+        nextGame = {
+          ...nextGame,
+          sessionUsedCharacterPile: shuffleCharacterInstances(backupCharacterFallback, Math.random),
+        };
+      }
+    }
+
+    if (setupRunoutOccurred && nextGame.sessionUsedPowerCardPile.length === 0 && nextPools.usedPowerCardPile.length > 0) {
+      const inGamePowerIds = new Set<string>([
+        ...nextGame.powerCardHands.P1.map(card => card.instanceId),
+        ...nextGame.powerCardHands.P2.map(card => card.instanceId),
+        ...nextGame.powerCardDeck.map(card => card.instanceId),
+      ]);
+      const backupPowerFallback = nextPools.usedPowerCardPile.filter(card => !inGamePowerIds.has(card.instanceId));
+      if (backupPowerFallback.length > 0) {
+        nextGame = {
+          ...nextGame,
+          sessionUsedPowerCardPile: shufflePowerCardInstances(backupPowerFallback, Math.random),
+        };
+      }
+    }
 
     setFirstPlayer(effectiveFirstPlayer);
     setSessionDeckPools(nextPools);
@@ -3008,8 +3315,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       sessionMode: 'multi-game',
       sessionGameNumber: nextGameNumber,
       sessionRunoutOccurred: setupRunoutOccurred,
-      sessionUsedCharacterPile: [],
-      sessionUsedPowerCardPile: [],
     }, effectiveFirstPlayer);
   };
 
@@ -3146,6 +3451,57 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return state.characters.find(character => character.id === selectedCardId) ?? null;
   }, [selectedCardId, state]);
 
+  const applyAangEscape = (
+    baseState: GameState,
+    aangCharacter: GameState['characters'][number],
+    fromPosition: RingPosition,
+    targetPosition: RingPosition,
+  ): GameState => {
+    let next: GameState = {
+      ...baseState,
+      characters: baseState.characters.map(character => (
+        character.id === aangCharacter.id
+          ? {
+              ...character,
+              alive: true,
+              boardPosition: targetPosition,
+              abilityUsed: true,
+              ATK: character.ATK - 1,
+              DEF: character.DEF - 1,
+              statRule: 'Permanent -1 ATK AND DEF',
+            }
+          : character
+      )),
+      graveyard: baseState.graveyard.filter(card => card.id !== aangCharacter.id),
+    };
+
+    next = logEvent(next, 'Avatar Aang Escape', {
+      characterId: aangCharacter.id,
+      fromSpace: fromPosition,
+      toSpace: targetPosition,
+      ATKPenalty: -1,
+      DEFPenalty: -1,
+    });
+
+    setPendingBoardSpecialMotion({
+      characterId: aangCharacter.id,
+      displayName: aangCharacter.displayName ?? aangCharacter.id,
+      ATK: aangCharacter.ATK,
+      DEF: aangCharacter.DEF,
+      isKing: aangCharacter.isKing,
+      isFrozen: aangCharacter.isFrozen,
+      controller: aangCharacter.controller,
+      fromPosition,
+      toPosition: targetPosition,
+      visualMode: aangCharacter.visualMode,
+      artImageUrl: aangCharacter.artImageUrl,
+      fullCardFaceImageUrl: aangCharacter.fullCardFaceImageUrl,
+      style: 'wind',
+    });
+
+    return next;
+  };
+
   const getAnytimeCharacterSpecialStatus = (
     characterId: string,
   ): {
@@ -3169,6 +3525,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const displayName = stateCharacter?.displayName ?? boardCharacter?.displayName;
     const abilityUsed = stateCharacter?.abilityUsed ?? false;
     const owner = stateCharacter?.controller ?? boardCharacter?.controller ?? null;
+    if (isBotMode && owner === 'P2') {
+      return null;
+    }
     const actingController: Controller = pendingBattleReactionWindow
       ? pendingBattleReactionWindow.responder
       : pendingBoardReactionWindow
@@ -3257,7 +3616,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (status.action === 'jeremy') {
-      const topCards = state.powerCardDeck.slice(0, 3).map(card => ({
+      const topCards = buildJeremyInspectCards(state).map(card => ({
         instanceId: card.instanceId,
         definitionId: card.definitionId,
       }));
@@ -3280,13 +3639,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     };
 
     if (pendingBattleReactionWindow && pendingBattleReactionWindow.responder === sourceCharacter.controller) {
-      next = logEvent(next, 'Uncle Iroh Counter - Power Card Canceled', {
+      next = applyIrohCounterCancellation(next, {
         counterController: sourceCharacter.controller,
+        counterCharacterId: sourceCharacter.id,
         sourceController: pendingBattleReactionWindow.sourceController,
         cardDefinitionId: pendingBattleReactionWindow.definitionId,
         cardInstanceId: pendingBattleReactionWindow.cardInstanceId,
         phase: 'battle-reaction',
       });
+      canceledBattleCardPlayIdsRef.current.add(pendingBattleReactionWindow.cardInstanceId);
+      clearPendingBattleCardPlayUi();
       setState(next);
       setPendingBattleReactionWindow(null);
       setBattleReactionSecondsLeft(null);
@@ -3295,8 +3657,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (pendingBoardReactionWindow && pendingBoardReactionWindow.responder === sourceCharacter.controller) {
-      next = logEvent(next, 'Uncle Iroh Counter - Power Card Canceled', {
+      next = applyIrohCounterCancellation(next, {
         counterController: sourceCharacter.controller,
+        counterCharacterId: sourceCharacter.id,
         sourceController: pendingBoardReactionWindow.sourceController,
         cardDefinitionId: pendingBoardReactionWindow.definitionId,
         cardInstanceId: pendingBoardReactionWindow.cardInstanceId,
@@ -3332,24 +3695,46 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return 1;
   };
 
+  const buildJeremyInspectCards = (currentState: GameState): Array<{ instanceId: string; definitionId: string }> => {
+    const topFromDeck = currentState.powerCardDeck.slice(0, 3);
+    if (topFromDeck.length >= 3) {
+      return topFromDeck;
+    }
+
+    const remainingNeeded = 3 - topFromDeck.length;
+    if (remainingNeeded <= 0 || currentState.sessionUsedPowerCardPile.length === 0) {
+      return topFromDeck;
+    }
+
+    return [
+      ...topFromDeck,
+      ...currentState.sessionUsedPowerCardPile.slice(0, remainingNeeded),
+    ];
+  };
+
   const resolveJeremySpecialState = (
     currentState: GameState,
     characterId: string,
     selectedInstanceId: string,
+    inspectedCards?: Array<{ instanceId: string; definitionId: string }>,
   ): GameState => {
     const sourceCharacter = currentState.characters.find(character => character.id === characterId);
     if (!sourceCharacter || !sourceCharacter.alive || sourceCharacter.abilityUsed || !isJeremyJahnsName(sourceCharacter.displayName)) {
       return currentState;
     }
 
-    const currentTop = currentState.powerCardDeck.slice(0, Math.min(3, currentState.powerCardDeck.length));
+    const currentTop = (inspectedCards && inspectedCards.length > 0)
+      ? inspectedCards.slice(0, 3)
+      : buildJeremyInspectCards(currentState);
     const chosenCard = currentTop.find(card => card.instanceId === selectedInstanceId);
     if (!chosenCard) {
       return currentState;
     }
 
+    const inspectedIds = new Set(currentTop.map(card => card.instanceId));
     const unchosen = currentTop.filter(card => card.instanceId !== chosenCard.instanceId);
-    let randomizedDeck = currentState.powerCardDeck.slice(currentTop.length);
+    let randomizedDeck = currentState.powerCardDeck.filter(card => !inspectedIds.has(card.instanceId));
+    const remainingBackupPile = currentState.sessionUsedPowerCardPile.filter(card => !inspectedIds.has(card.instanceId));
     for (const card of unchosen) {
       const insertAt = Math.floor(Math.random() * (randomizedDeck.length + 1));
       randomizedDeck = [
@@ -3362,6 +3747,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     let next: GameState = {
       ...currentState,
       powerCardDeck: randomizedDeck,
+      sessionUsedPowerCardPile: remainingBackupPile,
       powerCardHands: {
         ...currentState.powerCardHands,
         [sourceCharacter.controller]: [...currentState.powerCardHands[sourceCharacter.controller], chosenCard],
@@ -3392,7 +3778,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     controller: Controller,
     currentBattleResult?: ReturnType<typeof getProjectedBattleResult>,
   ): { characterId: string; selectedInstanceId: string; explanation: string } | null => {
-    if (pendingCurtainsPlay || currentState.powerCardDeck.length === 0) {
+    if (pendingCurtainsPlay) {
       return null;
     }
 
@@ -3407,7 +3793,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return null;
     }
 
-    const currentTop = currentState.powerCardDeck.slice(0, Math.min(3, currentState.powerCardDeck.length));
+    const currentTop = buildJeremyInspectCards(currentState);
     if (currentTop.length === 0) {
       return null;
     }
@@ -3689,7 +4075,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    setState(resolveJeremySpecialState(state, sourceCharacter.id, pendingJeremySpecial.selectedInstanceId));
+    setState(resolveJeremySpecialState(
+      state,
+      sourceCharacter.id,
+      pendingJeremySpecial.selectedInstanceId,
+      pendingJeremySpecial.topCards,
+    ));
     setPendingJeremySpecial(null);
     setSelectedCardId(null);
   };
@@ -3702,7 +4093,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           'div',
           { className: 'board-card-modal-panel board-power-card-modal-panel' },
           React.createElement('h3', null, 'Jeremy Jahns Special'),
-          React.createElement('p', { className: 'status-label' }, 'Select one card from the top 3. The other 2 are shuffled back into the power deck.'),
+          React.createElement('p', { className: 'status-label' }, 'Select one card from the top 3 (pulling from backup pile if needed). The other cards are shuffled back into the power deck.'),
           React.createElement(
             'div',
             { className: 'power-card-row' },
@@ -3800,6 +4191,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       )
     : null;
 
+  const selectedBattleNoSprayCard = pendingBattleReactionWindow && state
+    ? state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.instanceId === pendingBattleReactionWindow.selectedNoSprayInstanceId)
+      ?? state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.definitionId === 'power-alpha-020')
+      ?? null
+    : null;
+
   const legalActionsForSelection = useMemo<LegalActionType[]>(() => {
     if (!state || !selectedCardId || state.gameStatus !== 'active') {
       return [];
@@ -3856,7 +4253,120 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     });
   };
 
+  const consumeBattlePowerCard = (
+    currentState: GameState,
+    actingPlayer: Controller,
+    cardInstanceId: string,
+    effectSummary: string,
+  ): GameState => {
+    const hand = currentState.powerCardHands[actingPlayer];
+    const card = hand.find(entry => entry.instanceId === cardInstanceId);
+    if (!card) {
+      return currentState;
+    }
+
+    const definition = getPowerCardDefinition(card.definitionId);
+    const visual = powerCatalogById.get(card.definitionId);
+    const next: GameState = {
+      ...currentState,
+      powerCardHands: {
+        ...currentState.powerCardHands,
+        [actingPlayer]: hand.filter(entry => entry.instanceId !== cardInstanceId),
+      },
+      usedPowerCardPile: [
+        ...currentState.usedPowerCardPile,
+        {
+          instanceId: card.instanceId,
+          definitionId: card.definitionId,
+          controller: actingPlayer,
+          displayName: definition.displayName,
+          selectedChoice: null,
+          effectSummary,
+          visualMode: visual?.visualMode,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        },
+      ],
+    };
+
+    return logEvent(next, 'Battle Card Played', {
+      actingPlayer,
+      definitionId: card.definitionId,
+      instanceId: card.instanceId,
+      selectedChoice: null,
+      targetCharacterId: null,
+      effectSummary,
+    });
+  };
+
+  const applyIrohCounterCancellation = (
+    currentState: GameState,
+    options: {
+      counterController: Controller;
+      counterCharacterId: string;
+      sourceController: Controller;
+      cardDefinitionId: string;
+      cardInstanceId: string;
+      phase: 'board' | 'board-reaction' | 'battle' | 'battle-reaction';
+    },
+  ): GameState => {
+    const isBattlePhase = options.phase === 'battle' || options.phase === 'battle-reaction';
+    const effectSummary = `Canceled by Uncle Iroh Counter (${options.cardDefinitionId})`;
+
+    let next = isBattlePhase
+      ? consumeBattlePowerCard(currentState, options.sourceController, options.cardInstanceId, effectSummary)
+      : consumeBoardPowerCard(currentState, options.sourceController, options.cardInstanceId, effectSummary);
+
+    next = logEvent(next, 'Uncle Iroh Counter - Power Card Canceled', {
+      counterController: options.counterController,
+      sourceController: options.sourceController,
+      cardDefinitionId: options.cardDefinitionId,
+      cardInstanceId: options.cardInstanceId,
+      phase: options.phase,
+    });
+
+    next = {
+      ...next,
+      characters: next.characters.map(character => (
+        character.id === options.counterCharacterId
+          ? { ...character, abilityUsed: true }
+          : character
+      )),
+    };
+
+    if (isBattlePhase && next.pendingBattle) {
+      next = {
+        ...next,
+        pendingBattle: {
+          ...next.pendingBattle,
+          currentPriorityPlayer: options.sourceController,
+          consecutivePassCount: 0,
+          readyPlayers: { P1: false, P2: false },
+          handoffRequiredFor: options.sourceController,
+          eventHistory: [
+            ...next.pendingBattle.eventHistory,
+            'Uncle Iroh Counter canceled the pending battle card',
+            'Ready flags reset',
+            `Priority: ${options.sourceController === 'P1' ? 'Human' : 'Bot'}`,
+          ],
+        },
+      };
+    }
+
+    return next;
+  };
+
   const boardActionTargets = useMemo<Partial<Record<RingPosition, LegalActionType>>>(() => {
+    if (freezeSpecialSourceId && state) {
+      const targets: Partial<Record<RingPosition, LegalActionType>> = {};
+      for (const character of state.characters) {
+        if (character.alive && character.boardPosition) {
+          targets[character.boardPosition as RingPosition] = 'move';
+        }
+      }
+      return targets;
+    }
+
     if (pendingAangEscape?.step === 'pick-spot') {
       const targets: Partial<Record<RingPosition, LegalActionType>> = {};
       for (const space of pendingAangEscape.options) {
@@ -3948,7 +4458,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     return targets;
-  }, [legalActionsForSelection, pendingAangEscape, pendingBoardCharacterSpecial, pendingBoardPowerPlay, selectedSafeCard?.boardPosition, state]);
+  }, [freezeSpecialSourceId, legalActionsForSelection, pendingAangEscape, pendingBoardCharacterSpecial, pendingBoardPowerPlay, selectedSafeCard?.boardPosition, state]);
 
   const boardActionTargetFx = pendingBoardPowerPlay?.step === 'portal-pick-destination'
     ? 'power-portal'
@@ -3980,7 +4490,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const timer = window.setTimeout(() => {
       setState(pendingCurtainsSwapMotion.nextState);
       setPendingCurtainsSwapMotion(null);
-    }, 2200);
+    }, 3600);
 
     return () => window.clearTimeout(timer);
   }, [pendingCurtainsSwapMotion]);
@@ -4622,6 +5132,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    if (freezeSpecialSourceId && state) {
+      if (clicked.alive) {
+        setFreezeSpecialTargetId(clicked.instanceId);
+        setExpandedBoardCharacterId(clicked.instanceId);
+      }
+      return;
+    }
+
     if (pendingBoardPowerPlay && state) {
       if (pendingBoardPowerPlay.step === 'portal-pick-character') {
         if (clicked.alive && clicked.controller === state.activePlayer) {
@@ -4721,6 +5239,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (pendingSwapCharactersMotion) {
       return;
     }
+
+    if (freezeSpecialSourceId && state && targetPosition) {
+      const targetCharacter = state.characters.find(character => character.alive && character.boardPosition === targetPosition);
+      if (targetCharacter) {
+        setFreezeSpecialTargetId(targetCharacter.id);
+        setExpandedBoardCharacterId(targetCharacter.id);
+      }
+      return;
+    }
+
     if (pendingAangEscape?.step === 'pick-spot' && state && targetPosition) {
       if (!pendingAangEscape.options.includes(targetPosition)) {
         return;
@@ -4732,48 +5260,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         return;
       }
 
-      let next: GameState = {
-        ...state,
-        characters: state.characters.map(character => (
-          character.id === pendingAangEscape.characterId
-            ? {
-                ...character,
-                alive: true,
-                boardPosition: targetPosition,
-                abilityUsed: true,
-                ATK: character.ATK - 1,
-                DEF: character.DEF - 1,
-                statRule: 'Permanent -1 ATK AND DEF',
-              }
-            : character
-        )),
-        graveyard: state.graveyard.filter(card => card.id !== pendingAangEscape.characterId),
-      };
-
-      next = logEvent(next, 'Avatar Aang Escape', {
-        characterId: pendingAangEscape.characterId,
-        fromSpace: pendingAangEscape.fromPosition,
-        toSpace: targetPosition,
-        ATKPenalty: -1,
-        DEFPenalty: -1,
-      });
-
-      setState(next);
-      setPendingBoardSpecialMotion({
-        characterId: aang.id,
-        displayName: aang.displayName ?? aang.id,
-        ATK: aang.ATK,
-        DEF: aang.DEF,
-        isKing: aang.isKing,
-        isFrozen: aang.isFrozen,
-        controller: aang.controller,
-        fromPosition: pendingAangEscape.fromPosition,
-        toPosition: targetPosition,
-        visualMode: aang.visualMode,
-        artImageUrl: aang.artImageUrl,
-        fullCardFaceImageUrl: aang.fullCardFaceImageUrl,
-        style: 'wind',
-      });
+      setState(applyAangEscape(state, aang, pendingAangEscape.fromPosition, targetPosition));
       setPendingAangEscape(null);
       return;
     }
@@ -4854,21 +5341,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           && pendingIrohCounter.controller !== actingPlayer
           && pendingIrohCounter.expiresAt > Date.now()
         ) {
-          let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+          const canceled = applyIrohCounterCancellation(state, {
             counterController: pendingIrohCounter.controller,
+            counterCharacterId: pendingIrohCounter.characterId,
             sourceController: actingPlayer,
             cardDefinitionId: pendingBoardPowerPlay.definitionId,
             cardInstanceId: pendingBoardPowerPlay.cardInstanceId,
             phase: 'board',
           });
-          canceled = {
-            ...canceled,
-            characters: canceled.characters.map(character => (
-              character.id === pendingIrohCounter.characterId
-                ? { ...character, abilityUsed: true }
-                : character
-            )),
-          };
           setState(canceled);
           setPendingIrohCounter(null);
           setPendingBoardPowerPlay(null);
@@ -5091,6 +5571,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    const getRecentBotActionType = (currentState: GameState): 'move' | 'attack' | 'defend' | null => {
+      for (let i = currentState.eventLog.length - 1; i >= 0; i -= 1) {
+        const event = currentState.eventLog[i];
+        if (event.action !== 'Bot P2 Decision') {
+          continue;
+        }
+
+        const action = event.details?.action;
+        if (action === 'move' || action === 'attack' || action === 'defend') {
+          return action;
+        }
+      }
+
+      return null;
+    };
+
     const botJeremyBoardChoice = chooseBotJeremySpecial(state, 'P2');
     if (botJeremyBoardChoice) {
       console.info(`[Bot AI] ${botJeremyBoardChoice.explanation}`);
@@ -5100,6 +5596,25 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         explanation: botJeremyBoardChoice.explanation,
       });
       nextState = resolveJeremySpecialState(nextState, botJeremyBoardChoice.characterId, botJeremyBoardChoice.selectedInstanceId);
+      setState(nextState);
+      setSelectedCardId(null);
+      return;
+    }
+
+    const botRapunzel = state.characters.find(character => (
+      character.alive
+      && character.controller === 'P2'
+      && canUseRapunzelSpecial(state, character.id)
+    ));
+    if (botRapunzel) {
+      const explanation = 'Bot uses Rapunzel Special before choosing a legal board action.';
+      console.info(`[Bot AI] ${explanation}`);
+      let nextState = logEvent(state, 'Bot P2 Decision', {
+        action: 'use-character-special',
+        characterId: botRapunzel.id,
+        explanation,
+      });
+      nextState = executeRapunzelSpecial(nextState, botRapunzel.id);
       setState(nextState);
       setSelectedCardId(null);
       return;
@@ -5151,6 +5666,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             gameStatus: candidateView.gameStatus,
             pendingBattle: candidateView.pendingBattle,
             legalActions: candidateView.legalActions,
+            recentBotActionType: getRecentBotActionType(candidateState),
           }, botDifficulty);
           return candidateDecision.kind === 'action' ? candidateDecision.score : -999;
         };
@@ -5213,7 +5729,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               try {
                 let next = executeBackItUpMove(state, 'P2', source.id, destination, { preserveTurn: true });
                 next = consumeBoardPowerCard(next, 'P2', backItUpCard.instanceId, 'BACK IT UP relocation');
-                const score = evaluateBoardScore(next);
+                const rawScore = evaluateBoardScore(next);
+                const isImmediateRetreat = getForwardSpace(destination) === source.boardPosition;
+                const reversibleTempoPenalty = getBackItUpTempoPenalty(source.isKing, isImmediateRetreat, botDifficulty);
+                const score = rawScore - reversibleTempoPenalty;
                 candidates.push({
                   definitionId: backItUpCard.definitionId,
                   cardInstanceId: backItUpCard.instanceId,
@@ -5252,21 +5771,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               && pendingIrohCounter.controller !== 'P2'
               && pendingIrohCounter.expiresAt > Date.now()
             ) {
-              let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+              const canceled = applyIrohCounterCancellation(state, {
                 counterController: pendingIrohCounter.controller,
+                counterCharacterId: pendingIrohCounter.characterId,
                 sourceController: 'P2',
                 cardDefinitionId: best.definitionId,
                 cardInstanceId: best.cardInstanceId,
                 phase: 'board',
               });
-              canceled = {
-                ...canceled,
-                characters: canceled.characters.map(character => (
-                  character.id === pendingIrohCounter.characterId
-                    ? { ...character, abilityUsed: true }
-                    : character
-                )),
-              };
               setState(canceled);
               setPendingIrohCounter(null);
               setSelectedCardId(null);
@@ -5341,6 +5853,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             gameStatus: candidateView.gameStatus,
             pendingBattle: candidateView.pendingBattle,
             legalActions: candidateView.legalActions,
+            recentBotActionType: getRecentBotActionType(candidateState),
           }, botDifficulty);
           return candidateDecision.kind === 'action' ? candidateDecision.score : -999;
         };
@@ -5379,6 +5892,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             try {
               let next = executeSwapCharactersMove(state, 'P2', own.id, opponent.id);
               next = consumeBoardPowerCard(next, 'P2', swapCard.instanceId, 'SWAP CHARACTERS board swap');
+
+              if (next.pendingBattle) {
+                const projectedAfterSwap = getProjectedBattleResult(next);
+                if (projectedAfterSwap.winner !== 'P2') {
+                  continue;
+                }
+              }
 
               const ownAttachmentStats = (own.attachments ?? []).reduce((sum, attachment) => (
                 sum + (attachment.ATK ?? 0) + (attachment.DEF ?? 0)
@@ -5427,21 +5947,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               && pendingIrohCounter.controller !== 'P2'
               && pendingIrohCounter.expiresAt > Date.now()
             ) {
-              let canceled = logEvent(state, 'Uncle Iroh Counter - Power Card Canceled', {
+              const canceled = applyIrohCounterCancellation(state, {
                 counterController: pendingIrohCounter.controller,
+                counterCharacterId: pendingIrohCounter.characterId,
                 sourceController: 'P2',
                 cardDefinitionId: swapCard.definitionId,
                 cardInstanceId: swapCard.instanceId,
                 phase: 'board',
               });
-              canceled = {
-                ...canceled,
-                characters: canceled.characters.map(character => (
-                  character.id === pendingIrohCounter.characterId
-                    ? { ...character, abilityUsed: true }
-                    : character
-                )),
-              };
               setState(canceled);
               setPendingIrohCounter(null);
               setSelectedCardId(null);
@@ -5486,6 +5999,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       gameStatus: botView.gameStatus,
       pendingBattle: botView.pendingBattle,
       legalActions: botView.legalActions,
+      recentBotActionType: getRecentBotActionType(state),
     }, botDifficulty, Math.random);
 
     let nextState = state;
@@ -5706,7 +6220,23 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return -result.winningMargin;
     };
 
-    const candidateOptions = getLegalBattleCardPlayOptions(state, 'P2').map(option => {
+    const battleView = getBattlePublicView(state);
+    const botComparisonLabel = battleView.initiator.controller === 'P2'
+      ? battleView.initiatorComparisonLabel
+      : battleView.opponentComparisonLabel;
+    const opponentComparisonLabel = battleView.initiator.controller === 'P2'
+      ? battleView.opponentComparisonLabel
+      : battleView.initiatorComparisonLabel;
+
+    const legalOptions = getLegalBattleCardPlayOptions(state, 'P2').filter(option => {
+      if (!imminentKingLoss || option.definitionId !== 'power-alpha-017') {
+        return true;
+      }
+
+      return option.input.targetCharacterId === botBattlerId;
+    });
+
+    const candidateOptions = legalOptions.map(option => {
       const firstPreviewState = playBattlePowerCard(state, 'P2', option.input);
       const firstProjectedResult = getProjectedBattleResult(firstPreviewState);
 
@@ -5793,6 +6323,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         displayName: option.displayName,
         definitionId: option.definitionId,
         projectedResult: firstProjectedResult,
+        actingComparisonLabel: botComparisonLabel,
+        opponentComparisonLabel,
         opponentBestCounterMarginForBot,
         opponentReplyOptionCount,
         opponentBestCounterAfterBotBestRejoinderMarginForBot,
@@ -5860,12 +6392,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    const revealSnapshot = pendingBotBattleReveal;
+
     if (state?.pendingBattle) {
       const startedReaction = startBattleReactionWindow(
         state,
         'P2',
-        pendingBotBattleReveal.input,
-        pendingBotBattleReveal.definitionId,
+        revealSnapshot.input,
+        revealSnapshot.definitionId,
       );
       if (startedReaction) {
         setPendingBotBattleReveal(null);
@@ -5873,83 +6407,43 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       }
     }
 
-    if (state?.pendingBattle && pendingBotBattleReveal.definitionId === 'power-alpha-017' && pendingBotBattleReveal.input.targetCharacterId) {
-      const target = state.characters.find(character => character.id === pendingBotBattleReveal.input.targetCharacterId);
-      const topDeckCard = state.characterDeck[0];
-      const revealSnapshot = pendingBotBattleReveal;
-
-      if (target && topDeckCard) {
-        setPhoneFriendAnimation({
-          oldCharacterId: target.id,
-          oldController: target.controller,
-          oldDisplayName: target.displayName ?? target.id,
-          oldATK: target.ATK,
-          oldDEF: target.DEF,
-          oldVisualMode: target.visualMode,
-          oldArtImageUrl: target.artImageUrl,
-          oldFullCardFaceImageUrl: target.fullCardFaceImageUrl,
-          newDisplayName: topDeckCard.displayName,
-          newATK: topDeckCard.ATK,
-          newDEF: topDeckCard.DEF,
-          newVisualMode: topDeckCard.visualMode,
-          newArtImageUrl: topDeckCard.artImageUrl,
-          newFullCardFaceImageUrl: topDeckCard.fullCardFaceImageUrl,
-        });
-
-        setPendingBotBattleReveal(null);
-
-        window.setTimeout(() => {
-          setState(current => {
-            if (!current?.pendingBattle) {
-              return current;
-            }
-
-            const cardStillInHand = current.powerCardHands.P2.some(card => card.instanceId === revealSnapshot.input.instanceId);
-            if (!cardStillInHand) {
-              return current;
-            }
-
-            try {
-              let next = playBattlePowerCard(current, 'P2', revealSnapshot.input);
-              next = logEvent(next, `Bot P2 played ${revealSnapshot.displayName}`, {
-                definitionId: revealSnapshot.definitionId,
-                instanceId: revealSnapshot.input.instanceId,
-                selectedChoice: revealSnapshot.input.selectedChoice ?? null,
-              });
-              return next;
-            } catch {
-              return current;
-            }
-          });
-          setPhoneFriendAnimation(null);
-        }, 2450);
-
-        return;
-      }
+    if (!state?.pendingBattle) {
+      setPendingBotBattleReveal(null);
+      return;
     }
 
-    setState(prev => {
-      if (!prev?.pendingBattle) {
-        return prev;
+    const cardStillInHand = state.powerCardHands.P2.some(card => card.instanceId === revealSnapshot.input.instanceId);
+    if (!cardStillInHand) {
+      setPendingBotBattleReveal(null);
+      return;
+    }
+
+    try {
+      let next = playBattlePowerCard(state, 'P2', revealSnapshot.input);
+      if (revealSnapshot.definitionId === 'power-alpha-017') {
+        const phoneFriendEvent = [...next.eventLog].reverse().find(event => (
+          event.action === 'Battle Card Played'
+          && event.details.cardInstanceId === revealSnapshot.input.instanceId
+          && typeof event.details.phoneFriend === 'object'
+          && !!event.details.phoneFriend
+        ));
+        const animation = phoneFriendEvent
+          ? toPhoneFriendAnimationState(phoneFriendEvent.details.phoneFriend as Record<string, unknown>)
+          : null;
+        if (animation) {
+          setPhoneFriendAnimation(animation);
+        }
       }
 
-      const cardStillInHand = prev.powerCardHands.P2.some(card => card.instanceId === pendingBotBattleReveal.input.instanceId);
-      if (!cardStillInHand) {
-        return prev;
-      }
-
-      try {
-        let next = playBattlePowerCard(prev, 'P2', pendingBotBattleReveal.input);
-        next = logEvent(next, `Bot P2 played ${pendingBotBattleReveal.displayName}`, {
-          definitionId: pendingBotBattleReveal.definitionId,
-          instanceId: pendingBotBattleReveal.input.instanceId,
-          selectedChoice: pendingBotBattleReveal.input.selectedChoice ?? null,
-        });
-        return next;
-      } catch {
-        return prev;
-      }
-    });
+      next = logEvent(next, `Bot P2 played ${revealSnapshot.displayName}`, {
+        definitionId: revealSnapshot.definitionId,
+        instanceId: revealSnapshot.input.instanceId,
+        selectedChoice: revealSnapshot.input.selectedChoice ?? null,
+      });
+      setState(next);
+    } catch {
+      setState(state);
+    }
 
     setPendingBotBattleReveal(null);
   };
@@ -6047,12 +6541,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         }
 
         if (options.size > 0) {
-          setPendingAangEscape({
-            characterId: loserCharacter.id,
-            options: [...options],
-            fromPosition: loserCharacter.boardPosition as RingPosition,
-            step: 'prompt',
-          });
+          const escapeOptions = [...options];
+          if (isBotMode && loserCharacter.controller === 'P2') {
+            next = applyAangEscape(
+              next,
+              loserCharacter,
+              loserCharacter.boardPosition as RingPosition,
+              escapeOptions[0],
+            );
+          } else {
+            setPendingAangEscape({
+              characterId: loserCharacter.id,
+              options: escapeOptions,
+              fromPosition: loserCharacter.boardPosition as RingPosition,
+              step: 'prompt',
+            });
+          }
         }
       }
     }
@@ -6272,8 +6776,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       && pendingIrohCounter.controller !== actor
       && pendingIrohCounter.expiresAt > Date.now()
     ) {
-      let canceled = logEvent(currentState, 'Uncle Iroh Counter - Power Card Canceled', {
+      const canceled = applyIrohCounterCancellation(currentState, {
         counterController: pendingIrohCounter.controller,
+        counterCharacterId: pendingIrohCounter.characterId,
         sourceController: actor,
         cardDefinitionId: card.definitionId,
         cardInstanceId: card.instanceId,
@@ -6281,14 +6786,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       });
       canceledBattleCardPlayIdsRef.current.add(card.instanceId);
       clearPendingBattleCardPlayUi();
-      canceled = {
-        ...canceled,
-        characters: canceled.characters.map(character => (
-          character.id === pendingIrohCounter.characterId
-            ? { ...character, abilityUsed: true }
-            : character
-        )),
-      };
       setState(canceled);
       setPendingIrohCounter(null);
       return;
@@ -6619,6 +7116,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (pendingBattleReactionWindow) {
       setPendingBattleReactionWindow(null);
     }
+    if (battleNoSprayCardViewOpen) {
+      setBattleNoSprayCardViewOpen(false);
+    }
     if (battleReactionSecondsLeft !== null) {
       setBattleReactionSecondsLeft(null);
     }
@@ -6628,7 +7128,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (queuedBotBattleReveal) {
       setQueuedBotBattleReveal(null);
     }
-  }, [battleReactionSecondsLeft, pendingBattleReactionWindow, pendingBotBattleReveal, queuedBotBattleReveal, state?.pendingBattle]);
+  }, [battleReactionSecondsLeft, battleNoSprayCardViewOpen, pendingBattleReactionWindow, pendingBotBattleReveal, queuedBotBattleReveal, state?.pendingBattle]);
+
+  useEffect(() => {
+    if (!pendingBattleReactionWindow) {
+      setBattleNoSprayCardViewOpen(false);
+    }
+  }, [pendingBattleReactionWindow]);
 
   useEffect(() => {
     if (!expandedBoardPowerCardId) {
@@ -6871,6 +7377,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         setPlayerColors(prev => ({ ...prev, [player]: color }));
       },
       onNewGame: startNewGame,
+      onContinueGame: continueSavedGame,
+      hasContinueGame: !!state && savedGameContinueAvailable,
+      continueGameDisabledReason: (!state && savedGameContinueDisabledReason) ? savedGameContinueDisabledReason : null,
       initialPhase: gameCatalogOpen ? 'catalog' : undefined,
       onCatalogBack: gameCatalogOpen ? closeInGameCatalog : undefined,
     });
@@ -6903,6 +7412,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             cardMotion: pendingBoardCardMotion,
             characterStatusById: irohStatusByCharacterId,
             thawingCharacterIds,
+            freezingCharacterIds,
           }),
         ),
         React.createElement('aside', { className: 'tabletop-status-rail', 'data-testid': 'tabletop-status-rail' },
@@ -6953,6 +7463,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           }
         }
       }
+      if (freezeSpecialSourceId) {
+        for (const target of state.characters.filter(character => character.alive && !!character.boardPosition)) {
+          battleTargetMap[target.boardPosition as RingPosition] = 'move';
+        }
+      }
       const handleBattleTargetSelection = (instanceId: string): void => {
         if (!state) {
           return;
@@ -6960,6 +7475,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
         const selected = state.characters.find(character => character.id === instanceId);
         if (!selected || !selected.alive || !selected.boardPosition) {
+          return;
+        }
+
+        if (freezeSpecialSourceId) {
+          setFreezeSpecialTargetId(selected.id);
+          setExpandedBoardCharacterId(selected.id);
           return;
         }
 
@@ -7016,6 +7537,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   setPendingBattlePhoneFriendPlay(null);
                   setPendingBattleWeaponEquipPlay(null);
                   setPendingBattleSwapPlay(null);
+                  closeFreezeSpecialPicker();
                   setPhoneFriendAnimation(null);
                 },
                 'data-testid': 'battle-return-to-battle',
@@ -7063,7 +7585,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ),
               )
             : null,
-          pendingBattlePhoneFriendPlay
+          freezeSpecialSourceId
+            ? React.createElement(
+                'p',
+                { className: 'status-label', 'data-testid': 'battle-freeze-targeting-hint' },
+                'FREEZE GUN SPECIAL: click any living character on the board, then confirm.',
+              )
+            : pendingBattlePhoneFriendPlay
             ? React.createElement(
                 'p',
                 { className: 'status-label', 'data-testid': 'battle-phone-friend-targeting-hint' },
@@ -7089,6 +7617,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             selectedCardId: pendingBattlePhoneFriendPlay?.selectedCharacterId
               ?? pendingBattleWeaponEquipPlay?.selectedCharacterId
               ?? pendingBattleSwapPlay?.pendingCharacterId
+              ?? freezeSpecialTargetId
               ?? null,
             onCardClick: (instanceId: string) => {
               if (!state) {
@@ -7104,13 +7633,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 handleBattleTargetSelection(target.id);
               }
             },
-            allowCardClickOnActionTargets: !!pendingBattleWeaponEquipPlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay,
-            readOnly: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay,
-            inspectAllCards: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay,
+            allowCardClickOnActionTargets: !!pendingBattleWeaponEquipPlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay || !!freezeSpecialSourceId,
+            readOnly: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            inspectAllCards: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
             characterStatusById: irohStatusByCharacterId,
             playerColors,
             swapCharacterMotion: pendingSwapCharactersMotion,
             thawingCharacterIds,
+            freezingCharacterIds,
           }),
           React.createElement(
             'button',
@@ -7612,6 +8142,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         'Use Freeze Gun Special',
                       )
                     : null,
+                  freezeSpecialSourceId && freezeSpecialTargetId === expandedBattleReadCharacter.id
+                    ? React.createElement(
+                        'button',
+                        {
+                          type: 'button',
+                          onClick: executeManualFreezeSpecial,
+                          'data-testid': 'battle-freeze-special-confirm-from-card',
+                        },
+                        'Confirm Freeze Target',
+                      )
+                    : null,
                   renderAnytimeCharacterSpecialControl(expandedBattleReadCharacter.id, 'battle-fullboard'),
                   React.createElement(
                     'button',
@@ -7831,7 +8372,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             )),
           )
         : null,
-      freezeSpecialSourceId && freezeSpecialSourceCharacter
+      freezeSpecialSourceId && freezeSpecialSourceCharacter && !expandedBoardCharacterId
         ? React.createElement(
             'section',
             { className: 'board-card-modal', 'data-testid': 'freeze-special-modal' },
@@ -7839,19 +8380,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               'div',
               { className: 'board-card-modal-panel board-power-card-modal-panel' },
               React.createElement('h3', null, `Freeze Gun Special: ${freezeSpecialSourceCharacter.displayName ?? 'Mr. Freeze'}`),
-              React.createElement('p', { className: 'status-label' }, 'Select any living character to freeze.'),
+              React.createElement('p', { className: 'status-label' }, 'Click any living character on the board to target them.'),
               React.createElement(
-                'select',
-                {
-                  value: freezeSpecialTargetId ?? '',
-                  onChange: event => setFreezeSpecialTargetId(event.target.value),
-                  'data-testid': 'freeze-special-target-select',
-                },
-                freezeSpecialTargetOptions.map(option => React.createElement(
-                  'option',
-                  { key: option.id, value: option.id },
-                  option.label,
-                )),
+                'p',
+                { className: 'status-label', 'data-testid': 'freeze-special-selected-target' },
+                freezeSpecialTargetCharacter
+                  ? `Selected: ${freezeSpecialTargetCharacter.displayName ?? freezeSpecialTargetCharacter.id}`
+                  : 'No target selected yet.',
               ),
               React.createElement(
                 'div',
@@ -7861,10 +8396,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   {
                     type: 'button',
                     onClick: executeManualFreezeSpecial,
-                    disabled: !freezeSpecialTargetId,
+                    disabled: !freezeSpecialTargetCharacter,
                     'data-testid': 'freeze-special-confirm',
                   },
-                  'Fire Freeze Gun',
+                  freezeSpecialTargetCharacter ? 'Confirm Freeze' : 'Pick Target First',
                 ),
                 React.createElement(
                   'button',
@@ -8078,91 +8613,173 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             React.createElement(
               'div',
               { className: 'board-card-modal-panel board-power-card-modal-panel' },
-              React.createElement('h3', null, 'No Spray Response Window'),
-              React.createElement('p', { className: 'status-label' }, `${displayPlayerLabel(pendingBattleReactionWindow.sourceController)} played ${pendingBattleReactionWindow.displayName}.`),
               React.createElement(
-                'p',
-                { className: 'status-label' },
-                pendingBattleReactionWindow.noSprayOptions.length > 0 && pendingBattleReactionWindow.irohCounterCharacterId
-                  ? `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use NO SPRAY or Uncle Iroh Counter.`
-                  : pendingBattleReactionWindow.noSprayOptions.length > 0
-                    ? `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use NO SPRAY.`
-                    : `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use Uncle Iroh Counter.`,
+                'h3',
+                null,
+                  battleNoSprayCardViewOpen && selectedBattleNoSprayCard
+                    ? 'NO SPRAY Card View'
+                    : pendingBattleReactionWindow.noSprayOptions.length === 0 && pendingBattleReactionWindow.irohCounterCharacterId
+                      ? 'Uncle Iroh Counter Window'
+                      : 'No Spray Response Window',
               ),
-              pendingBattleReactionWindow.noSprayOptions.length > 1
-                ? React.createElement(
-                    'label',
-                    { className: 'status-label', htmlFor: 'battle-nospray-select' },
-                    'Select NO SPRAY card:',
-                    React.createElement(
-                      'select',
-                      {
-                        id: 'battle-nospray-select',
-                        value: pendingBattleReactionWindow.selectedNoSprayInstanceId,
-                        onChange: event => setPendingBattleReactionWindow(prev => (
-                          prev
-                            ? { ...prev, selectedNoSprayInstanceId: event.target.value }
-                            : prev
-                        )),
-                        'data-testid': 'battle-nospray-select',
-                      },
-                      pendingBattleReactionWindow.noSprayOptions.map(option => React.createElement(
-                        'option',
-                        { key: option.instanceId, value: option.instanceId },
-                        option.label,
-                      )),
-                    ),
-                  )
-                : null,
-              React.createElement(
-                'div',
-                { className: 'nospray-target-stage', 'data-testid': 'battle-nospray-cinematic-stage' },
-                React.createElement(PowerCardFrame, {
-                  size: 'battle',
-                  displayName: pendingBattleReactionWindow.displayName,
-                  rulesText: pendingBattleReactionWindow.rulesText,
-                  artSrc: pendingBattleReactionWindow.artImageUrl ?? null,
-                  fullCardFaceSrc: pendingBattleReactionWindow.fullCardFaceImageUrl ?? null,
-                  visualMode: pendingBattleReactionWindow.visualMode ?? 'layered-art',
-                  state: 'selected',
-                  selected: true,
-                  testId: 'battle-nospray-reaction-card',
-                }),
-                React.createElement(
-                  'div',
-                  { className: 'nospray-cinematic', 'aria-hidden': 'true' },
-                  React.createElement('span', { className: 'nospray-hand' }),
-                  React.createElement('span', { className: 'nospray-bottle' }),
-                  React.createElement('span', { className: 'nospray-mist' }),
-                ),
-              ),
-              React.createElement(
-                'div',
-                { className: 'power-popover-controls' },
-                (!isBotMode && (!multiplayerMode || multiplayerPlayer === pendingBattleReactionWindow.responder))
-                || (isBotMode && pendingBattleReactionWindow.responder === 'P1')
+                battleNoSprayCardViewOpen && selectedBattleNoSprayCard
                   ? React.createElement(
-                      'button',
-                      {
-                        type: 'button',
-                        onClick: () => resolveBattleReactionWindow(true),
-                        'data-testid': 'battle-nospray-use-button',
-                      },
-                      pendingBattleReactionWindow.noSprayOptions.length > 0
-                        ? 'Use NO SPRAY'
-                        : 'Use Uncle Iroh Counter',
+                      React.Fragment,
+                      null,
+                      React.createElement('p', { className: 'status-label' }, `${displayPlayerLabel(pendingBattleReactionWindow.responder)} is viewing the selected NO SPRAY card.`),
+                      React.createElement(
+                        'div',
+                        { className: 'nospray-target-stage', 'data-testid': 'battle-nospray-cinematic-stage' },
+                        React.createElement(PowerCardFrame, {
+                          size: 'battle',
+                          displayName: selectedBattleNoSprayCard.displayName,
+                          rulesText: selectedBattleNoSprayCard.rulesText,
+                          artSrc: selectedBattleNoSprayCard.artImageUrl ?? null,
+                          fullCardFaceSrc: selectedBattleNoSprayCard.fullCardFaceImageUrl ?? null,
+                          visualMode: selectedBattleNoSprayCard.visualMode ?? 'layered-art',
+                          state: 'selected',
+                          selected: true,
+                          testId: 'battle-nospray-reaction-card',
+                        }),
+                        React.createElement(
+                          'div',
+                          { className: 'nospray-cinematic', 'aria-hidden': 'true' },
+                          React.createElement('span', { className: 'nospray-hand' }),
+                          React.createElement('span', { className: 'nospray-bottle' }),
+                          React.createElement('span', { className: 'nospray-mist' }),
+                        ),
+                      ),
+                      React.createElement(
+                        'div',
+                        { className: 'power-popover-controls' },
+                        React.createElement(
+                          'button',
+                          {
+                            type: 'button',
+                            onClick: () => resolveBattleReactionWindow(true),
+                            'data-testid': 'battle-nospray-use-button',
+                          },
+                          'Play This Card',
+                        ),
+                        React.createElement(
+                          'button',
+                          {
+                            type: 'button',
+                            onClick: () => setBattleNoSprayCardViewOpen(false),
+                            'data-testid': 'battle-nospray-card-back-button',
+                          },
+                          'Back to Response Window',
+                        ),
+                      ),
                     )
-                  : null,
-                React.createElement(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => resolveBattleReactionWindow(false),
-                    'data-testid': 'battle-nospray-let-resolve',
-                  },
-                  'Let It Resolve',
-                ),
-              ),
+                  : React.createElement(
+                      React.Fragment,
+                      null,
+                      React.createElement('p', { className: 'status-label' }, `${displayPlayerLabel(pendingBattleReactionWindow.sourceController)} played ${pendingBattleReactionWindow.displayName}.`),
+                      React.createElement(
+                        'p',
+                        { className: 'status-label' },
+                        pendingBattleReactionWindow.noSprayOptions.length > 0 && pendingBattleReactionWindow.irohCounterCharacterId
+                          ? `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use NO SPRAY or Uncle Iroh Counter.`
+                          : pendingBattleReactionWindow.noSprayOptions.length > 0
+                            ? `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use NO SPRAY.`
+                            : `${displayPlayerLabel(pendingBattleReactionWindow.responder)} has ${battleReactionSecondsLeft ?? 0} seconds to use Uncle Iroh Counter.`,
+                      ),
+                      pendingBattleReactionWindow.noSprayOptions.length > 1
+                        ? React.createElement(
+                            'label',
+                            { className: 'status-label', htmlFor: 'battle-nospray-select' },
+                            'Select NO SPRAY card:',
+                            React.createElement(
+                              'select',
+                              {
+                                id: 'battle-nospray-select',
+                                value: pendingBattleReactionWindow.selectedNoSprayInstanceId,
+                                onChange: event => setPendingBattleReactionWindow(prev => (
+                                  prev
+                                    ? { ...prev, selectedNoSprayInstanceId: event.target.value }
+                                    : prev
+                                )),
+                                'data-testid': 'battle-nospray-select',
+                              },
+                              pendingBattleReactionWindow.noSprayOptions.map(option => React.createElement(
+                                'option',
+                                { key: option.instanceId, value: option.instanceId },
+                                option.label,
+                              )),
+                            ),
+                          )
+                        : null,
+                      React.createElement(
+                        'div',
+                        { className: 'nospray-target-stage', 'data-testid': 'battle-nospray-cinematic-stage' },
+                        pendingBattleReactionWindow.noSprayOptions.length === 0 && pendingBattleReactionWindow.irohCounterCharacterId
+                          ? React.createElement(
+                              'div',
+                              { className: 'iroh-tea-cinematic', 'aria-hidden': 'true' },
+                              React.createElement('span', { className: 'iroh-tea-steam iroh-tea-steam-a' }),
+                              React.createElement('span', { className: 'iroh-tea-steam iroh-tea-steam-b' }),
+                              React.createElement('span', { className: 'iroh-tea-cup' }),
+                              React.createElement('span', { className: 'iroh-tea-saucer' }),
+                              React.createElement('span', { className: 'iroh-tea-label' }, 'Jasmine Tea'),
+                            )
+                          : React.createElement(
+                              React.Fragment,
+                              null,
+                              React.createElement(PowerCardFrame, {
+                                size: 'battle',
+                                displayName: pendingBattleReactionWindow.displayName,
+                                rulesText: pendingBattleReactionWindow.rulesText,
+                                artSrc: pendingBattleReactionWindow.artImageUrl ?? null,
+                                fullCardFaceSrc: pendingBattleReactionWindow.fullCardFaceImageUrl ?? null,
+                                visualMode: pendingBattleReactionWindow.visualMode ?? 'layered-art',
+                                state: 'selected',
+                                selected: true,
+                                testId: 'battle-nospray-reaction-card',
+                              }),
+                              React.createElement(
+                                'div',
+                                { className: 'nospray-cinematic', 'aria-hidden': 'true' },
+                                React.createElement('span', { className: 'nospray-hand' }),
+                                React.createElement('span', { className: 'nospray-bottle' }),
+                                React.createElement('span', { className: 'nospray-mist' }),
+                              ),
+                            ),
+                      ),
+                      React.createElement(
+                        'div',
+                        { className: 'power-popover-controls' },
+                        (!isBotMode && (!multiplayerMode || multiplayerPlayer === pendingBattleReactionWindow.responder))
+                        || (isBotMode && pendingBattleReactionWindow.responder === 'P1')
+                          ? React.createElement(
+                              'button',
+                              {
+                                type: 'button',
+                                onClick: () => {
+                                  if (pendingBattleReactionWindow.noSprayOptions.length > 0) {
+                                    setBattleNoSprayCardViewOpen(true);
+                                  } else {
+                                    resolveBattleReactionWindow(true);
+                                  }
+                                },
+                                'data-testid': 'battle-nospray-use-button',
+                              },
+                              pendingBattleReactionWindow.noSprayOptions.length > 0
+                                ? 'Use NO SPRAY'
+                                : 'Use Uncle Iroh Counter',
+                            )
+                          : null,
+                        React.createElement(
+                          'button',
+                          {
+                            type: 'button',
+                            onClick: () => resolveBattleReactionWindow(false),
+                            'data-testid': 'battle-nospray-let-resolve',
+                          },
+                          'Let It Resolve',
+                        ),
+                      ),
+                    ),
             ),
           )
         : null,
@@ -8286,7 +8903,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           onAttachmentClick: handleAttachmentCardClick,
           actionTargets: boardActionTargets,
           onActionTargetClick: handleExecuteAction,
-          allowCardClickOnActionTargets: pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
+          allowCardClickOnActionTargets: !!freezeSpecialSourceId || pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
           allowWeaponTargetClicks: !!pendingBoardWeaponEquipPlay,
           portalRetargetEnabled: pendingBoardPowerPlay?.step === 'portal-pick-destination',
           portalSourceCharacterId: pendingBoardPowerPlay?.step === 'portal-pick-destination'
@@ -8305,6 +8922,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           revealAnimationIds: isGameOver ? endgameRevealCharacterIds : [],
           kingDuelRumbleIds: finalKingDuelTransitionPhase === 'idle' ? [] : finalKingDuelRumbleIds,
           thawingCharacterIds,
+          freezingCharacterIds,
           boardImploding: finalKingDuelTransitionPhase === 'implode',
           characterStatusById: irohStatusByCharacterId,
         }),
@@ -8532,7 +9150,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               ),
             )
           : null,
-        React.createElement('div', { className: 'compact-deck-stack', 'data-testid': 'compact-deck-stack' },
+        React.createElement('div', {
+          className: `compact-deck-stack${state.sessionMode === 'multi-game' && state.sessionRunoutOccurred ? ' runout-backup-enabled' : ''}`,
+          'data-testid': 'compact-deck-stack',
+        },
           React.createElement('div', { className: 'deck-stack', 'data-testid': 'character-deck-stack' },
             React.createElement('strong', null, 'Character Deck'),
             React.createElement(
@@ -8576,6 +9197,63 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             ),
             React.createElement('span', { className: 'deck-stack-count' }, String(sessionRemainingDeckCounts?.power ?? safeView.powerCards.remainingDeckCount)),
           ),
+          state.sessionMode === 'multi-game' && state.sessionRunoutOccurred
+            ? React.createElement('div', { className: 'deck-stack deck-stack-backup', 'data-testid': 'backup-character-deck-stack' },
+                React.createElement('strong', null, 'Backup Character Pile'),
+                React.createElement(
+                  'div',
+                  { className: 'deck-stack-cards' },
+                  Array.from({ length: Math.min(3, state.sessionUsedCharacterPile.length) }).map((_, index) => React.createElement(
+                    'div',
+                    {
+                      key: `backup-character-deck-stack-${index}`,
+                      className: 'deck-stack-card deck-stack-character-card',
+                      style: { transform: `translate(${index * 3}px, ${index * -4}px) rotate(${index * -1.6}deg)` },
+                    },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'board',
+                      revealed: false,
+                      controllerColorClass: 'player-color-blue',
+                      testId: `backup-character-deck-card-${index}`,
+                    }),
+                  )),
+                ),
+                React.createElement('span', { className: 'deck-stack-count' }, String(state.sessionUsedCharacterPile.length)),
+              )
+            : null,
+          state.sessionMode === 'multi-game' && state.sessionRunoutOccurred
+            ? React.createElement('div', { className: 'deck-stack deck-stack-backup', 'data-testid': 'backup-power-deck-stack' },
+                React.createElement('strong', null, 'Backup Power Pile'),
+                React.createElement(
+                  'div',
+                  { className: 'deck-stack-cards' },
+                  Array.from({ length: Math.min(3, state.sessionUsedPowerCardPile.length) }).map((_, index) => React.createElement(
+                    'div',
+                    {
+                      key: `backup-power-deck-stack-${index}`,
+                      className: 'deck-stack-card deck-stack-power-card',
+                      style: { transform: `translate(${index * 3}px, ${index * -4}px) rotate(${index * 1.6}deg)` },
+                    },
+                    React.createElement(PowerCardFrame, {
+                      size: 'board',
+                      state: 'back',
+                      testId: `backup-power-deck-card-${index}`,
+                    }),
+                  )),
+                ),
+                React.createElement('span', { className: 'deck-stack-count' }, String(state.sessionUsedPowerCardPile.length)),
+              )
+            : null,
+        ),
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'mode-button end-game-home-button',
+            onClick: endGameToHome,
+            'data-testid': 'end-game-home-button',
+          },
+          'End Game',
         ),
       ),
     ),
@@ -8999,6 +9677,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     pendingBoardPowerPlay.step === 'swap-pick-own' ? 'Confirm First Selection' : 'Confirm Swap',
                   )
                 : null,
+              freezeSpecialSourceId && freezeSpecialTargetId === expandedBoardCharacter.instanceId
+                ? React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: executeManualFreezeSpecial,
+                      'data-testid': 'freeze-special-confirm-from-character-modal',
+                    },
+                    'Confirm Freeze Target',
+                  )
+                : null,
               React.createElement(
                 'button',
                 {
@@ -9013,7 +9702,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         )
       : null,
     renderExpandedAttachmentCardModal(),
-    freezeSpecialSourceId && freezeSpecialSourceCharacter
+    freezeSpecialSourceId && freezeSpecialSourceCharacter && !expandedBoardCharacterId
       ? React.createElement(
           'section',
           { className: 'board-card-modal', 'data-testid': 'freeze-special-modal' },
@@ -9021,19 +9710,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             'div',
             { className: 'board-card-modal-panel board-power-card-modal-panel' },
             React.createElement('h3', null, `Freeze Gun Special: ${freezeSpecialSourceCharacter.displayName ?? 'Mr. Freeze'}`),
-            React.createElement('p', { className: 'status-label' }, 'Select any living character to freeze.'),
+            React.createElement('p', { className: 'status-label' }, 'Click any living character on the board to target them.'),
             React.createElement(
-              'select',
-              {
-                value: freezeSpecialTargetId ?? '',
-                onChange: event => setFreezeSpecialTargetId(event.target.value),
-                'data-testid': 'freeze-special-target-select',
-              },
-              freezeSpecialTargetOptions.map(option => React.createElement(
-                'option',
-                { key: option.id, value: option.id },
-                option.label,
-              )),
+              'p',
+              { className: 'status-label', 'data-testid': 'freeze-special-selected-target' },
+              freezeSpecialTargetCharacter
+                ? `Selected: ${freezeSpecialTargetCharacter.displayName ?? freezeSpecialTargetCharacter.id}`
+                : 'No target selected yet.',
             ),
             React.createElement(
               'div',
@@ -9043,10 +9726,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 {
                   type: 'button',
                   onClick: executeManualFreezeSpecial,
-                  disabled: !freezeSpecialTargetId,
+                  disabled: !freezeSpecialTargetCharacter,
                   'data-testid': 'freeze-special-confirm',
                 },
-                'Fire Freeze Gun',
+                freezeSpecialTargetCharacter ? 'Confirm Freeze' : 'Pick Target First',
               ),
               React.createElement(
                 'button',
@@ -9304,14 +9987,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             'div',
             { className: 'board-card-modal-panel board-power-card-modal-panel board-curtains-panel board-curtains-swap-panel' },
             React.createElement('h3', null, 'BEHIND THE CURTAINS'),
-            React.createElement('p', { className: 'status-label' }, 'Swapping selected cards...'),
+            React.createElement(
+              'p',
+              { className: 'status-label curtains-swap-summary' },
+              `Swapping ${pendingCurtainsSwapMotion.own.displayName} with ${pendingCurtainsSwapMotion.opponent.displayName}.`,
+            ),
             React.createElement(
               'div',
               { className: 'curtains-swap-stage' },
               React.createElement(
                 'div',
                 { className: 'curtains-swap-lane curtains-swap-lane-own' },
-                React.createElement('p', { className: 'curtains-swap-lane-label' }, 'Your Hand'),
+                React.createElement('p', { className: 'curtains-swap-lane-label' }, 'Leaving Your Hand'),
+                React.createElement('p', { className: 'curtains-swap-lane-card-name' }, pendingCurtainsSwapMotion.own.displayName),
                 React.createElement(
                   'div',
                   { className: 'curtains-swap-card curtains-swap-card-own' },
@@ -9332,7 +10020,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               React.createElement(
                 'div',
                 { className: 'curtains-swap-lane curtains-swap-lane-opponent' },
-                React.createElement('p', { className: 'curtains-swap-lane-label' }, 'Opponent Hand'),
+                React.createElement('p', { className: 'curtains-swap-lane-label' }, 'Leaving Opponent Hand'),
+                React.createElement('p', { className: 'curtains-swap-lane-card-name' }, pendingCurtainsSwapMotion.opponent.displayName),
                 React.createElement(
                   'div',
                   { className: 'curtains-swap-card curtains-swap-card-opponent' },
@@ -9467,17 +10156,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   pendingSkarReclaim.cards.map(card => {
                     const definition = getPowerCardDefinition(card.definitionId);
                     const visual = powerCatalogById.get(card.definitionId);
+                    const isSelected = pendingSkarReclaim.selectedInstanceId === card.instanceId;
                     return React.createElement(
                       'button',
                       {
                         key: `skar-reclaim-${card.instanceId}`,
                         type: 'button',
-                        className: 'power-card-button',
+                        className: `power-card-button skar-reclaim-card-button ${isSelected ? 'option-card-selected' : ''}`,
                         onClick: () => setPendingSkarReclaim(prev => (
                           prev
                             ? { ...prev, selectedInstanceId: card.instanceId }
                             : prev
                         )),
+                        'aria-pressed': isSelected,
                         'data-testid': `skar-reclaim-${card.instanceId}`,
                       },
                       React.createElement(PowerCardFrame, {
@@ -9487,8 +10178,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         artSrc: visual?.artImageUrl ?? null,
                         fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
                         visualMode: visual?.visualMode ?? 'layered-art',
-                        state: pendingSkarReclaim.selectedInstanceId === card.instanceId ? 'selected' : 'playable',
-                        selected: pendingSkarReclaim.selectedInstanceId === card.instanceId,
+                        state: isSelected ? 'selected' : 'playable',
+                        selected: isSelected,
                         testId: `skar-reclaim-card-${card.instanceId}`,
                       }),
                     );
@@ -9538,7 +10229,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     sessionRpsPromptOpen
       ? React.createElement(
           'section',
-          { className: 'board-card-modal', 'data-testid': 'session-rps-modal' },
+          { className: 'board-card-modal session-rps-modal', 'data-testid': 'session-rps-modal' },
           React.createElement(
             'div',
             { className: 'board-card-modal-panel board-power-card-modal-panel session-rps-panel' },

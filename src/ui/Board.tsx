@@ -120,6 +120,7 @@ interface BoardProps {
   revealAnimationIds?: string[];
   kingDuelRumbleIds?: string[];
   thawingCharacterIds?: string[];
+  freezingCharacterIds?: string[];
   boardImploding?: boolean;
   inspectAllCards?: boolean;
   characterStatusById?: Record<string, string>;
@@ -183,6 +184,7 @@ function renderRingSpace(
   revealAnimationIds: string[] = [],
   kingDuelRumbleIds: string[] = [],
   thawingCharacterIds: string[] = [],
+  freezingCharacterIds: string[] = [],
 ): React.ReactNode {
   const card = cardAt(view, position);
   const isSelected = card?.instanceId === selectedCardId;
@@ -224,6 +226,7 @@ function renderRingSpace(
   const revealAnimated = !!card && revealAnimationIds.includes(card.instanceId);
   const rumbleAnimated = !!card && kingDuelRumbleIds.includes(card.instanceId);
   const thawAnimated = !!card && thawingCharacterIds.includes(card.instanceId);
+  const freezeAnimated = !!card && freezingCharacterIds.includes(card.instanceId);
 
   const handleActionTargetClick = (event: React.MouseEvent<HTMLButtonElement>): void => {
     event.stopPropagation();
@@ -278,6 +281,7 @@ function renderRingSpace(
             isKing: card.isKing,
             isFrozen: card.isFrozen,
             isThawing: thawAnimated,
+            isFreezing: freezeAnimated,
             statusTag: characterStatusById[card.instanceId] ?? null,
             selected: isSelected,
             tilt: layout.tilt,
@@ -328,7 +332,7 @@ function renderRingSpace(
   );
 }
 
-export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {} }: BoardProps): React.ReactElement {
+export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], freezingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {} }: BoardProps): React.ReactElement {
   const segments = ringOrder.map((position, index) => [position, ringOrder[(index + 1) % ringOrder.length]] as const);
   const animatedCard = cardMotion ? view.boardCards.find(card => card.instanceId === cardMotion.characterId) : null;
   const animatedControllerClass = animatedCard ? colorClassFor(playerColors?.[animatedCard.controller]) : 'player-color-blue';
@@ -444,7 +448,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
         }),
       ),
       React.createElement('div', { className: 'territory-divider', 'data-testid': 'territory-divider' }),
-      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds)),
+      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds, freezingCharacterIds)),
       rapunzelHairPoints
         ? React.createElement(
             'svg',
@@ -489,6 +493,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
               isKing: animatedCard.isKing,
               isFrozen: animatedCard.isFrozen,
               isThawing: thawingCharacterIds.includes(animatedCard.instanceId),
+              isFreezing: freezingCharacterIds.includes(animatedCard.instanceId),
               testId: `board-card-motion-frame-${animatedCard.instanceId}`,
             }),
           )

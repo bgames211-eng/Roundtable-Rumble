@@ -139,6 +139,10 @@ function isBrendanDefinition(definitionId: string): boolean {
   return definitionId === 'alpha-001';
 }
 
+function isGamoraDefinition(definitionId: string): boolean {
+  return definitionId === 'alpha-012';
+}
+
 export function createDefaultCharacterCatalogEntry(definition: CharacterCardDefinition): CharacterCatalogEntry {
   const defaultFullCardFaceImageUrl = CHARACTER_FULL_FACE_BY_DEFINITION_ID[definition.definitionId] ?? '';
   return {
@@ -208,6 +212,16 @@ function normalizeCharacterEntry(
       ...normalized,
       visualMode: 'full-card-face',
       fullCardFaceImageUrl: PUBLIC_ASSETS.brendanFullFace,
+    };
+  }
+
+  // Keep Gamora locked to the shipped full-face art if stale local catalog data exists.
+  if (isGamoraDefinition(fallback.definitionId)) {
+    return {
+      ...normalized,
+      visualMode: 'full-card-face',
+      artImageUrl: CHARACTER_FULL_FACE_BY_DEFINITION_ID['alpha-012'] ?? normalized.artImageUrl,
+      fullCardFaceImageUrl: CHARACTER_FULL_FACE_BY_DEFINITION_ID['alpha-012'] ?? normalized.fullCardFaceImageUrl,
     };
   }
 

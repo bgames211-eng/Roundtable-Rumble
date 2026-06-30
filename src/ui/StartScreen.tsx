@@ -127,6 +127,9 @@ interface StartScreenProps {
   onMultiplayerRpsBack?: () => void;
   onPlayerColorChange: (player: Controller, color: PlayerColor) => void;
   onNewGame: (firstPlayerOverride?: Controller) => void;
+  onContinueGame?: () => void;
+  hasContinueGame?: boolean;
+  continueGameDisabledReason?: string | null;
   initialPhase?: SetupPhase;
   onCatalogBack?: () => void;
 }
@@ -171,6 +174,9 @@ export function StartScreen({
   onMultiplayerRpsBack,
   onPlayerColorChange,
   onNewGame,
+  onContinueGame,
+  hasContinueGame = false,
+  continueGameDisabledReason = null,
   initialPhase,
   onCatalogBack,
 }: StartScreenProps): React.ReactElement {
@@ -666,6 +672,26 @@ export function StartScreen({
         React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
       ),
       React.createElement('div', { className: 'start-actions start-actions-centered' },
+        (hasContinueGame || continueGameDisabledReason)
+          ? React.createElement(
+              React.Fragment,
+              null,
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  className: 'begin-button',
+                  onClick: () => onContinueGame?.(),
+                  disabled: !hasContinueGame,
+                  'data-testid': 'continue-game-button',
+                },
+                'Continue Game',
+              ),
+              continueGameDisabledReason
+                ? React.createElement('p', { className: 'status-label', 'data-testid': 'continue-game-disabled-reason' }, continueGameDisabledReason)
+                : null,
+            )
+          : null,
         React.createElement(
           'button',
           {

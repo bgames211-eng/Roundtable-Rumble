@@ -620,13 +620,7 @@ describe('Phase 5 UI', () => {
 
     await user.click(await screen.findByTestId('battle-reveal-P1'));
 
-    await user.click(screen.getByTestId('battle-open-full-board'));
-    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('battle-return-to-battle'));
-    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('battle-open-full-board-inline'));
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
     expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
   });
 
@@ -774,7 +768,65 @@ describe('Phase 5 UI', () => {
 
     await waitFor(() => {
       expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
-      expect(screen.getByTestId('battle-card-tap-power-y-swap')).toBeInTheDocument();
+      expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    });
+  });
+
+  it('manual battle NO SPRAY prompt can be used without crashing', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-rapunzel', 'P1', 5, 7, false, 'P1_3', 'RAPUNZEL'),
+        createChar('p2-nospray', 'P2', 9, 7, false, 'P1_4', 'P2-NO-SPRAY'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-nospray'
+            ? { ...character, revealed: true }
+            : character
+        )),
+        powerCardHands: {
+          ...base.powerCardHands,
+          P1: [{ instanceId: 'power-y-swap', definitionId: 'power-alpha-018' }],
+          P2: [{ instanceId: 'power-a-nospray', definitionId: 'power-alpha-020' }],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-card-tap-power-y-swap'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('battle-swap-own-confirm'));
+    await user.click(screen.getByTestId('space-P1_4'));
+    await user.click(screen.getByTestId('battle-swap-opponent-confirm'));
+
+    const reactionModal = await screen.findByTestId('battle-nospray-reaction-modal');
+    expect(reactionModal).toHaveTextContent('NO SPRAY');
+    expect(screen.getByTestId('battle-nospray-use-button')).toHaveTextContent('Use NO SPRAY');
+
+    await user.click(screen.getByTestId('battle-nospray-use-button'));
+
+    expect(screen.getByTestId('battle-nospray-reaction-modal')).toHaveTextContent('NO SPRAY Card View');
+    expect(screen.getByTestId('battle-nospray-use-button')).toHaveTextContent('Play This Card');
+    expect(screen.getByTestId('battle-nospray-card-back-button')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-nospray-use-button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     });
   });
 
