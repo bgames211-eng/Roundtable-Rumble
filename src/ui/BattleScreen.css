@@ -1306,10 +1306,13 @@
   }
 
   .battle-open-full-board-top {
-    left: calc(50% + min(45vw, 270px));
-    min-height: 48px;
-    padding: 0.62rem 0.85rem;
-    font-size: 0.95rem;
+    top: 0.35rem;
+    right: 0.35rem;
+    left: auto;
+    transform: none;
+    min-height: 44px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.88rem;
   }
 }
 
@@ -1327,5 +1330,20 @@
   .cinematic-entry {
     opacity: 1;
     transform: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .battle-top-board .board-wrap {
+    transform: scale(0.28);
+    height: 88px;
+  }
+
+  .battle-open-full-board-top {
+    top: 0.25rem;
+    right: 0.25rem;
+    min-height: 40px;
+    padding: 0.42rem 0.62rem;
+    font-size: 0.82rem;
   }
 }

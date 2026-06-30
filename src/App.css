@@ -2312,7 +2312,7 @@ input:focus-visible {
     }
 
     .battle-fullboard-view .board-wrap {
-      transform: scale(0.78);
+      transform: scale(0.62);
       transform-origin: top center;
     }
 
@@ -2328,14 +2328,14 @@ input:focus-visible {
     }
 
     .battle-top-board .board-wrap {
-      transform: scale(0.42);
-      height: 132px;
+      transform: scale(0.3);
+      height: 96px;
     }
 
     .battle-main-grid {
-      grid-template-columns: clamp(132px, 23vw, 186px) minmax(0, 1fr) clamp(132px, 23vw, 186px);
-      gap: 0.55rem;
-      padding-top: 8.9rem;
+      grid-template-columns: clamp(112px, 20vw, 160px) minmax(0, 1fr) clamp(112px, 20vw, 160px);
+      gap: 0.35rem;
+      padding-top: 6.95rem;
     }
 
     .battle-side-column {
@@ -2348,8 +2348,8 @@ input:focus-visible {
     }
 
     .battle-duel-row {
-      grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
-      gap: 0.75rem;
+      grid-template-columns: minmax(132px, 1fr) auto minmax(132px, 1fr);
+      gap: 0.45rem;
       max-width: none;
     }
 
@@ -2358,11 +2358,11 @@ input:focus-visible {
     }
 
     .battle-score-stat {
-      font-size: 2.45rem;
+      font-size: 2rem;
     }
 
     .battle-score-value {
-      font-size: 5.6rem;
+      font-size: 4.35rem;
     }
 
     .battle-card-score-header {
@@ -2373,34 +2373,34 @@ input:focus-visible {
     .battle-duel-card .character-card-battle,
     .battle-orientation-human .character-card-battle,
     .battle-orientation-bot .character-card-battle {
-      transform: scale(1.38);
-      margin: 0.35rem auto 2rem;
+      transform: scale(1.16);
+      margin: 0.2rem auto 1rem;
     }
 
     .battle-character-stack {
-      padding-bottom: 12rem;
+      padding-bottom: 8.5rem;
     }
 
     .battle-attached-power-card .power-card-compact,
     .battle-shared-effect-card .power-card-compact {
-      width: 96px;
-      min-height: 138px;
+      width: 88px;
+      min-height: 126px;
     }
 
     .battle-controls-centered {
-      margin-top: 1.65rem;
+      margin-top: 0.95rem;
     }
 
     .battle-controls-centered button,
     .battle-history-toggle button {
-      min-height: 58px;
-      padding: 0.8rem 1rem;
-      font-size: 1rem;
+      min-height: 46px;
+      padding: 0.58rem 0.75rem;
+      font-size: 0.86rem;
     }
 
     .battle-history-toggle {
-      bottom: -1.3rem;
-      left: 0.45rem;
+      bottom: -0.95rem;
+      left: 0.2rem;
     }
 
     .board-modal-anytime-special {
@@ -2408,8 +2408,8 @@ input:focus-visible {
     }
 
     .board-card-modal-panel {
-      width: min(94vw, 720px);
-      padding: 0.75rem;
+      width: min(94vw, 600px);
+      padding: 0.65rem;
     }
 
     .board-power-card-modal-panel,
@@ -2422,33 +2422,6 @@ input:focus-visible {
     }
 
   }
-
-  @media (max-width: 920px) and (orientation: landscape) {
-    .battle-main-grid {
-      padding-top: 6.75rem;
-    }
-
-    .battle-top-board .board-wrap {
-      transform: scale(0.36);
-      height: 112px;
-    }
-
-    .battle-fullboard-view .board-wrap {
-      transform: scale(0.66);
-    }
-
-    .battle-duel-card .character-card-battle,
-    .battle-orientation-human .character-card-battle,
-    .battle-orientation-bot .character-card-battle {
-      transform: scale(1.22);
-      margin-bottom: 1.1rem;
-    }
-
-    .battle-character-stack {
-      padding-bottom: 8rem;
-    }
-
-  }
 }
 
 @media (max-width: 560px) {
@@ -2457,7 +2430,28 @@ input:focus-visible {
   }
 
   .tabletop-board-shell .board-wrap {
-    transform: scale(0.7);
+    transform: scale(0.6);
+  }
+
+  .battle-fullboard-view .board-wrap {
+    transform: scale(0.52);
+  }
+
+  .battle-top-board .board-wrap {
+    transform: scale(0.28);
+    height: 88px;
+  }
+
+  .battle-main-grid {
+    padding-top: 6.5rem;
+  }
+
+  .battle-open-full-board-top {
+    top: 0.25rem;
+    right: 0.25rem;
+    min-height: 40px;
+    padding: 0.42rem 0.62rem;
+    font-size: 0.82rem;
   }
 
   .tabletop-board-row {
