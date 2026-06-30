@@ -832,9 +832,59 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('space-P1_3'));
     await user.click(screen.getByTestId('action-attack'));
 
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
     await user.click(screen.getByTestId('space-P1_1'));
     expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
     expect(screen.getByTestId('battle-fullboard-anytime-special-button')).toHaveTextContent('Use Jeremy Jahns Special');
+  });
+
+  it('battle full-board does not show Jeremy special for opponent-owned Jeremy', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p2-jeremy', 'P2', 8, 7, false, 'P2_1', 'JEREMY JAHNS'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-jeremy'
+            ? { ...character, revealed: true }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P2_1'));
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-fullboard-anytime-special-button')).not.toBeInTheDocument();
+  });
+
+  it('closing a character view opened from the battle screen returns to the battle screen', async () => {
+    const user = userEvent.setup();
+
+    render(<App createGameState={buildBattleSetup()} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+
+    await user.click(screen.getByTestId('battle-open-character-p1-attacker'));
+    expect(screen.getByTestId('battle-screen-character-read')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('battle-screen-read-close'));
+    expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-full-board-view')).not.toBeInTheDocument();
   });
 
   it('Jeremy special modal supports view switching between full board and battle screen', async () => {

@@ -16,6 +16,31 @@ import {
 } from './powerCards';
 import { loadCharacterCatalog } from './cardCatalog';
 
+const CHARACTER_CATALOG_BY_DEFINITION_ID = new Map(
+  loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS).map(entry => [entry.definitionId, entry]),
+);
+
+function getCharacterVisualFallback(definitionId: string | undefined): {
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
+} {
+  if (!definitionId) {
+    return {};
+  }
+
+  const entry = CHARACTER_CATALOG_BY_DEFINITION_ID.get(definitionId);
+  if (!entry) {
+    return {};
+  }
+
+  return {
+    visualMode: entry.visualMode,
+    artImageUrl: entry.artImageUrl,
+    fullCardFaceImageUrl: entry.fullCardFaceImageUrl,
+  };
+}
+
 export type RandomFn = () => number;
 
 const Y_SETUP_SPACES: BoardSpace[] = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5'];
@@ -492,6 +517,7 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
     };
 
     if (card.revealed) {
+      const visualFallback = getCharacterVisualFallback(card.definitionId);
       const hasRickCarlBonus = hasLivingRevealedRick
         && hasRevealedCarl
         && (isRickGrimes(card.displayName) || isCarlGrimes(card.displayName));
@@ -503,9 +529,9 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
       safeCard.statRule = hasRickCarlBonus
         ? `${card.statRule ? `${card.statRule} | ` : ''}+2 ATK / +2 DEF while RICK is alive/revealed and CARL is revealed`
         : (card.statRule ?? null);
-      safeCard.visualMode = card.visualMode;
-      safeCard.artImageUrl = card.artImageUrl;
-      safeCard.fullCardFaceImageUrl = card.fullCardFaceImageUrl;
+      safeCard.visualMode = card.visualMode ?? visualFallback.visualMode;
+      safeCard.artImageUrl = card.artImageUrl ?? visualFallback.artImageUrl;
+      safeCard.fullCardFaceImageUrl = card.fullCardFaceImageUrl ?? visualFallback.fullCardFaceImageUrl;
     }
 
     boardCards.push(safeCard);
@@ -527,18 +553,21 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
       remainingCount: state.characterDeck.length,
     },
     boardCards,
-    graveyard: state.graveyard.map(card => ({
-      instanceId: card.id,
-      displayName: card.displayName ?? 'Unknown',
-      definitionId: card.definitionId,
-      ATK: card.ATK,
-      DEF: card.DEF,
-      ability: card.ability ?? null,
-      statRule: card.statRule ?? null,
-      visualMode: card.visualMode,
-      artImageUrl: card.artImageUrl,
-      fullCardFaceImageUrl: card.fullCardFaceImageUrl,
-    })),
+    graveyard: state.graveyard.map(card => {
+      const visualFallback = getCharacterVisualFallback(card.definitionId);
+      return {
+        instanceId: card.id,
+        displayName: card.displayName ?? 'Unknown',
+        definitionId: card.definitionId,
+        ATK: card.ATK,
+        DEF: card.DEF,
+        ability: card.ability ?? null,
+        statRule: card.statRule ?? null,
+        visualMode: card.visualMode ?? visualFallback.visualMode,
+        artImageUrl: card.artImageUrl ?? visualFallback.artImageUrl,
+        fullCardFaceImageUrl: card.fullCardFaceImageUrl ?? visualFallback.fullCardFaceImageUrl,
+      };
+    }),
     eventLog: state.eventLog.map(event => ({
       turn: event.turn,
       activePlayer: event.activePlayer,

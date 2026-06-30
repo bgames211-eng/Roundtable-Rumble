@@ -22,8 +22,9 @@ import {
   resolveBattle,
 } from './gameEngine';
 import { getPlayerGameView, getPrivatePowerCardHand, shuffleCharacterInstances, type PlayerSafeGameView } from './setup';
+import { ALPHA_1_CHARACTER_DEFINITIONS } from './cardDefinitions';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, getPowerCardAiMetadata, getPowerCardDefinition, type UsedPowerCardEntry } from './powerCards';
-import { loadPowerCatalog } from './cardCatalog';
+import { loadCharacterCatalog, loadPowerCatalog } from './cardCatalog';
 
 type StatLabel = 'ATK' | 'DEF';
 
@@ -36,6 +37,9 @@ interface BattleParticipantPublic {
   displayName: string;
   ATK: number;
   DEF: number;
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
   attachments: Array<{
     instanceId: string;
     definitionId: string;
@@ -44,6 +48,31 @@ interface BattleParticipantPublic {
     DEF: number;
     specialUsed?: boolean;
   }>;
+}
+
+const BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID = new Map(
+  loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS).map(entry => [entry.definitionId, entry]),
+);
+
+function getBattleCharacterVisualFallback(definitionId: string | undefined): {
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
+} {
+  if (!definitionId) {
+    return {};
+  }
+
+  const entry = BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(definitionId);
+  if (!entry) {
+    return {};
+  }
+
+  return {
+    visualMode: entry.visualMode,
+    artImageUrl: entry.artImageUrl,
+    fullCardFaceImageUrl: entry.fullCardFaceImageUrl,
+  };
 }
 
 export interface BattleModifierPublic {
@@ -1837,6 +1866,8 @@ export function getBattlePublicView(state: GameState): BattlePublicView {
   const opponentBaseComparison = comparisons.opponentLabel === 'ATK'
     ? (opponentRiddlerSource?.ATK ?? opponent.ATK) + opponentPersistentATK
     : (opponentRiddlerSource?.DEF ?? opponent.DEF) + opponentPersistentDEF;
+  const initiatorVisualFallback = getBattleCharacterVisualFallback(initiator.definitionId);
+  const opponentVisualFallback = getBattleCharacterVisualFallback(opponent.definitionId);
 
   return {
     isFinalKingDuel: battle.isFinalKingDuel ?? false,
@@ -1855,6 +1886,9 @@ export function getBattlePublicView(state: GameState): BattlePublicView {
       displayName: initiator.displayName ?? 'Unknown',
       ATK: initiator.ATK,
       DEF: initiator.DEF,
+      visualMode: initiator.visualMode ?? initiatorVisualFallback.visualMode,
+      artImageUrl: initiator.artImageUrl ?? initiatorVisualFallback.artImageUrl,
+      fullCardFaceImageUrl: initiator.fullCardFaceImageUrl ?? initiatorVisualFallback.fullCardFaceImageUrl,
       attachments: (initiator.attachments ?? []).map(attachment => ({
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,
@@ -1873,6 +1907,9 @@ export function getBattlePublicView(state: GameState): BattlePublicView {
       displayName: opponent.displayName ?? 'Unknown',
       ATK: opponent.ATK,
       DEF: opponent.DEF,
+      visualMode: opponent.visualMode ?? opponentVisualFallback.visualMode,
+      artImageUrl: opponent.artImageUrl ?? opponentVisualFallback.artImageUrl,
+      fullCardFaceImageUrl: opponent.fullCardFaceImageUrl ?? opponentVisualFallback.fullCardFaceImageUrl,
       attachments: (opponent.attachments ?? []).map(attachment => ({
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,

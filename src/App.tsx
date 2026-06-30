@@ -3169,8 +3169,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const displayName = stateCharacter?.displayName ?? boardCharacter?.displayName;
     const abilityUsed = stateCharacter?.abilityUsed ?? false;
     const owner = stateCharacter?.controller ?? boardCharacter?.controller ?? null;
+    const actingController: Controller = pendingBattleReactionWindow
+      ? pendingBattleReactionWindow.responder
+      : pendingBoardReactionWindow
+        ? pendingBoardReactionWindow.responder
+        : state.pendingBattle
+          ? state.pendingBattle.currentPriorityPlayer
+          : state.activePlayer;
     const ownerMatchesLocalSeat = !multiplayerMode || (owner !== null && multiplayerPlayer === owner);
-    const ownerCanActNow = owner !== null && ownerMatchesLocalSeat;
+    const ownerCanActNow = owner !== null && ownerMatchesLocalSeat && owner === actingController;
 
     if (!ownerCanActNow) {
       return null;
@@ -3315,6 +3322,130 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       characterId: sourceCharacter.id,
       expiresAt: Date.now() + 30_000,
     });
+  };
+
+  const strategicValueWeight = (definitionId: string): number => {
+    const value = getPowerCardAiMetadata(definitionId).strategicValue;
+    if (value === 'premium') return 4;
+    if (value === 'high') return 3;
+    if (value === 'medium') return 2;
+    return 1;
+  };
+
+  const resolveJeremySpecialState = (
+    currentState: GameState,
+    characterId: string,
+    selectedInstanceId: string,
+  ): GameState => {
+    const sourceCharacter = currentState.characters.find(character => character.id === characterId);
+    if (!sourceCharacter || !sourceCharacter.alive || sourceCharacter.abilityUsed || !isJeremyJahnsName(sourceCharacter.displayName)) {
+      return currentState;
+    }
+
+    const currentTop = currentState.powerCardDeck.slice(0, Math.min(3, currentState.powerCardDeck.length));
+    const chosenCard = currentTop.find(card => card.instanceId === selectedInstanceId);
+    if (!chosenCard) {
+      return currentState;
+    }
+
+    const unchosen = currentTop.filter(card => card.instanceId !== chosenCard.instanceId);
+    let randomizedDeck = currentState.powerCardDeck.slice(currentTop.length);
+    for (const card of unchosen) {
+      const insertAt = Math.floor(Math.random() * (randomizedDeck.length + 1));
+      randomizedDeck = [
+        ...randomizedDeck.slice(0, insertAt),
+        card,
+        ...randomizedDeck.slice(insertAt),
+      ];
+    }
+
+    let next: GameState = {
+      ...currentState,
+      powerCardDeck: randomizedDeck,
+      powerCardHands: {
+        ...currentState.powerCardHands,
+        [sourceCharacter.controller]: [...currentState.powerCardHands[sourceCharacter.controller], chosenCard],
+      },
+      drawCount: {
+        ...currentState.drawCount,
+        [sourceCharacter.controller]: currentState.drawCount[sourceCharacter.controller] + 1,
+      },
+      characters: currentState.characters.map(character => (
+        character.id === sourceCharacter.id
+          ? { ...character, abilityUsed: true }
+          : character
+      )),
+    };
+
+    next = logEvent(next, 'Jeremy Jahns Special', {
+      characterId: sourceCharacter.id,
+      controller: sourceCharacter.controller,
+      inspectedPowerCardCount: currentTop.length,
+      cardsHiddenFromOpponent: true,
+    });
+
+    return next;
+  };
+
+  const chooseBotJeremySpecial = (
+    currentState: GameState,
+    controller: Controller,
+    currentBattleResult?: ReturnType<typeof getProjectedBattleResult>,
+  ): { characterId: string; selectedInstanceId: string; explanation: string } | null => {
+    if (pendingCurtainsPlay || currentState.powerCardDeck.length === 0) {
+      return null;
+    }
+
+    const jeremy = currentState.characters.find(character => (
+      character.alive
+      && character.revealed
+      && !character.abilityUsed
+      && character.controller === controller
+      && isJeremyJahnsName(character.displayName)
+    ));
+    if (!jeremy) {
+      return null;
+    }
+
+    const currentTop = currentState.powerCardDeck.slice(0, Math.min(3, currentState.powerCardDeck.length));
+    if (currentTop.length === 0) {
+      return null;
+    }
+
+    const ranked = currentTop
+      .map(card => {
+        const metadata = getPowerCardAiMetadata(card.definitionId);
+        const strategic = strategicValueWeight(card.definitionId);
+        const timingBonus = currentState.pendingBattle
+          ? (metadata.timing === 'battle' ? 2 : metadata.timing === 'anytime' ? 1 : 0)
+          : (metadata.timing === 'turn-only' ? 2 : metadata.timing === 'anytime' ? 1 : 0);
+        return {
+          card,
+          strategic,
+          score: strategic * 10 + timingBonus,
+        };
+      })
+      .sort((left, right) => right.score - left.score);
+
+    const best = ranked[0];
+    const handSize = currentState.powerCardHands[controller].length;
+    const shouldUse = currentState.pendingBattle
+      ? (
+          handSize === 0
+          || best.strategic >= 4
+          || (currentBattleResult ? currentBattleResult.winner !== controller && best.strategic >= 2 : best.strategic >= 3)
+        )
+      : (handSize <= 1 || best.strategic >= 4 || (best.strategic >= 3 && currentState.turnNumber > 2));
+
+    if (!shouldUse) {
+      return null;
+    }
+
+    return {
+      characterId: jeremy.id,
+      selectedInstanceId: best.card.instanceId,
+      explanation: `Bot uses Jeremy Jahns Special to secure a ${getPowerCardAiMetadata(best.card.definitionId).strategicValue}-value card.`,
+    };
   };
 
   const selectedCharacterSpecialLabel = useMemo(() => {
@@ -3558,50 +3689,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const currentTop = state.powerCardDeck.slice(0, Math.min(3, state.powerCardDeck.length));
-    const chosenCard = currentTop.find(card => card.instanceId === pendingJeremySpecial.selectedInstanceId);
-    if (!chosenCard) {
-      setPendingJeremySpecial(null);
-      return;
-    }
-
-    const unchosen = currentTop.filter(card => card.instanceId !== chosenCard.instanceId);
-    let randomizedDeck = state.powerCardDeck.slice(currentTop.length);
-    for (const card of unchosen) {
-      const insertAt = Math.floor(Math.random() * (randomizedDeck.length + 1));
-      randomizedDeck = [
-        ...randomizedDeck.slice(0, insertAt),
-        card,
-        ...randomizedDeck.slice(insertAt),
-      ];
-    }
-
-    let next: GameState = {
-      ...state,
-      powerCardDeck: randomizedDeck,
-      powerCardHands: {
-        ...state.powerCardHands,
-        [sourceCharacter.controller]: [...state.powerCardHands[sourceCharacter.controller], chosenCard],
-      },
-      drawCount: {
-        ...state.drawCount,
-        [sourceCharacter.controller]: state.drawCount[sourceCharacter.controller] + 1,
-      },
-      characters: state.characters.map(character => (
-        character.id === sourceCharacter.id
-          ? { ...character, abilityUsed: true }
-          : character
-      )),
-    };
-
-    next = logEvent(next, 'Jeremy Jahns Special', {
-      characterId: sourceCharacter.id,
-      selectedPowerCardInstanceId: chosenCard.instanceId,
-      selectedPowerCardDefinitionId: chosenCard.definitionId,
-      returnedPowerCardInstanceIds: unchosen.map(card => card.instanceId),
-    });
-
-    setState(next);
+    setState(resolveJeremySpecialState(state, sourceCharacter.id, pendingJeremySpecial.selectedInstanceId));
     setPendingJeremySpecial(null);
     setSelectedCardId(null);
   };
@@ -5003,6 +5091,20 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    const botJeremyBoardChoice = chooseBotJeremySpecial(state, 'P2');
+    if (botJeremyBoardChoice) {
+      console.info(`[Bot AI] ${botJeremyBoardChoice.explanation}`);
+      let nextState = logEvent(state, 'Bot P2 Decision', {
+        action: 'use-character-special',
+        characterId: botJeremyBoardChoice.characterId,
+        explanation: botJeremyBoardChoice.explanation,
+      });
+      nextState = resolveJeremySpecialState(nextState, botJeremyBoardChoice.characterId, botJeremyBoardChoice.selectedInstanceId);
+      setState(nextState);
+      setSelectedCardId(null);
+      return;
+    }
+
     if (!pendingCurtainsPlay && !pendingBoardPowerPlay) {
       const curtainsCard = state.powerCardHands.P2.find(card => card.definitionId === 'power-alpha-019');
       if (curtainsCard) {
@@ -5541,6 +5643,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const currentResult = getProjectedBattleResult(state);
+    const botJeremyBattleChoice = chooseBotJeremySpecial(state, 'P2', currentResult);
+    if (botJeremyBattleChoice) {
+      console.info(`[Bot AI] ${botJeremyBattleChoice.explanation}`);
+      let nextState = logEvent(state, 'Bot P2 Decision', {
+        action: 'use-character-special',
+        characterId: botJeremyBattleChoice.characterId,
+        explanation: botJeremyBattleChoice.explanation,
+      });
+      nextState = resolveJeremySpecialState(nextState, botJeremyBattleChoice.characterId, botJeremyBattleChoice.selectedInstanceId);
+      setState(nextState);
+      return;
+    }
+
     const botBattlerId = state.pendingBattle.initiatorController === 'P2'
       ? state.pendingBattle.initiatorId
       : state.pendingBattle.opponentId;
@@ -5789,13 +5904,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               return current;
             }
 
-            let next = playBattlePowerCard(current, 'P2', revealSnapshot.input);
-            next = logEvent(next, `Bot P2 played ${revealSnapshot.displayName}`, {
-              definitionId: revealSnapshot.definitionId,
-              instanceId: revealSnapshot.input.instanceId,
-              selectedChoice: revealSnapshot.input.selectedChoice ?? null,
-            });
-            return next;
+            const cardStillInHand = current.powerCardHands.P2.some(card => card.instanceId === revealSnapshot.input.instanceId);
+            if (!cardStillInHand) {
+              return current;
+            }
+
+            try {
+              let next = playBattlePowerCard(current, 'P2', revealSnapshot.input);
+              next = logEvent(next, `Bot P2 played ${revealSnapshot.displayName}`, {
+                definitionId: revealSnapshot.definitionId,
+                instanceId: revealSnapshot.input.instanceId,
+                selectedChoice: revealSnapshot.input.selectedChoice ?? null,
+              });
+              return next;
+            } catch {
+              return current;
+            }
           });
           setPhoneFriendAnimation(null);
         }, 2450);
@@ -5809,13 +5933,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         return prev;
       }
 
-      let next = playBattlePowerCard(prev, 'P2', pendingBotBattleReveal.input);
-      next = logEvent(next, `Bot P2 played ${pendingBotBattleReveal.displayName}`, {
-        definitionId: pendingBotBattleReveal.definitionId,
-        instanceId: pendingBotBattleReveal.input.instanceId,
-        selectedChoice: pendingBotBattleReveal.input.selectedChoice ?? null,
-      });
-      return next;
+      const cardStillInHand = prev.powerCardHands.P2.some(card => card.instanceId === pendingBotBattleReveal.input.instanceId);
+      if (!cardStillInHand) {
+        return prev;
+      }
+
+      try {
+        let next = playBattlePowerCard(prev, 'P2', pendingBotBattleReveal.input);
+        next = logEvent(next, `Bot P2 played ${pendingBotBattleReveal.displayName}`, {
+          definitionId: pendingBotBattleReveal.definitionId,
+          instanceId: pendingBotBattleReveal.input.instanceId,
+          selectedChoice: pendingBotBattleReveal.input.selectedChoice ?? null,
+        });
+        return next;
+      } catch {
+        return prev;
+      }
     });
 
     setPendingBotBattleReveal(null);
@@ -6586,6 +6719,25 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    if (isBotMode && pendingBoardReactionWindow.responder === 'P2' && state) {
+      const hasNoSpray = state.powerCardHands.P2.some(card => card.definitionId === 'power-alpha-020');
+      const botIroh = state.characters.find(character => (
+        character.alive
+        && character.revealed
+        && !character.abilityUsed
+        && character.controller === 'P2'
+        && isUncleIrohName(character.displayName)
+      ));
+
+      if (!hasNoSpray && botIroh) {
+        const timer = window.setTimeout(() => {
+          executeAnytimeCharacterSpecial(botIroh.id);
+        }, 900);
+
+        return () => window.clearTimeout(timer);
+      }
+    }
+
     if (boardReactionSecondsLeft <= 0) {
       resolveBoardReactionWindow(false);
       return;
@@ -6775,6 +6927,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const freezeBattleSources = [battleView.initiator, battleView.opponent]
       .filter(participant => canUseFreezeGunSpecial(participant.id))
       .filter(participant => !isBotMode || participant.controller === 'P1');
+    const expandedBattleReadCharacter = expandedBoardCharacterId
+      ? state.characters.find(character => character.id === expandedBoardCharacterId) ?? null
+      : null;
 
     if (showBattleFullBoard) {
       const battleTargetMap: Partial<Record<RingPosition, LegalActionType>> = {};
@@ -6798,9 +6953,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           }
         }
       }
-      const expandedBattleReadCharacter = expandedBoardCharacterId
-        ? state.characters.find(character => character.id === expandedBoardCharacterId) ?? null
-        : null;
       const handleBattleTargetSelection = (instanceId: string): void => {
         if (!state) {
           return;
@@ -7528,12 +7680,74 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         onSetReady: handleSetBattleReady,
         onAttachmentClick: handleAttachmentCardClick,
         onOpenCharacterCard: (characterId: string) => {
-          setShowBattleFullBoard(true);
           setExpandedBoardCharacterId(characterId);
         },
         onPlayCard: handlePlayBattleCard,
         onResolveBattle: handleResolveBattle,
       }),
+      !showBattleFullBoard && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
+        ? React.createElement(
+            'section',
+            {
+              className: 'board-card-modal',
+              'data-testid': 'battle-screen-character-read',
+              onClick: () => setExpandedBoardCharacterId(null),
+            },
+            React.createElement(
+              'div',
+              {
+                className: 'board-card-modal-panel board-character-card-modal-panel',
+                onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
+              },
+              React.createElement(
+                'div',
+                { className: getCharacterReadModalLayoutClass(expandedBattleReadCharacter.attachments) },
+                React.createElement(CharacterCardFrame, {
+                  size: 'battle',
+                  revealed: expandedBattleReadCharacter.revealed,
+                  controllerColorClass: expandedBattleReadCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                  displayName: expandedBattleReadCharacter.displayName,
+                  ATK: expandedBattleReadCharacter.ATK,
+                  DEF: expandedBattleReadCharacter.DEF,
+                  ability: expandedBattleReadCharacter.ability,
+                  statRule: expandedBattleReadCharacter.statRule ?? null,
+                  artSrc: expandedBattleReadCharacter.artImageUrl ?? null,
+                  fullCardFaceSrc: expandedBattleReadCharacter.fullCardFaceImageUrl ?? null,
+                  visualMode: expandedBattleReadCharacter.visualMode,
+                  isKing: expandedBattleReadCharacter.isKing,
+                  isFrozen: expandedBattleReadCharacter.isFrozen,
+                  statusTag: irohStatusByCharacterId[expandedBattleReadCharacter.id] ?? null,
+                  testId: 'battle-screen-read-card',
+                }),
+                renderCharacterAttachmentRail({
+                  instanceId: expandedBattleReadCharacter.id,
+                  attachments: expandedBattleReadCharacter.attachments,
+                }, 'battle-screen-read'),
+              ),
+              canUseFreezeGunSpecial(expandedBattleReadCharacter.id)
+                ? React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => openFreezeSpecialPicker(expandedBattleReadCharacter.id),
+                      'data-testid': 'battle-screen-freeze-special',
+                    },
+                    'Use Freeze Gun Special',
+                  )
+                : null,
+              renderAnytimeCharacterSpecialControl(expandedBattleReadCharacter.id, 'battle-screen'),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setExpandedBoardCharacterId(null),
+                  'data-testid': 'battle-screen-read-close',
+                },
+                'Close',
+              ),
+            ),
+          )
+        : null,
       phoneFriendAnimation
         ? React.createElement(
             'section',
