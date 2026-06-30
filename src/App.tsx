@@ -5143,45 +5143,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       const portalCard = state.powerCardHands.P2.find(card => card.definitionId === 'power-alpha-022');
       const backItUpCard = state.powerCardHands.P2.find(card => card.definitionId === 'power-alpha-021');
       if (portalCard || backItUpCard) {
-        const extractBotBoardAction = (event: GameState['eventLog'][number]): 'move' | 'attack' | 'defend' | null => {
-          if (event.action !== 'Bot P2 Decision') {
-            return null;
-          }
-          const value = event.details.action;
-          return value === 'move' || value === 'attack' || value === 'defend' ? value : null;
-        };
-
-        const getRecentBotBoardActionStreak = (
-          currentState: GameState,
-        ): { type: 'move' | 'attack' | 'defend' | null; streak: number } => {
-          const recentBoardActions: Array<'move' | 'attack' | 'defend'> = [];
-          for (let i = currentState.eventLog.length - 1; i >= 0; i -= 1) {
-            const parsed = extractBotBoardAction(currentState.eventLog[i]);
-            if (!parsed) {
-              continue;
-            }
-            recentBoardActions.push(parsed);
-            if (recentBoardActions.length >= 5) {
-              break;
-            }
-          }
-
-          if (recentBoardActions.length === 0) {
-            return { type: null, streak: 0 };
-          }
-
-          const type = recentBoardActions[0];
-          let streak = 0;
-          for (const action of recentBoardActions) {
-            if (action !== type) {
-              break;
-            }
-            streak += 1;
-          }
-          return { type, streak };
-        };
-
-        const recentBotAction = getRecentBotBoardActionStreak(state);
         const evaluateBoardScore = (candidateState: GameState): number => {
           const candidateView = getBotGameView(candidateState, 'P2');
           const candidateDecision = chooseBotBoardDecision({
@@ -5190,10 +5151,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             gameStatus: candidateView.gameStatus,
             pendingBattle: candidateView.pendingBattle,
             legalActions: candidateView.legalActions,
-            recentBotActionType: recentBotAction.type,
-            recentBotActionStreak: recentBotAction.streak,
-            ownPowerCardCount: candidateState.powerCardHands.P2.length,
-            opponentPowerCardCount: candidateState.powerCardHands.P1.length,
           }, botDifficulty);
           return candidateDecision.kind === 'action' ? candidateDecision.score : -999;
         };
@@ -5376,45 +5333,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (!pendingCurtainsPlay && !pendingBoardPowerPlay && !pendingSwapCharactersMotion) {
       const swapCard = state.powerCardHands.P2.find(card => card.definitionId === 'power-alpha-018');
       if (swapCard) {
-        const extractBotBoardAction = (event: GameState['eventLog'][number]): 'move' | 'attack' | 'defend' | null => {
-          if (event.action !== 'Bot P2 Decision') {
-            return null;
-          }
-          const value = event.details.action;
-          return value === 'move' || value === 'attack' || value === 'defend' ? value : null;
-        };
-
-        const getRecentBotBoardActionStreak = (
-          currentState: GameState,
-        ): { type: 'move' | 'attack' | 'defend' | null; streak: number } => {
-          const recentBoardActions: Array<'move' | 'attack' | 'defend'> = [];
-          for (let i = currentState.eventLog.length - 1; i >= 0; i -= 1) {
-            const parsed = extractBotBoardAction(currentState.eventLog[i]);
-            if (!parsed) {
-              continue;
-            }
-            recentBoardActions.push(parsed);
-            if (recentBoardActions.length >= 5) {
-              break;
-            }
-          }
-
-          if (recentBoardActions.length === 0) {
-            return { type: null, streak: 0 };
-          }
-
-          const type = recentBoardActions[0];
-          let streak = 0;
-          for (const action of recentBoardActions) {
-            if (action !== type) {
-              break;
-            }
-            streak += 1;
-          }
-          return { type, streak };
-        };
-
-        const recentBotAction = getRecentBotBoardActionStreak(state);
         const evaluateBoardScore = (candidateState: GameState): number => {
           const candidateView = getBotGameView(candidateState, 'P2');
           const candidateDecision = chooseBotBoardDecision({
@@ -5423,10 +5341,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             gameStatus: candidateView.gameStatus,
             pendingBattle: candidateView.pendingBattle,
             legalActions: candidateView.legalActions,
-            recentBotActionType: recentBotAction.type,
-            recentBotActionStreak: recentBotAction.streak,
-            ownPowerCardCount: candidateState.powerCardHands.P2.length,
-            opponentPowerCardCount: candidateState.powerCardHands.P1.length,
           }, botDifficulty);
           return candidateDecision.kind === 'action' ? candidateDecision.score : -999;
         };
@@ -5566,56 +5480,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const botView = getBotGameView(state, 'P2');
-
-    const extractBotBoardAction = (event: GameState['eventLog'][number]): 'move' | 'attack' | 'defend' | null => {
-      if (event.action !== 'Bot P2 Decision') {
-        return null;
-      }
-      const value = event.details.action;
-      return value === 'move' || value === 'attack' || value === 'defend' ? value : null;
-    };
-
-    const getRecentBotBoardActionStreak = (
-      currentState: GameState,
-    ): { type: 'move' | 'attack' | 'defend' | null; streak: number } => {
-      const recentBoardActions: Array<'move' | 'attack' | 'defend'> = [];
-      for (let i = currentState.eventLog.length - 1; i >= 0; i -= 1) {
-        const parsed = extractBotBoardAction(currentState.eventLog[i]);
-        if (!parsed) {
-          continue;
-        }
-        recentBoardActions.push(parsed);
-        if (recentBoardActions.length >= 5) {
-          break;
-        }
-      }
-
-      if (recentBoardActions.length === 0) {
-        return { type: null, streak: 0 };
-      }
-
-      const type = recentBoardActions[0];
-      let streak = 0;
-      for (const action of recentBoardActions) {
-        if (action !== type) {
-          break;
-        }
-        streak += 1;
-      }
-      return { type, streak };
-    };
-
-    const recentBotAction = getRecentBotBoardActionStreak(state);
     const decision = chooseBotBoardDecision({
       botController: botView.botController,
       activePlayer: botView.activePlayer,
       gameStatus: botView.gameStatus,
       pendingBattle: botView.pendingBattle,
       legalActions: botView.legalActions,
-      recentBotActionType: recentBotAction.type,
-      recentBotActionStreak: recentBotAction.streak,
-      ownPowerCardCount: state.powerCardHands.P2.length,
-      opponentPowerCardCount: state.powerCardHands.P1.length,
     }, botDifficulty, Math.random);
 
     let nextState = state;
