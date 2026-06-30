@@ -664,6 +664,37 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('pass');
   });
 
+  it('standard battle mode conserves cards in early non-king still-losing lines', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 10,
+        opponentComparisonValue: 6,
+        winningMargin: 4,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'power-stone-early' },
+          displayName: 'POWER STONE',
+          definitionId: 'power-alpha-006',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 10,
+            opponentComparisonValue: 8,
+            winningMargin: 2,
+          },
+        },
+      ],
+      difficulty: 'Standard',
+      botBattlerIsKing: false,
+      imminentKingLoss: false,
+      remainingBattleHandCount: 3,
+    });
+
+    expect(decision.kind).toBe('pass');
+  });
+
   it('easy battle mode passes when only small non-winning improvements exist', () => {
     const decision = chooseBotBattleDecision(
       'P2',

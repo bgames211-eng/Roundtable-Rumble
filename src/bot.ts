@@ -804,8 +804,15 @@ export function chooseBotBattleDecision(
 
   const easyMistake = difficulty === 'Easy' && improving.length > 1 && randomFn() < 0.04;
   const bestImprove = easyMistake ? improving[improving.length - 1] : improving[0];
+  const isReserveLine = shouldReserveForFutureBattle && bestImprove.projectedMargin <= 0;
   const shouldUseImprove = imminentKingLoss
     ? bestImprove.score >= -120
+    : isReserveLine
+      ? difficulty === 'Hard'
+        ? bestImprove.score >= 45
+        : difficulty === 'Standard'
+          ? bestImprove.score >= 70
+          : false
     : difficulty === 'Hard'
       ? bestImprove.score >= 5
       : difficulty === 'Standard'
