@@ -520,6 +520,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const client = createMultiplayerClient();
     multiplayerClientRef.current = client;
 
+    const handleConnect = (): void => {
+      setMultiplayerStatus(current => current ?? 'Connected to multiplayer server.');
+    };
+
+    const handleConnectError = (): void => {
+      setMultiplayerStatus('Could not connect to multiplayer server. Try again in a few seconds.');
+    };
+
     const handleRoomUpdate = (room: { code: string; state: GameState | null; players: { P1: string | null; P2: string | null } }) => {
       if (room.code !== multiplayerRoomCode) {
         return;
@@ -532,6 +540,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     };
 
     client.socket.on('room:update', handleRoomUpdate);
+    client.socket.on('connect', handleConnect);
+    client.socket.on('connect_error', handleConnectError);
 
     const storedSessionText = window.localStorage.getItem(multiplayerStorageKey);
     if (storedSessionText) {
@@ -557,6 +567,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     return () => {
       client.socket.off('room:update', handleRoomUpdate);
+      client.socket.off('connect', handleConnect);
+      client.socket.off('connect_error', handleConnectError);
       client.disconnect();
       multiplayerClientRef.current = null;
     };
@@ -2294,7 +2306,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const createMultiplayerRoom = async (): Promise<void> => {
     const client = multiplayerClientRef.current;
     if (!client) {
-      setMultiplayerStatus('Multiplayer is not connected. Start the local server first.');
+      setMultiplayerStatus('Multiplayer is not connected yet. Please try again.');
       return;
     }
 
@@ -2314,7 +2326,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const joinMultiplayerRoom = async (): Promise<void> => {
     const client = multiplayerClientRef.current;
     if (!client) {
-      setMultiplayerStatus('Multiplayer is not connected. Start the local server first.');
+      setMultiplayerStatus('Multiplayer is not connected yet. Please try again.');
       return;
     }
 

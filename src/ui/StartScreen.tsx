@@ -115,7 +115,7 @@ interface StartScreenProps {
   onCatalogBack?: () => void;
 }
 
-type SetupPhase = 'landing' | 'mode' | 'setup' | 'rps' | 'catalog';
+type SetupPhase = 'landing' | 'online' | 'online-host' | 'online-join' | 'mode' | 'setup' | 'rps' | 'catalog';
 type RpsChoice = 'rock' | 'paper' | 'scissors';
 type RpsOutcome = 'human' | 'bot' | 'tie';
 type CatalogMode = 'character' | 'power';
@@ -450,35 +450,60 @@ export function StartScreen({
     }),
   );
 
-  const multiplayerSection = React.createElement(
+  const multiplayerMenuSection = React.createElement(
     'section',
     { className: 'first-player-field', 'data-testid': 'multiplayer-section' },
-    React.createElement('legend', null, 'Online Room'),
-    React.createElement('p', { className: 'mode-confirm-copy' }, 'Create a room on one device, then join it on another.'),
+    React.createElement('legend', null, 'Online Play'),
+    React.createElement('p', { className: 'mode-confirm-copy' }, 'Play with a friend on another device.'),
     React.createElement('div', { className: 'mode-toggle-row' },
       React.createElement(
         'button',
-        { type: 'button', className: 'begin-button', onClick: onCreateMultiplayerRoom, 'data-testid': 'create-room-button' },
+        { type: 'button', className: 'begin-button', onClick: () => transitionTo('online-host'), 'data-testid': 'open-host-page-button' },
         'Host Game',
       ),
       React.createElement(
-        'input',
-        {
-          type: 'text',
-          value: multiplayerJoinCode,
-          onChange: event => onMultiplayerJoinCodeChange?.(event.currentTarget.value),
-          placeholder: 'Enter game code',
-          'data-testid': 'join-room-input',
-        },
-      ),
-      React.createElement(
         'button',
-        { type: 'button', className: 'mode-button', onClick: onJoinMultiplayerRoom, 'data-testid': 'join-room-button' },
+        { type: 'button', className: 'mode-button', onClick: () => transitionTo('online-join'), 'data-testid': 'open-join-page-button' },
         'Join Game',
       ),
     ),
-    multiplayerRoomCode ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-code-display' }, `Room Code: ${multiplayerRoomCode}`) : null,
     multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status' }, multiplayerStatus) : null,
+  );
+
+  const hostGameSection = React.createElement(
+    'section',
+    { className: 'first-player-field', 'data-testid': 'host-game-section' },
+    React.createElement('legend', null, 'Host Game'),
+    React.createElement('p', { className: 'mode-confirm-copy' }, 'Create a game code, then share it with your friend.'),
+    React.createElement(
+      'button',
+      { type: 'button', className: 'begin-button', onClick: onCreateMultiplayerRoom, 'data-testid': 'create-room-button' },
+      'Create Code',
+    ),
+    multiplayerRoomCode ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-code-display' }, `Game Code: ${multiplayerRoomCode}`) : null,
+    multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status-host' }, multiplayerStatus) : null,
+  );
+
+  const joinGameSection = React.createElement(
+    'section',
+    { className: 'first-player-field', 'data-testid': 'join-game-section' },
+    React.createElement('legend', null, 'Join Game'),
+    React.createElement('p', { className: 'mode-confirm-copy' }, 'Enter the game code from your friend.'),
+    React.createElement('div', { className: 'mode-toggle-row' },
+      React.createElement('input', {
+        type: 'text',
+        value: multiplayerJoinCode,
+        onChange: event => onMultiplayerJoinCodeChange?.(event.currentTarget.value.toUpperCase()),
+        placeholder: 'Enter game code',
+        'data-testid': 'join-room-input',
+      }),
+      React.createElement(
+        'button',
+        { type: 'button', className: 'begin-button', onClick: onJoinMultiplayerRoom, 'data-testid': 'join-room-button' },
+        'Join With Code',
+      ),
+    ),
+    multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status-join' }, multiplayerStatus) : null,
   );
 
   if (phase === 'landing') {
@@ -501,7 +526,7 @@ export function StartScreen({
           {
             type: 'button',
             className: 'begin-button',
-            onClick: () => transitionTo('mode'),
+            onClick: () => transitionTo('online'),
             'data-testid': 'begin-button',
           },
           'Begin',
@@ -608,7 +633,6 @@ export function StartScreen({
         React.createElement('h1', { className: 'start-title' }, 'Roundtable Rumble'),
         React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
       ),
-      multiplayerSection,
       React.createElement(
         'fieldset',
         { className: 'first-player-field', 'data-testid': 'game-mode-field' },
@@ -656,6 +680,87 @@ export function StartScreen({
             },
             'data-testid': 'confirm-mode-button',
           },
+          'Continue',
+        ),
+      ),
+    );
+  }
+
+  if (phase === 'online') {
+    return React.createElement(
+      'main',
+      { className: screenClassName(), 'data-testid': 'start-screen' },
+      React.createElement('div', { className: 'start-hero' },
+        React.createElement('h1', { className: 'start-title' }, 'Roundtable Rumble'),
+        React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
+      ),
+      multiplayerMenuSection,
+      React.createElement('div', { className: 'start-actions' },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'mode-button',
+            onClick: () => transitionTo('landing'),
+          },
+          'Back',
+        ),
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'begin-button',
+            onClick: () => transitionTo('mode'),
+            'data-testid': 'continue-after-online-button',
+          },
+          'Continue',
+        ),
+      ),
+    );
+  }
+
+  if (phase === 'online-host') {
+    return React.createElement(
+      'main',
+      { className: screenClassName(), 'data-testid': 'start-screen' },
+      React.createElement('div', { className: 'start-hero' },
+        React.createElement('h1', { className: 'start-title' }, 'Roundtable Rumble'),
+        React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
+      ),
+      hostGameSection,
+      React.createElement('div', { className: 'start-actions' },
+        React.createElement(
+          'button',
+          { type: 'button', className: 'mode-button', onClick: () => transitionTo('online') },
+          'Back',
+        ),
+        React.createElement(
+          'button',
+          { type: 'button', className: 'begin-button', onClick: () => transitionTo('mode') },
+          'Continue',
+        ),
+      ),
+    );
+  }
+
+  if (phase === 'online-join') {
+    return React.createElement(
+      'main',
+      { className: screenClassName(), 'data-testid': 'start-screen' },
+      React.createElement('div', { className: 'start-hero' },
+        React.createElement('h1', { className: 'start-title' }, 'Roundtable Rumble'),
+        React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
+      ),
+      joinGameSection,
+      React.createElement('div', { className: 'start-actions' },
+        React.createElement(
+          'button',
+          { type: 'button', className: 'mode-button', onClick: () => transitionTo('online') },
+          'Back',
+        ),
+        React.createElement(
+          'button',
+          { type: 'button', className: 'begin-button', onClick: () => transitionTo('mode') },
           'Continue',
         ),
       ),
