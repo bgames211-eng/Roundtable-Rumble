@@ -35,9 +35,89 @@ interface BattleScreenProps {
     artImageUrl?: string;
     fullCardFaceImageUrl?: string;
   } | null;
+  multiplayerPowerReveal?: {
+    actor: Controller;
+    displayName: string;
+    rulesText: string;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  } | null;
   isBotMode?: boolean;
+  multiplayerSeat?: Controller | null;
   onOpenFullBoard?: () => void;
   playerColors?: { P1: PlayerColor; P2: PlayerColor };
+  cardMotion?: {
+    characterId: string;
+    type: 'move' | 'attack';
+    fromPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+    toPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+  } | null;
+  swapCharacterMotion?: {
+    first: {
+      characterId: string;
+      revealed: boolean;
+      displayName: string;
+      ATK: number;
+      DEF: number;
+      isKing: boolean;
+      toIsKing: boolean;
+      isFrozen?: boolean;
+      fromController: 'P1' | 'P2';
+      toController: 'P1' | 'P2';
+      fromPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      toPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      visualMode?: 'layered-art' | 'full-card-face';
+      artImageUrl?: string;
+      fullCardFaceImageUrl?: string;
+    };
+    second?: {
+      characterId: string;
+      revealed: boolean;
+      displayName: string;
+      ATK: number;
+      DEF: number;
+      isKing: boolean;
+      toIsKing: boolean;
+      isFrozen?: boolean;
+      fromController: 'P1' | 'P2';
+      toController: 'P1' | 'P2';
+      fromPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      toPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      visualMode?: 'layered-art' | 'full-card-face';
+      artImageUrl?: string;
+      fullCardFaceImageUrl?: string;
+    };
+    nextState: unknown;
+    durationMs?: number;
+  } | null;
+  postBattleMotion?: {
+    loser: {
+      id: string;
+      displayName: string;
+      ATK: number;
+      DEF: number;
+      isKing: boolean;
+      controller: 'P1' | 'P2';
+      fromPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      visualMode?: 'layered-art' | 'full-card-face';
+      artImageUrl?: string;
+      fullCardFaceImageUrl?: string;
+    } | null;
+    winnerAdvance: {
+      id: string;
+      displayName: string;
+      ATK: number;
+      DEF: number;
+      isKing: boolean;
+      controller: 'P1' | 'P2';
+      fromPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      toPosition: 'P1_1' | 'P1_2' | 'P1_3' | 'P1_4' | 'P1_5' | 'P2_1' | 'P2_2' | 'P2_3' | 'P2_4' | 'P2_5';
+      visualMode?: 'layered-art' | 'full-card-face';
+      artImageUrl?: string;
+      fullCardFaceImageUrl?: string;
+    } | null;
+  } | null;
   characterStatusById?: Record<string, string>;
   manualHandsByController?: { P1: PrivateBattleHandView; P2: PrivateBattleHandView } | null;
   revealedHandFor?: Controller | null;
@@ -214,9 +294,14 @@ export function BattleScreen({
   battleIntroKey,
   botPriorityPanel = null,
   botPowerReveal = null,
+  multiplayerPowerReveal = null,
   isBotMode = false,
+  multiplayerSeat = null,
   onOpenFullBoard,
   playerColors,
+  cardMotion = null,
+  swapCharacterMotion = null,
+  postBattleMotion = null,
   characterStatusById = {},
   manualHandsByController = null,
   revealedHandFor = null,
@@ -237,20 +322,29 @@ export function BattleScreen({
   const [resolveTravel, setResolveTravel] = useState<{ usedX: number; usedY: number; graveX: number; graveY: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [riddlerFxActive, setRiddlerFxActive] = useState(false);
+  const onResolveBattleRef = React.useRef(onResolveBattle);
+
+  useEffect(() => {
+    onResolveBattleRef.current = onResolveBattle;
+  }, [onResolveBattle]);
 
   const canResolve = battle.status === 'ReadyToResolve';
   const canReadyToggle = battle.status === 'WindowOpen';
   const isCurrentReady = battle.readyPlayers[battle.currentPriorityPlayer];
-  const readyToggleLockedForBot = isBotMode && battle.currentPriorityPlayer === 'P2';
+  const isMultiplayerSeatView = !!multiplayerSeat;
+  const readyToggleLocked = (isBotMode && battle.currentPriorityPlayer === 'P2')
+    || (isMultiplayerSeatView && battle.currentPriorityPlayer !== multiplayerSeat);
   const privateCards = privateHand?.cards ?? [];
   const manualP1Cards = manualHandsByController?.P1.cards ?? [];
   const manualP2Cards = manualHandsByController?.P2.cards ?? [];
   const p1ReadyLabel = isBotMode ? 'Human' : 'Player One';
   const p2ReadyLabel = isBotMode ? 'Bot' : 'Player Two';
   const priorityLabel = battle.currentPriorityPlayer === 'P1' ? p1ReadyLabel : p2ReadyLabel;
-  const visibleManualCards = !isBotMode
-    ? (revealedHandFor === 'P1' ? manualP1Cards : revealedHandFor === 'P2' ? manualP2Cards : [])
-    : privateCards;
+  const visibleManualCards = isMultiplayerSeatView
+    ? privateCards
+    : !isBotMode
+      ? (revealedHandFor === 'P1' ? manualP1Cards : revealedHandFor === 'P2' ? manualP2Cards : [])
+      : privateCards;
   const scoreDelta = battle.initiatorEffectiveComparison - battle.opponentEffectiveComparison;
   const humanCard = battle.initiator.controller === 'P1' ? battle.initiator : battle.opponent;
   const rivalCard = battle.initiator.controller === 'P2' ? battle.initiator : battle.opponent;
@@ -427,6 +521,9 @@ export function BattleScreen({
       ? { source: battle.opponentRiddlerSource, owner: battle.opponent }
       : null,
   ].filter((entry): entry is { source: NonNullable<BattlePublicView['initiatorRiddlerSource']>; owner: BattlePublicView['initiator'] } => !!entry);
+  const riddlerReferenceSignature = riddlerReferences
+    .map(entry => `${entry.owner.id}:${entry.source.instanceId}`)
+    .join('|');
 
   useEffect(() => {
     if (riddlerReferences.length === 0) {
@@ -440,7 +537,7 @@ export function BattleScreen({
     }, 6200);
 
     return () => window.clearTimeout(timer);
-  }, [battleIntroKey, riddlerReferences.length]);
+  }, [battleIntroKey, riddlerReferenceSignature]);
 
   useEffect(() => {
     const isJsdomTestEnv = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
@@ -639,28 +736,97 @@ export function BattleScreen({
     if (resolvingAnimationActive) {
       return;
     }
+    onResolveBattleRef.current();
+  };
+
+  useEffect(() => {
+    if (battle.status !== 'Resolving') {
+      if (resolvingAnimationActive) {
+        setResolvingAnimationActive(false);
+      }
+      if (resolvePhase !== 'idle') {
+        setResolvePhase('idle');
+      }
+      return;
+    }
+
+    if (resolvingAnimationActive) {
+      return;
+    }
 
     const isJsdomTestEnv = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
     if (isJsdomTestEnv) {
-      onResolveBattle();
+      onResolveBattleRef.current();
       return;
     }
 
     setResolvingAnimationActive(true);
     setResolvePhase('strike');
-    window.setTimeout(() => setResolvePhase('graveyard'), 700);
-    if (hasUsedPowerThisBattle) {
-      window.setTimeout(() => setResolvePhase('used'), 1300);
-      window.setTimeout(() => setResolvePhase(canAdvanceAfterResolve ? 'advance' : 'used'), 1900);
-    } else {
-      window.setTimeout(() => setResolvePhase(canAdvanceAfterResolve ? 'advance' : 'graveyard'), 1500);
-    }
-    window.setTimeout(() => {
-      onResolveBattle();
+
+    const graveyardTimer = window.setTimeout(() => setResolvePhase('graveyard'), 700);
+    const usedTimer = hasUsedPowerThisBattle
+      ? window.setTimeout(() => setResolvePhase('used'), 1300)
+      : null;
+    const advanceTimer = hasUsedPowerThisBattle
+      ? window.setTimeout(() => setResolvePhase(canAdvanceAfterResolve ? 'advance' : 'used'), 1900)
+      : window.setTimeout(() => setResolvePhase(canAdvanceAfterResolve ? 'advance' : 'graveyard'), 1500);
+    const resolveTimer = window.setTimeout(() => {
+      onResolveBattleRef.current();
     }, hasUsedPowerThisBattle ? (canAdvanceAfterResolve ? 2800 : 2400) : (canAdvanceAfterResolve ? 2300 : 2000));
-  };
+
+    return () => {
+      window.clearTimeout(graveyardTimer);
+      if (usedTimer !== null) {
+        window.clearTimeout(usedTimer);
+      }
+      window.clearTimeout(advanceTimer);
+      window.clearTimeout(resolveTimer);
+    };
+  }, [battle.status, canAdvanceAfterResolve, hasUsedPowerThisBattle]);
 
   const leftHandPanel = useMemo(() => {
+    if (isMultiplayerSeatView) {
+      if (multiplayerSeat !== 'P1') {
+        return React.createElement('div', { className: 'battle-opponent-column' },
+          Array.from({ length: battle.powerCardHandCount.P1 }).map((_, idx) => React.createElement(PowerCardFrame, {
+            key: `battle-opponent-back-P1-${idx}`,
+            size: 'hand',
+            state: 'back',
+            testId: `battle-opponent-back-P1-${idx}`,
+          })),
+        );
+      }
+
+      return React.createElement(
+        'div',
+        { className: 'battle-private-hand', 'data-testid': 'battle-private-hand-P1' },
+        privateCards.map(card => React.createElement(
+          'div',
+          { key: card.instanceId, className: 'battle-private-card', 'data-testid': `battle-private-card-${card.instanceId}` },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'battle-hand-card-button',
+              onClick: () => setExpandedPowerCardId(card.instanceId),
+              'data-testid': `battle-card-tap-${card.instanceId}`,
+            },
+            React.createElement(PowerCardFrame, {
+              size: 'hand',
+              displayName: card.displayName,
+              rulesText: card.rulesText,
+              artSrc: card.artImageUrl ?? null,
+              fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
+              visualMode: card.visualMode ?? 'layered-art',
+              state: card.isPlayable ? (expandedPowerCardId === card.instanceId ? 'selected' : 'playable') : 'disabled',
+              selected: expandedPowerCardId === card.instanceId,
+              testId: `battle-private-card-frame-${card.instanceId}`,
+            }),
+          ),
+        )),
+      );
+    }
+
     if (!isBotMode) {
       const cards = revealedHandFor === 'P1' ? manualP1Cards : [];
       if (cards.length === 0) {
@@ -752,9 +918,51 @@ export function BattleScreen({
         );
       }),
     );
-  }, [expandedPowerCardId, handoffRequiredFor, isBotMode, manualP1Cards, privateCards, revealedHandFor]);
+  }, [battle.powerCardHandCount.P1, expandedPowerCardId, handoffRequiredFor, isBotMode, isMultiplayerSeatView, manualP1Cards, multiplayerSeat, privateCards, revealedHandFor]);
 
   const rightHandPanel = useMemo(() => {
+    if (isMultiplayerSeatView) {
+      if (multiplayerSeat === 'P1') {
+        return React.createElement('div', { className: 'battle-opponent-column' },
+          Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => React.createElement(PowerCardFrame, {
+            key: `battle-opponent-back-${idx}`,
+            size: 'hand',
+            state: 'back',
+            testId: `battle-opponent-back-${idx}`,
+          })),
+        );
+      }
+
+      return React.createElement(
+        'div',
+        { className: 'battle-private-hand', 'data-testid': 'battle-private-hand-P2' },
+        privateCards.map(card => React.createElement(
+          'div',
+          { key: card.instanceId, className: 'battle-private-card', 'data-testid': `battle-private-card-${card.instanceId}` },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'battle-hand-card-button',
+              onClick: () => setExpandedPowerCardId(card.instanceId),
+              'data-testid': `battle-card-tap-${card.instanceId}`,
+            },
+            React.createElement(PowerCardFrame, {
+              size: 'hand',
+              displayName: card.displayName,
+              rulesText: card.rulesText,
+              artSrc: card.artImageUrl ?? null,
+              fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
+              visualMode: card.visualMode ?? 'layered-art',
+              state: card.isPlayable ? (expandedPowerCardId === card.instanceId ? 'selected' : 'playable') : 'disabled',
+              selected: expandedPowerCardId === card.instanceId,
+              testId: `battle-private-card-frame-${card.instanceId}`,
+            }),
+          ),
+        )),
+      );
+    }
+
     if (isBotMode) {
       return React.createElement('div', { className: 'battle-opponent-column' },
         Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => React.createElement(PowerCardFrame, {
@@ -816,7 +1024,7 @@ export function BattleScreen({
         ),
       )),
     );
-  }, [battle.powerCardHandCount.P2, expandedPowerCardId, isBotMode, manualP2Cards, revealedHandFor]);
+  }, [battle.powerCardHandCount.P2, expandedPowerCardId, handoffRequiredFor, isBotMode, isMultiplayerSeatView, manualP2Cards, multiplayerSeat, privateCards, revealedHandFor]);
 
   return React.createElement(
     'section',
@@ -842,6 +1050,9 @@ export function BattleScreen({
         onCardClick: (characterId: string) => onOpenCharacterCard?.(characterId),
         readOnly: true,
         inspectAllCards: true,
+        cardMotion,
+        swapCharacterMotion,
+        postBattleMotion,
         characterStatusById,
         playerColors,
       }),
@@ -968,8 +1179,8 @@ export function BattleScreen({
     cinematicPhase === 'main'
       ? React.createElement('div', { className: 'battle-main-grid' },
         React.createElement('aside', { className: 'battle-side-column battle-side-left', 'data-testid': 'battle-inline-hand' },
-          React.createElement('h3', null, isBotMode ? 'Human Power Cards' : 'Player One Power Cards'),
-          !isBotMode && onRevealHand
+          React.createElement('h3', null, isMultiplayerSeatView ? (multiplayerSeat === 'P1' ? 'Your Power Cards' : 'Opponent Power Cards') : isBotMode ? 'Human Power Cards' : 'Player One Power Cards'),
+          !isBotMode && !isMultiplayerSeatView && onRevealHand
             ? React.createElement(
                 'button',
                 {
@@ -1096,7 +1307,7 @@ export function BattleScreen({
                   'Open Full Board',
                 )
               : null,
-            canReadyToggle && !isCurrentReady && !readyToggleLockedForBot
+            canReadyToggle && !isCurrentReady && !readyToggleLocked
               ? React.createElement(
                   'button',
                   {
@@ -1107,7 +1318,7 @@ export function BattleScreen({
                     `Ready ${priorityLabel}`,
                 )
               : null,
-            canReadyToggle && isCurrentReady && !readyToggleLockedForBot
+            canReadyToggle && isCurrentReady && !readyToggleLocked
               ? React.createElement(
                   'button',
                   {
@@ -1154,8 +1365,8 @@ export function BattleScreen({
           ),
         ),
         React.createElement('aside', { className: 'battle-side-column battle-side-right', 'data-testid': 'battle-opponent-face-down' },
-          React.createElement('h3', null, isBotMode ? 'Opponent Power Cards' : 'Player Two Power Cards'),
-          !isBotMode && onRevealHand
+          React.createElement('h3', null, isMultiplayerSeatView ? (multiplayerSeat === 'P2' ? 'Your Power Cards' : 'Opponent Power Cards') : isBotMode ? 'Opponent Power Cards' : 'Player Two Power Cards'),
+          !isBotMode && !isMultiplayerSeatView && onRevealHand
             ? React.createElement(
                 'button',
                 {
@@ -1299,6 +1510,28 @@ export function BattleScreen({
               },
               'OK',
             ),
+          ),
+        )
+      : null,
+
+    cinematicPhase === 'main' && isMultiplayerSeatView && multiplayerPowerReveal
+      ? React.createElement(
+          'section',
+          { className: 'battle-bot-reveal-overlay', 'data-testid': 'multiplayer-power-reveal-overlay' },
+          React.createElement('div', { className: 'battle-bot-reveal-panel' },
+            React.createElement('h3', null, `${multiplayerPowerReveal.actor === 'P1' ? 'Player One' : 'Player Two'} played a power card`),
+            React.createElement(PowerCardFrame, {
+              size: 'battle',
+              displayName: multiplayerPowerReveal.displayName,
+              rulesText: multiplayerPowerReveal.rulesText,
+              artSrc: multiplayerPowerReveal.artImageUrl ?? null,
+              fullCardFaceSrc: multiplayerPowerReveal.fullCardFaceImageUrl ?? null,
+              visualMode: multiplayerPowerReveal.visualMode ?? 'layered-art',
+              state: 'selected',
+              selected: true,
+              testId: 'multiplayer-power-reveal-card',
+            }),
+            React.createElement('p', null, 'Applying effect...'),
           ),
         )
       : null,

@@ -22,7 +22,7 @@ import {
   resolveBattle,
 } from './gameEngine';
 import { getPlayerGameView, getPrivatePowerCardHand, shuffleCharacterInstances, type PlayerSafeGameView } from './setup';
-import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, getPowerCardDefinition, type UsedPowerCardEntry } from './powerCards';
+import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, getPowerCardAiMetadata, getPowerCardDefinition, type UsedPowerCardEntry } from './powerCards';
 import { loadPowerCatalog } from './cardCatalog';
 
 type StatLabel = 'ATK' | 'DEF';
@@ -393,6 +393,65 @@ function getProjectedBattleResultFromContext(
   };
 }
 
+function refillBattleCharacterDeckFromSessionIfNeeded(state: GameState): GameState {
+  if (state.characterDeck.length > 0 || state.sessionUsedCharacterPile.length === 0) {
+    return state;
+  }
+
+  return {
+    ...state,
+    characterDeck: shuffleCharacterInstances(state.sessionUsedCharacterPile, Math.random),
+    sessionUsedCharacterPile: [],
+    sessionRunoutOccurred: true,
+  };
+}
+
+function ensureActiveBattlerRiddlerSources(
+  state: GameState,
+  battle: PendingBattle,
+): { state: GameState; battle: PendingBattle; revealedSources: Array<{ characterId: string; source: CharacterDeckCard }> } {
+  let nextState = state;
+  let nextBattle = battle;
+  const revealedSources: Array<{ characterId: string; source: CharacterDeckCard }> = [];
+
+  for (const characterId of [battle.initiatorId, battle.opponentId]) {
+    if (nextBattle.riddlerStatSourceByCharacterId[characterId]) {
+      continue;
+    }
+
+    const participant = getCharacter(nextState, characterId);
+    if (!participant || !participant.alive || !isRiddler(participant.displayName)) {
+      continue;
+    }
+
+    nextState = refillBattleCharacterDeckFromSessionIfNeeded(nextState);
+    if (nextState.characterDeck.length === 0) {
+      throw new Error('Cannot resolve Riddler battle stats: no character card available for bottom-deck source');
+    }
+
+    const bottomCard = nextState.characterDeck[nextState.characterDeck.length - 1];
+    nextState = {
+      ...nextState,
+      characterDeck: nextState.characterDeck.slice(0, -1),
+    };
+    nextBattle = {
+      ...nextBattle,
+      riddlerStatSourceByCharacterId: {
+        ...nextBattle.riddlerStatSourceByCharacterId,
+        [characterId]: bottomCard,
+      },
+      riddlerConsumedCards: [...nextBattle.riddlerConsumedCards, bottomCard],
+    };
+    revealedSources.push({ characterId, source: bottomCard });
+  }
+
+  return {
+    state: nextState,
+    battle: nextBattle,
+    revealedSources,
+  };
+}
+
 function buildBattleContext(
   state: GameState,
   battleType: BattleType,
@@ -639,7 +698,8 @@ function getCardPlayability(
     };
   }
 
-  if (actingPlayer !== battle.currentPriorityPlayer) {
+  const timing = getPowerCardAiMetadata(definitionId).timing;
+  if (actingPlayer !== battle.currentPriorityPlayer && timing !== 'anytime') {
     return {
       isPlayable: false,
       disabledReason: 'Not your priority',
@@ -843,10 +903,6 @@ export function getBattlePrivateHandView(state: GameState, player: Controller): 
     throw new Error('Cannot view private battle hand: acknowledgment is required first');
   }
 
-  if (player !== battle.currentPriorityPlayer) {
-    throw new Error('Cannot view private battle hand: player does not have priority');
-  }
-
   const privateCards = getPrivatePowerCardHand(state, player);
 
   return {
@@ -916,14 +972,15 @@ export function playBattlePowerCard(
     throw new Error('Cannot play card: battle window is not open');
   }
 
-  if (actingPlayer !== battle.currentPriorityPlayer) {
-    throw new Error('Cannot play card: it is not this player\'s priority');
-  }
-
   const hand = state.powerCardHands[actingPlayer];
   const cardInHand = hand.find(card => card.instanceId === input.instanceId);
   if (!cardInHand) {
     throw new Error('Cannot play card: card is not in acting player hand');
+  }
+
+  const timing = getPowerCardAiMetadata(cardInHand.definitionId).timing;
+  if (actingPlayer !== battle.currentPriorityPlayer && timing !== 'anytime') {
+    throw new Error('Cannot play card: it is not this player\'s priority');
   }
 
   const definition = getPowerCardDefinition(cardInHand.definitionId);
@@ -947,6 +1004,7 @@ export function playBattlePowerCard(
   let updatedBattle: PendingBattle = battle;
   let effectSummary = '';
   let extraUsedEntries: UsedPowerCardEntry[] = [];
+  let publicAnimationDetails: Record<string, unknown> = {};
 
   if (cardInHand.definitionId === 'power-alpha-006') {
     effectSummary = `+2 ${input.selectedChoice} to own battler this battle`;
@@ -1311,9 +1369,33 @@ export function playBattlePowerCard(
             targetCharacterId: modifier.targetCharacterId,
           })),
       };
+
+      const ensuredRiddler = ensureActiveBattlerRiddlerSources(state, updatedBattle);
+      state = ensuredRiddler.state;
+      updatedBattle = ensuredRiddler.battle;
     }
 
+    const replacementRiddlerSource = updatedBattle.riddlerStatSourceByCharacterId[replacementId];
+
     effectSummary = `PHONE A FRIEND replaced ${targetCharacter.displayName ?? targetCharacter.id} with ${drawnTop.displayName}`;
+    publicAnimationDetails = {
+      phoneFriend: {
+        targetCharacterId: targetCharacter.id,
+        oldController: targetCharacter.controller,
+        oldDisplayName: targetCharacter.displayName ?? targetCharacter.id,
+        oldATK: targetCharacter.ATK,
+        oldDEF: targetCharacter.DEF,
+        oldVisualMode: targetCharacter.visualMode,
+        oldArtImageUrl: targetCharacter.artImageUrl,
+        oldFullCardFaceImageUrl: targetCharacter.fullCardFaceImageUrl,
+        newDisplayName: drawnTop.displayName,
+        newATK: replacementRiddlerSource?.ATK ?? drawnTop.ATK,
+        newDEF: replacementRiddlerSource?.DEF ?? drawnTop.DEF,
+        newVisualMode: drawnTop.visualMode,
+        newArtImageUrl: drawnTop.artImageUrl,
+        newFullCardFaceImageUrl: drawnTop.fullCardFaceImageUrl,
+      },
+    };
   } else if (cardInHand.definitionId === 'power-alpha-019') {
     effectSummary = 'BEHIND THE CURTAINS hand inspection';
 
@@ -1368,6 +1450,8 @@ export function playBattlePowerCard(
   } else if (cardInHand.definitionId === 'power-alpha-018') {
     const ownSwapTargetId = input.targetCharacterId ?? ownCharacterId;
     const opponentSwapTargetId = input.secondTargetCharacterId ?? opponentCharacterId;
+    const ownBefore = getCharacter(state, ownSwapTargetId);
+    const opponentBefore = getCharacter(state, opponentSwapTargetId);
 
     const initiatorWasSwapped = updatedBattle.initiatorId === ownSwapTargetId || updatedBattle.initiatorId === opponentSwapTargetId;
     const opponentWasSwapped = updatedBattle.opponentId === ownSwapTargetId || updatedBattle.opponentId === opponentSwapTargetId;
@@ -1510,6 +1594,46 @@ export function playBattlePowerCard(
     const ownTarget = getCharacter(state, ownSwapTargetId);
     const opponentTarget = getCharacter(state, opponentSwapTargetId);
     effectSummary = `SWAP CHARACTERS swapped ${ownTarget?.displayName ?? ownSwapTargetId} with ${opponentTarget?.displayName ?? opponentSwapTargetId}`;
+    if (ownBefore?.boardPosition && opponentBefore?.boardPosition && ownTarget?.boardPosition && opponentTarget?.boardPosition) {
+      publicAnimationDetails = {
+        swapCharacters: {
+          first: {
+            characterId: ownBefore.id,
+            revealed: ownBefore.revealed,
+            displayName: ownBefore.displayName ?? ownBefore.id,
+            ATK: ownBefore.ATK,
+            DEF: ownBefore.DEF,
+            isKing: ownBefore.isKing,
+            toIsKing: ownTarget.isKing,
+            isFrozen: ownBefore.isFrozen ?? false,
+            fromController: ownBefore.controller,
+            toController: ownTarget.controller,
+            fromPosition: ownBefore.boardPosition,
+            toPosition: ownTarget.boardPosition,
+            visualMode: ownBefore.visualMode,
+            artImageUrl: ownBefore.artImageUrl,
+            fullCardFaceImageUrl: ownBefore.fullCardFaceImageUrl,
+          },
+          second: {
+            characterId: opponentBefore.id,
+            revealed: opponentBefore.revealed,
+            displayName: opponentBefore.displayName ?? opponentBefore.id,
+            ATK: opponentBefore.ATK,
+            DEF: opponentBefore.DEF,
+            isKing: opponentBefore.isKing,
+            toIsKing: opponentTarget.isKing,
+            isFrozen: opponentBefore.isFrozen ?? false,
+            fromController: opponentBefore.controller,
+            toController: opponentTarget.controller,
+            fromPosition: opponentBefore.boardPosition,
+            toPosition: opponentTarget.boardPosition,
+            visualMode: opponentBefore.visualMode,
+            artImageUrl: opponentBefore.artImageUrl,
+            fullCardFaceImageUrl: opponentBefore.fullCardFaceImageUrl,
+          },
+        },
+      };
+    }
   }
 
   const nextPriority: Controller = actingPlayer === 'P1' ? 'P2' : 'P1';
@@ -1530,6 +1654,21 @@ export function playBattlePowerCard(
   const addPermanent = cardInHand.definitionId === 'power-alpha-010' && isGenghisKhan(ownCharacter?.displayName);
   const existingPersistent = state.persistentCharacterModifiers[ownCharacterId] ?? { ATK: 0, DEF: 0 };
   const shouldEnterUsedPileImmediately = !isWeaponDefinition(cardInHand.definitionId);
+
+  const ensuredRiddler = ensureActiveBattlerRiddlerSources(state, updatedBattle);
+  state = ensuredRiddler.state;
+  updatedBattle = ensuredRiddler.battle;
+
+  if (ensuredRiddler.revealedSources.length > 0) {
+    const sourceNotes = ensuredRiddler.revealedSources.map(({ characterId, source }) => {
+      const participant = getCharacter(state, characterId);
+      return `Riddler source revealed for ${participant?.displayName ?? characterId}: ${source.displayName} (${source.ATK}/${source.DEF})`;
+    });
+    updatedBattle = {
+      ...updatedBattle,
+      eventHistory: [...updatedBattle.eventHistory, ...sourceNotes],
+    };
+  }
 
   let next: GameState = {
     ...state,
@@ -1573,6 +1712,7 @@ export function playBattlePowerCard(
     effectSummary,
     nextPriority,
     consecutivePassCount: 0,
+    ...publicAnimationDetails,
   });
 
   return next;
@@ -1792,8 +1932,8 @@ export function setBattleReady(state: GameState, actingPlayer: Controller, ready
     handoffRequiredFor: readyToResolve ? null : nextPriority,
     eventHistory: [
       ...battle.eventHistory,
-      `${actingPlayer === 'P1' ? 'Human' : 'Bot'} marked ${ready ? 'READY' : 'NOT READY'}`,
-      readyToResolve ? 'Both players ready - battle can resolve' : `Priority: ${nextPriority === 'P1' ? 'Human' : 'Bot'}`,
+      `${actingPlayer === 'P1' ? 'Player One' : 'Player Two'} marked ${ready ? 'READY' : 'NOT READY'}`,
+      readyToResolve ? 'Both players ready - battle can resolve' : `Priority: ${nextPriority === 'P1' ? 'Player One' : 'Player Two'}`,
     ],
   };
 
@@ -1808,6 +1948,38 @@ export function setBattleReady(state: GameState, actingPlayer: Controller, ready
     readyCount,
     nextPriority: nextPriority === 'P1' ? 'Human' : 'Bot',
     readyToResolve,
+  });
+
+  return next;
+}
+
+export function beginBattleResolution(state: GameState, actingPlayer: Controller): GameState {
+  const battle = requirePendingBattle(state);
+
+  if (battle.status !== 'ReadyToResolve') {
+    throw new Error('Cannot begin resolution: battle is not ready to resolve');
+  }
+
+  if (actingPlayer !== battle.currentPriorityPlayer) {
+    throw new Error('Cannot begin resolution: it is not this player\'s priority');
+  }
+
+  const updatedBattle: PendingBattle = {
+    ...battle,
+    status: 'Resolving',
+    eventHistory: [
+      ...battle.eventHistory,
+      `${actingPlayer === 'P1' ? 'Player One' : 'Player Two'} pressed Resolve Battle`,
+    ],
+  };
+
+  let next: GameState = {
+    ...state,
+    pendingBattle: updatedBattle,
+  };
+
+  next = logEvent(next, 'Battle Resolve Started', {
+    actingPlayer,
   });
 
   return next;
@@ -1909,7 +2081,7 @@ function buildRiddlerConsumedGraveyardEntries(state: GameState, battle: PendingB
 export function resolvePendingBattle(state: GameState): GameState {
   const battle = requirePendingBattle(state);
 
-  if (battle.status !== 'ReadyToResolve') {
+  if (battle.status !== 'ReadyToResolve' && battle.status !== 'Resolving') {
     throw new Error('Cannot resolve pending battle: battle is not ready');
   }
 

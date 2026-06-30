@@ -675,6 +675,50 @@ describe('Phase 4A Step 3 battle power cards', () => {
     expect(afterPlay.graveyard[afterPlay.graveyard.length - 1]?.id).toBe('y-king');
   });
 
+  it('PHONE A FRIEND drawing RIDDLER in battle immediately uses bottom deck stats', () => {
+    const state = {
+      ...createBattleState(),
+      characterDeck: [
+        {
+          instanceId: 'deck-riddler',
+          definitionId: 'alpha-033',
+          displayName: 'RIDDLER',
+          ATK: 0,
+          DEF: 0,
+          ability: null,
+          statRule: null,
+          imageKey: 'riddler',
+        },
+        {
+          instanceId: 'deck-bottom-source',
+          definitionId: 'alpha-source',
+          displayName: 'Bottom Source',
+          ATK: 14,
+          DEF: 9,
+          ability: null,
+          statRule: null,
+          imageKey: 'source',
+        },
+      ],
+      powerCardHands: {
+        P1: [{ instanceId: 'power-y-phone-riddler', definitionId: 'power-alpha-017' }],
+        P2: [],
+      },
+    };
+
+    const afterPlay = playBattlePowerCard(openBattleAndAcknowledge(state), 'P1', {
+      instanceId: 'power-y-phone-riddler',
+      targetCharacterId: 'y-att',
+    });
+
+    const view = getBattlePublicView(afterPlay);
+    expect(afterPlay.pendingBattle?.initiatorId).toBe('deck-riddler');
+    expect(view.initiatorRiddlerSource?.instanceId).toBe('deck-bottom-source');
+    expect(view.initiatorEffectiveATK).toBe(14);
+    expect(view.initiatorEffectiveComparison).toBe(14);
+    expect(afterPlay.characterDeck).toHaveLength(0);
+  });
+
   it('SWAP CHARACTERS during battle replaces swapped-out battler, reveals replacement, and creates no draw triggers', () => {
     const state = {
       ...createBattleState(),
@@ -740,6 +784,48 @@ describe('Phase 4A Step 3 battle power cards', () => {
       && modifier.amount === 5
     ))).toBe(true);
     expect(view.opponentEffectiveDEF).toBe(11);
+  });
+
+  it('SWAP CHARACTERS swapping RIDDLER into battle immediately uses bottom deck stats', () => {
+    const state = {
+      ...createBattleState(),
+      characters: [
+        createChar('y-att', 'P1', 10, 6, false, 'P1_3', 'Y-Attacker'),
+        createChar('a-def', 'P2', 7, 8, false, 'P1_4', 'A-Defender'),
+        createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+        createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+        createChar('a-riddler', 'P2', 0, 0, false, 'P2_4', 'RIDDLER'),
+      ],
+      characterDeck: [
+        {
+          instanceId: 'deck-riddler-source',
+          definitionId: 'alpha-source',
+          displayName: 'Riddler Source',
+          ATK: 12,
+          DEF: 9,
+          ability: null,
+          statRule: null,
+          imageKey: 'riddler-source',
+        },
+      ],
+      powerCardHands: {
+        P1: [{ instanceId: 'power-y-swap-riddler', definitionId: 'power-alpha-018' }],
+        P2: [],
+      },
+    };
+
+    const afterPlay = playBattlePowerCard(openBattleAndAcknowledge(state), 'P1', {
+      instanceId: 'power-y-swap-riddler',
+      targetCharacterId: 'y-att',
+      secondTargetCharacterId: 'a-riddler',
+    });
+
+    const view = getBattlePublicView(afterPlay);
+    expect(afterPlay.pendingBattle?.initiatorId).toBe('a-riddler');
+    expect(view.initiatorRiddlerSource?.instanceId).toBe('deck-riddler-source');
+    expect(view.initiatorEffectiveATK).toBe(12);
+    expect(view.initiatorEffectiveComparison).toBe(12);
+    expect(afterPlay.characterDeck).toHaveLength(0);
   });
 
   it('NO SPRAY cancels latest cancelable opponent battle card effects', () => {

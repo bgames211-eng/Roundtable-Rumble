@@ -123,6 +123,7 @@ export interface GameState {
   powerCardDeck: PowerCardInstance[];
   sessionUsedPowerCardPile: PowerCardInstance[];
   powerCardHands: { P1: PowerCardInstance[]; P2: PowerCardInstance[] };
+  publicPowerCardHandCount?: { P1: number; P2: number };
   usedPowerCardPile: UsedPowerCardEntry[];
   sessionMode: 'single-game' | 'multi-game';
   sessionGameNumber: number;
@@ -406,5 +407,8 @@ export function getLivingCharacterCounts(state: GameState): { P1: number; P2: nu
  * Derive public power-card hand counts from authoritative private hands.
  */
 export function getPowerCardHandCounts(state: GameState): { P1: number; P2: number } {
+  if (state.publicPowerCardHandCount) {
+    return state.publicPowerCardHandCount;
+  }
   return countPowerCardsByController(state.powerCardHands);
 }

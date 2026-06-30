@@ -329,4 +329,22 @@ describe('Phase 3C battleFlow', () => {
 
     expect(resolved.graveyard.some(card => card.id === 'deck-bottom')).toBe(true);
   });
+
+  it('Ant draws 2 power cards after winning a staged pending battle', () => {
+    const baseline = initializeGameState([
+      createChar('ant', 'P1', 9, 2, false, 'P1_3', 'ANT'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-def', 'P2', 2, 2, false, 'P1_4', 'A-DEF'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const initialDeckCount = baseline.powerCardDeck.length;
+    const ready = passBattlePriority(passBattlePriority(startBattle(baseline, 'attack', 'ant'), 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    expect(resolved.drawCount.P1).toBe(baseline.drawCount.P1 + 2);
+    expect(resolved.powerCardHands.P1).toHaveLength(2);
+    expect(resolved.powerCardDeck).toHaveLength(initialDeckCount - 2);
+    expect(resolved.eventLog.filter(event => event.action === 'Ant Victory Draw')).toHaveLength(2);
+  });
 });

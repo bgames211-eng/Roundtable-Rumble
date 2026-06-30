@@ -1357,6 +1357,47 @@ input:focus-visible {
   margin: 1.2rem 0 1.6rem;
 }
 
+.character-read-modal-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(180px, 260px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.character-read-modal-layout.character-read-modal-layout-solo {
+  grid-template-columns: minmax(260px, 360px);
+  justify-content: center;
+}
+
+.character-attachment-rail {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  justify-items: center;
+  padding-top: 1.2rem;
+}
+
+.character-attachment-rail h4 {
+  margin: 0;
+  text-align: center;
+}
+
+.character-attachment-rail-list {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: center;
+}
+
+.character-attachment-rail-button {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.character-attachment-rail .power-card-compact {
+  transform: none;
+}
+
 .board-character-card-modal-panel .board-modal-anytime-special {
   position: relative;
   z-index: 2;
@@ -1379,6 +1420,21 @@ input:focus-visible {
 .board-character-card-modal-panel .power-popover-controls,
 .board-power-card-modal-panel .power-popover-controls {
   margin-top: 0.4rem;
+}
+
+@media (max-width: 900px) {
+  .character-read-modal-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .character-attachment-rail {
+    padding-top: 0;
+  }
+
+  .character-attachment-rail-list {
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    width: 100%;
+  }
 }
 
 .board-power-card-modal-panel .power-card-row {
@@ -1784,6 +1840,35 @@ input:focus-visible {
   height: 8px;
   border-radius: 7px;
   background: #edf6fb;
+.multiplayer-paused-shell {
+  position: relative;
+}
+.multiplayer-paused-content {
+  pointer-events: none;
+  filter: saturate(0.8);
+}
+.multiplayer-paused-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 560px);
+  padding: 1rem 1.2rem;
+  border: 2px solid #d2a83d;
+  border-radius: 14px;
+  background: rgba(22, 20, 14, 0.95);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48);
+  text-align: center;
+  z-index: 1400;
+}
+.multiplayer-paused-overlay h3 {
+  margin: 0 0 0.45rem;
+  color: #f7d46f;
+}
+.multiplayer-paused-overlay p {
+  margin: 0;
+  color: #f8f1db;
+}
   top: -7px;
   left: -10px;
   border: 1px solid rgba(58, 72, 80, 0.45);

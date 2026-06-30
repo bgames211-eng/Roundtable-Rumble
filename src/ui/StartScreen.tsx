@@ -11,7 +11,7 @@ import {
 import { PUBLIC_ASSETS } from '../publicAssets';
 import './StartScreen.css';
 
-export type GameMode = 'manual-two-player' | 'human-y-vs-bot-a';
+export type GameMode = 'manual-two-player' | 'human-y-vs-bot-a' | 'hosted-two-player';
 export type SessionMode = 'single-game' | 'multi-game';
 export type PlayerColor =
   | 'Blue'
@@ -101,6 +101,17 @@ interface StartScreenProps {
   multiplayerRoomCode?: string | null;
   multiplayerStatus?: string | null;
   multiplayerJoinCode?: string;
+  multiplayerPlayer?: Controller | null;
+  multiplayerRoomPhase?: 'lobby' | 'rps' | 'match' | 'match-paused' | null;
+  multiplayerReady?: { P1: boolean; P2: boolean } | null;
+  multiplayerRpsChoiceState?: { hasP1Choice: boolean; hasP2Choice: boolean } | null;
+  multiplayerSessionMode?: SessionMode | null;
+  multiplayerRpsResult?: {
+    p1Choice: RpsChoice;
+    p2Choice: RpsChoice;
+    firstPlayer?: Controller;
+    outcome: 'win' | 'tie';
+  } | null;
   playerColors: { P1: PlayerColor; P2: PlayerColor };
   onFirstPlayerChange: (next: Controller) => void;
   onGameModeChange: (next: GameMode) => void;
@@ -109,13 +120,18 @@ interface StartScreenProps {
   onMultiplayerJoinCodeChange?: (next: string) => void;
   onCreateMultiplayerRoom?: () => void;
   onJoinMultiplayerRoom?: () => void;
+  onMultiplayerSessionModeChange?: (next: SessionMode) => void;
+  onMultiplayerReadyToggle?: (ready: boolean) => void;
+  onMultiplayerRpsChoice?: (choice: RpsChoice) => void;
+  onMultiplayerRpsRedo?: () => void;
+  onMultiplayerRpsBack?: () => void;
   onPlayerColorChange: (player: Controller, color: PlayerColor) => void;
   onNewGame: (firstPlayerOverride?: Controller) => void;
   initialPhase?: SetupPhase;
   onCatalogBack?: () => void;
 }
 
-type SetupPhase = 'landing' | 'online' | 'online-host' | 'online-join' | 'mode' | 'setup' | 'rps' | 'catalog';
+type SetupPhase = 'landing' | 'online' | 'online-host' | 'online-join' | 'online-rps' | 'online-rps-result' | 'mode' | 'setup' | 'rps' | 'catalog';
 type RpsChoice = 'rock' | 'paper' | 'scissors';
 type RpsOutcome = 'human' | 'bot' | 'tie';
 type CatalogMode = 'character' | 'power';
@@ -134,6 +150,12 @@ export function StartScreen({
   multiplayerRoomCode = null,
   multiplayerStatus = null,
   multiplayerJoinCode = '',
+  multiplayerPlayer = null,
+  multiplayerRoomPhase = null,
+  multiplayerReady = null,
+  multiplayerRpsChoiceState = null,
+  multiplayerSessionMode = null,
+  multiplayerRpsResult = null,
   playerColors = { P1: 'Blue', P2: 'Red' },
   onFirstPlayerChange,
   onGameModeChange,
@@ -142,6 +164,11 @@ export function StartScreen({
   onMultiplayerJoinCodeChange,
   onCreateMultiplayerRoom,
   onJoinMultiplayerRoom,
+  onMultiplayerSessionModeChange,
+  onMultiplayerReadyToggle,
+  onMultiplayerRpsChoice,
+  onMultiplayerRpsRedo,
+  onMultiplayerRpsBack,
   onPlayerColorChange,
   onNewGame,
   initialPhase,
@@ -155,6 +182,7 @@ export function StartScreen({
   const [rpsBattle, setRpsBattle] = React.useState<RpsBattleState | null>(null);
   const [rpsLocked, setRpsLocked] = React.useState(false);
   const [catalogMode, setCatalogMode] = React.useState<CatalogMode>('character');
+  const [selectedMultiplayerRpsChoice, setSelectedMultiplayerRpsChoice] = React.useState<RpsChoice | null>(null);
   const characterCatalog = React.useMemo(
     () => ALPHA_1_CHARACTER_DEFINITIONS.map(createDefaultCharacterCatalogEntry),
     [],
@@ -167,8 +195,21 @@ export function StartScreen({
   const [selectedPowerId, setSelectedPowerId] = React.useState<string | null>(null);
   const [openColorPickerFor, setOpenColorPickerFor] = React.useState<Controller | null>(null);
   const colorPickerRootRef = React.useRef<HTMLFieldSetElement | null>(null);
+  const previousOwnSeatSubmittedRef = React.useRef<boolean>(false);
+  const previousBothSeatsHaveNoRpsChoiceRef = React.useRef<boolean>(true);
 
   const colorsUnique = playerColors.P1 !== playerColors.P2;
+  const ownSeat = multiplayerPlayer;
+  const ownSeatHasSubmittedRpsChoice = ownSeat
+    ? ownSeat === 'P1'
+      ? !!multiplayerRpsChoiceState?.hasP1Choice
+      : !!multiplayerRpsChoiceState?.hasP2Choice
+    : false;
+  const bothSeatsHaveNoRpsChoice = !multiplayerRpsChoiceState?.hasP1Choice && !multiplayerRpsChoiceState?.hasP2Choice;
+  const ownReady = ownSeat ? !!multiplayerReady?.[ownSeat] : false;
+  const opponentSeat: Controller = ownSeat === 'P1' ? 'P2' : 'P1';
+  const opponentReady = ownSeat ? !!multiplayerReady?.[opponentSeat] : false;
+  const effectiveSessionMode = multiplayerSessionMode ?? sessionMode;
 
   React.useEffect(() => {
     setModeDraft(gameMode);
@@ -179,6 +220,47 @@ export function StartScreen({
       setPhase(initialPhase);
     }
   }, [initialPhase]);
+
+  React.useEffect(() => {
+    if (phase === 'online-rps-result' && !multiplayerRpsResult) {
+      setSelectedMultiplayerRpsChoice(null);
+      setPhase(multiplayerRoomPhase === 'rps' ? 'online-rps' : 'online');
+      return;
+    }
+
+    if (phase === 'online-rps' && multiplayerRoomPhase !== 'rps' && !multiplayerRpsResult) {
+      setSelectedMultiplayerRpsChoice(null);
+      setPhase('online');
+      return;
+    }
+
+    if (multiplayerRoomCode && multiplayerRoomPhase === 'rps' && !multiplayerRpsResult) {
+      setPhase('online-rps');
+      return;
+    }
+
+    if (multiplayerRpsResult) {
+      setSelectedMultiplayerRpsChoice(null);
+      setPhase('online-rps-result');
+      return;
+    }
+  }, [multiplayerRoomCode, multiplayerRpsResult, multiplayerRoomPhase, phase]);
+
+  React.useEffect(() => {
+    const previous = previousOwnSeatSubmittedRef.current;
+    if (phase === 'online-rps' && previous && !ownSeatHasSubmittedRpsChoice) {
+      setSelectedMultiplayerRpsChoice(null);
+    }
+    previousOwnSeatSubmittedRef.current = ownSeatHasSubmittedRpsChoice;
+  }, [ownSeatHasSubmittedRpsChoice, phase]);
+
+  React.useEffect(() => {
+    const previous = previousBothSeatsHaveNoRpsChoiceRef.current;
+    if (phase === 'online-rps' && !previous && bothSeatsHaveNoRpsChoice && selectedMultiplayerRpsChoice !== null) {
+      setSelectedMultiplayerRpsChoice(null);
+    }
+    previousBothSeatsHaveNoRpsChoiceRef.current = bothSeatsHaveNoRpsChoice;
+  }, [bothSeatsHaveNoRpsChoice, phase, selectedMultiplayerRpsChoice]);
 
   React.useEffect(() => {
     if (!selectedCharacterId && characterCatalog.length > 0) {
@@ -458,12 +540,22 @@ export function StartScreen({
     React.createElement('div', { className: 'mode-toggle-row' },
       React.createElement(
         'button',
-        { type: 'button', className: 'begin-button', onClick: () => transitionTo('online-host'), 'data-testid': 'open-host-page-button' },
+        {
+          type: 'button',
+          className: `mode-button ${phase === 'online-host' ? 'selected' : ''}`,
+          onClick: () => transitionTo('online-host'),
+          'data-testid': 'open-host-page-button',
+        },
         'Host Game',
       ),
       React.createElement(
         'button',
-        { type: 'button', className: 'mode-button', onClick: () => transitionTo('online-join'), 'data-testid': 'open-join-page-button' },
+        {
+          type: 'button',
+          className: `mode-button ${phase === 'online-join' ? 'selected' : ''}`,
+          onClick: () => transitionTo('online-join'),
+          'data-testid': 'open-join-page-button',
+        },
         'Join Game',
       ),
     ),
@@ -480,7 +572,7 @@ export function StartScreen({
       { type: 'button', className: 'begin-button', onClick: onCreateMultiplayerRoom, 'data-testid': 'create-room-button' },
       'Create Code',
     ),
-    multiplayerRoomCode ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-code-display' }, `Game Code: ${multiplayerRoomCode}`) : null,
+    multiplayerRoomCode ? React.createElement('p', { className: 'status-label room-code-display', 'data-testid': 'room-code-display' }, `Game Code: ${multiplayerRoomCode}`) : null,
     multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status-host' }, multiplayerStatus) : null,
   );
 
@@ -506,6 +598,59 @@ export function StartScreen({
     multiplayerStatus ? React.createElement('p', { className: 'status-label', 'data-testid': 'room-status-join' }, multiplayerStatus) : null,
   );
 
+  const multiplayerLobbyControls = multiplayerRoomCode && ownSeat ? React.createElement(
+    'section',
+    { className: 'first-player-field', ref: colorPickerRootRef, 'data-testid': 'multiplayer-lobby-controls' },
+    React.createElement('legend', null, 'Lobby Controls'),
+    React.createElement('p', { className: 'mode-confirm-copy' }, `You are ${ownSeat === 'P1' ? 'Host (P1)' : 'Player Two (P2)'}.`),
+    React.createElement('p', { className: 'mode-confirm-copy' }, `Room Phase: ${multiplayerRoomPhase ?? 'lobby'}`),
+    React.createElement('div', { className: 'mode-toggle-row' },
+      React.createElement('label', null, 'Session'),
+      React.createElement('div', { className: 'mode-toggle-row' },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: `mode-button ${effectiveSessionMode === 'single-game' ? 'selected' : ''}`,
+            onClick: () => onMultiplayerSessionModeChange?.('single-game'),
+            disabled: ownSeat !== 'P1',
+            'data-testid': 'lobby-session-single',
+          },
+          'Single Game',
+        ),
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: `mode-button ${effectiveSessionMode === 'multi-game' ? 'selected' : ''}`,
+            onClick: () => onMultiplayerSessionModeChange?.('multi-game'),
+            disabled: ownSeat !== 'P1',
+            'data-testid': 'lobby-session-multi',
+          },
+          'Multi Game',
+        ),
+      ),
+    ),
+    React.createElement('div', { className: 'mode-toggle-row' },
+      React.createElement('label', null, 'Your Color'),
+      renderColorPicker(ownSeat),
+    ),
+    React.createElement('p', { className: 'mode-confirm-copy' }, `Ready: You ${ownReady ? 'Yes' : 'No'} | Opponent ${opponentReady ? 'Yes' : 'No'}`),
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        className: ownReady ? 'mode-button' : 'begin-button',
+        onClick: () => onMultiplayerReadyToggle?.(!ownReady),
+        'data-testid': 'lobby-ready-toggle',
+      },
+      ownReady ? 'Set Not Ready' : 'Set Ready',
+    ),
+    multiplayerRoomPhase === 'rps'
+      ? React.createElement('p', { className: 'status-label', 'data-testid': 'lobby-rps-redirect' }, 'RPS in progress. Opening dedicated RPS screen...')
+      : null,
+  ) : null;
+
   if (phase === 'landing') {
     return React.createElement(
       'main',
@@ -526,7 +671,7 @@ export function StartScreen({
           {
             type: 'button',
             className: 'begin-button',
-            onClick: () => transitionTo('online'),
+            onClick: () => transitionTo('mode'),
             'data-testid': 'begin-button',
           },
           'Begin',
@@ -660,9 +805,20 @@ export function StartScreen({
             },
             '1 Player V Bot',
           ),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: `mode-button ${modeDraft === 'hosted-two-player' ? 'selected' : ''}`,
+              onClick: () => setModeDraft('hosted-two-player'),
+              'data-testid': 'mode-hosted',
+              'aria-pressed': modeDraft === 'hosted-two-player',
+            },
+            '2 Player Hosted',
+          ),
         ),
       ),
-      React.createElement('p', { className: 'mode-confirm-copy' }, `Selected Mode: ${modeDraft === 'manual-two-player' ? '2 Player Manual' : '1 Player V Bot'}`),
+      React.createElement('p', { className: 'mode-confirm-copy' }, `Selected Mode: ${modeDraft === 'manual-two-player' ? '2 Player Manual' : modeDraft === 'human-y-vs-bot-a' ? '1 Player V Bot' : '2 Player Hosted'}`),
       React.createElement('div', { className: 'start-actions' },
         React.createElement(
           'button',
@@ -676,7 +832,7 @@ export function StartScreen({
             className: 'begin-button',
             onClick: () => {
               onGameModeChange(modeDraft);
-              transitionTo('setup');
+              transitionTo(modeDraft === 'hosted-two-player' ? 'online' : 'setup');
             },
             'data-testid': 'confirm-mode-button',
           },
@@ -701,19 +857,9 @@ export function StartScreen({
           {
             type: 'button',
             className: 'mode-button',
-            onClick: () => transitionTo('landing'),
+            onClick: () => transitionTo('mode'),
           },
           'Back',
-        ),
-        React.createElement(
-          'button',
-          {
-            type: 'button',
-            className: 'begin-button',
-            onClick: () => transitionTo('mode'),
-            'data-testid': 'continue-after-online-button',
-          },
-          'Continue',
         ),
       ),
     );
@@ -728,16 +874,12 @@ export function StartScreen({
         React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
       ),
       hostGameSection,
+      multiplayerLobbyControls,
       React.createElement('div', { className: 'start-actions' },
         React.createElement(
           'button',
           { type: 'button', className: 'mode-button', onClick: () => transitionTo('online') },
           'Back',
-        ),
-        React.createElement(
-          'button',
-          { type: 'button', className: 'begin-button', onClick: () => transitionTo('mode') },
-          'Continue',
         ),
       ),
     );
@@ -752,18 +894,124 @@ export function StartScreen({
         React.createElement('p', { className: 'start-subtitle bangers-subtitle' }, 'A Brendan !! Game'),
       ),
       joinGameSection,
+      multiplayerLobbyControls,
       React.createElement('div', { className: 'start-actions' },
         React.createElement(
           'button',
           { type: 'button', className: 'mode-button', onClick: () => transitionTo('online') },
           'Back',
         ),
+      ),
+    );
+  }
+
+  if (phase === 'online-rps' && multiplayerRoomCode && ownSeat) {
+    const displayedChoice = selectedMultiplayerRpsChoice;
+
+    return React.createElement(
+      'main',
+      { className: screenClassName('start-screen-rps'), 'data-testid': 'start-screen' },
+      React.createElement('div', { className: 'start-hero rps-hero' },
+        React.createElement('h1', { className: 'start-title' }, 'Rock Paper Scissors'),
+        React.createElement('p', { className: 'start-subtitle' }, 'Hosted Match: head-to-head. Winner goes first.'),
+      ),
+      React.createElement('div', { className: 'rps-battle outcome-pending' },
         React.createElement(
-          'button',
-          { type: 'button', className: 'begin-button', onClick: () => transitionTo('mode') },
-          'Continue',
+          'div',
+          { className: 'rps-fighter fighter-human' },
+          React.createElement('span', { className: 'rps-fighter-icon', 'aria-hidden': 'true' }, ownSeat === 'P1' ? 'P1' : 'P2'),
+          React.createElement('p', { className: 'mode-confirm-copy' }, ownSeat === 'P1' ? 'You: Player One' : 'You: Player Two'),
+        ),
+        React.createElement('span', { className: 'rps-versus' }, 'VS'),
+        React.createElement(
+          'div',
+          { className: 'rps-fighter fighter-bot' },
+          React.createElement('span', { className: 'rps-fighter-icon', 'aria-hidden': 'true' }, ownSeat === 'P1' ? 'P2' : 'P1'),
+          React.createElement('p', { className: 'mode-confirm-copy' }, ownSeat === 'P1' ? 'Opponent: Player Two' : 'Opponent: Player One'),
         ),
       ),
+      React.createElement('div', { className: 'rps-grid' },
+        (['rock', 'paper', 'scissors'] as const).map(choice => React.createElement(
+          'button',
+          {
+            key: choice,
+            type: 'button',
+            className: `rps-choice ${selectedMultiplayerRpsChoice === choice ? 'selected' : ''}`,
+            onClick: () => {
+              setSelectedMultiplayerRpsChoice(choice);
+              onMultiplayerRpsChoice?.(choice);
+            },
+            disabled: ownSeatHasSubmittedRpsChoice || selectedMultiplayerRpsChoice !== null,
+            'data-testid': `online-rps-${choice}`,
+          },
+          React.createElement('span', { className: 'rps-choice-art', 'aria-hidden': 'true' }, toRpsIcon(choice)),
+          React.createElement('span', { className: 'sr-only' }, toRpsLabel(choice)),
+        )),
+      ),
+      React.createElement(
+        'p',
+        { className: 'rps-result', 'data-testid': 'online-rps-status' },
+        (displayedChoice || ownSeatHasSubmittedRpsChoice)
+          ? displayedChoice
+            ? `Locked in: ${toRpsLabel(displayedChoice)}. Waiting for opponent...`
+            : 'Locked in. Waiting for opponent...'
+          : 'Pick Rock, Paper, or Scissors.',
+      ),
+      React.createElement('div', { className: 'start-actions' },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'mode-button',
+            onClick: () => {
+              onMultiplayerRpsBack?.();
+              setSelectedMultiplayerRpsChoice(null);
+              setPhase('online');
+            },
+            'data-testid': 'online-rps-back',
+          },
+          'Back',
+        ),
+      ),
+    );
+  }
+
+  const activeMultiplayerRpsResult = multiplayerRpsResult;
+
+  if (phase === 'online-rps-result' && activeMultiplayerRpsResult) {
+    const winnerLabel = activeMultiplayerRpsResult.outcome === 'tie'
+      ? 'Tie'
+      : activeMultiplayerRpsResult.firstPlayer === 'P1'
+        ? 'Player One'
+        : 'Player Two';
+
+    return React.createElement(
+      'main',
+      { className: screenClassName('start-screen-rps'), 'data-testid': 'start-screen' },
+      React.createElement('div', { className: 'start-hero rps-hero' },
+        React.createElement('h1', { className: 'start-title' }, 'RPS Result'),
+        React.createElement('p', { className: 'start-subtitle' }, activeMultiplayerRpsResult.outcome === 'tie'
+          ? 'Tie. Re-running Rock Paper Scissors...'
+          : 'Both selections are in. Match starts in a moment...'),
+      ),
+      React.createElement('div', { className: 'rps-battle outcome-pending' },
+        React.createElement(
+          'div',
+          { className: 'rps-fighter fighter-human' },
+          React.createElement('span', { className: 'rps-fighter-icon', 'aria-hidden': 'true' }, toRpsIcon(activeMultiplayerRpsResult.p1Choice)),
+          React.createElement('p', { className: 'mode-confirm-copy' }, `Player One: ${toRpsLabel(activeMultiplayerRpsResult.p1Choice)}`),
+        ),
+        React.createElement('span', { className: 'rps-versus' }, 'VS'),
+        React.createElement(
+          'div',
+          { className: 'rps-fighter fighter-bot' },
+          React.createElement('span', { className: 'rps-fighter-icon', 'aria-hidden': 'true' }, toRpsIcon(activeMultiplayerRpsResult.p2Choice)),
+          React.createElement('p', { className: 'mode-confirm-copy' }, `Player Two: ${toRpsLabel(activeMultiplayerRpsResult.p2Choice)}`),
+        ),
+      ),
+      React.createElement('p', { className: 'rps-result', 'data-testid': 'multiplayer-rps-result' }, activeMultiplayerRpsResult.outcome === 'tie'
+        ? `Tie: ${toRpsLabel(activeMultiplayerRpsResult.p1Choice)} vs ${toRpsLabel(activeMultiplayerRpsResult.p2Choice)}. Restarting in 3...`
+        : `${winnerLabel} wins RPS and goes first.`),
     );
   }
 
@@ -794,7 +1042,7 @@ export function StartScreen({
           {
             key: choice,
             type: 'button',
-            className: 'rps-choice',
+            className: `rps-choice ${rpsBattle?.humanChoice === choice ? 'selected' : ''}`,
             onClick: () => runRpsRound(choice),
             disabled: rpsLocked,
             'data-testid': `rps-${choice}`,

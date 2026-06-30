@@ -10,7 +10,7 @@ import {
   getPrivatePowerCardHand,
   type SessionDeckPools,
 } from './setup';
-import { getPowerCardDefinition } from './powerCards';
+import { getPowerCardDefinition, getPowerCardAiMetadata } from './powerCards';
 import { Board } from './ui/Board';
 import { CharacterCardFrame, PowerCardFrame } from './ui/CardFrames';
 import { StartScreen, type GameMode, type PlayerColor, type SessionMode } from './ui/StartScreen';
@@ -38,6 +38,7 @@ import {
 import { getCharacter } from './gameState';
 import {
   acknowledgeBattleHandoff,
+  beginBattleResolution,
   getBattlePrivateHandView,
   getBattlePublicView,
   getLegalBattleCardPlayOptions,
@@ -56,12 +57,28 @@ import { getBotGameView } from './botView';
 import { getBackwardSpace, getForwardSpace } from './board';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from './powerCards';
 import { loadPowerCatalog } from './cardCatalog';
-import { createMultiplayerClient, type MultiplayerClient } from './multiplayer';
+import { createMultiplayerClient, type MultiplayerClient, type MultiplayerRoomSnapshot } from './multiplayer';
 
 function toPublicEventText(events: Array<{ turn: number; activePlayer: Controller; action: string }>): string[] {
   return [...events]
     .reverse()
     .map(event => `T${event.turn} ${event.activePlayer === 'P1' ? 'Player One' : 'Player Two'}: ${event.action}`);
+}
+interface MultiplayerBattlePowerRevealState {
+  actor: Controller;
+  cardInstanceId?: string;
+  displayName: string;
+  rulesText: string;
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
+}
+
+interface MultiplayerRpsResultState {
+  p1Choice: 'rock' | 'paper' | 'scissors';
+  p2Choice: 'rock' | 'paper' | 'scissors';
+  firstPlayer?: Controller;
+  outcome: 'win' | 'tie';
 }
 
 function displayController(controller: Controller): string {
@@ -223,8 +240,27 @@ type PendingBattleSwapPlay = {
 
 type PendingCurtainsPlay = {
   cardInstanceId: string;
+  sourceController: Controller;
   ownSwapCardInstanceId: string | null;
   opponentSwapCardInstanceId: string | null;
+  ownHandCards: Array<{
+    instanceId: string;
+    definitionId: string;
+    displayName: string;
+    rulesText: string;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  }>;
+  opponentHandCards: Array<{
+    instanceId: string;
+    definitionId: string;
+    displayName: string;
+    rulesText: string;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  }>;
 };
 
 type PendingCurtainsSwapMotion = {
@@ -261,6 +297,17 @@ type PendingBattlePhoneFriendPlay = {
 type PendingBattleWeaponEquipPlay = {
   cardInstanceId: string;
   selectedCharacterId: string | null;
+};
+
+type ExpandedAttachmentCardView = {
+  sourceCharacterId: string;
+  attachmentInstanceId: string;
+  displayName: string;
+  rulesText: string;
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
+  visualMode?: 'layered-art' | 'full-card-face';
+  definitionId: string;
 };
 
 type PendingBoardCharacterSpecial = {
@@ -346,6 +393,8 @@ interface PendingSwapCharactersMotion {
   second?: PendingSwapCharactersMotionEntry;
   nextState: GameState;
   durationMs?: number;
+  commitNextState?: boolean;
+  returnToBattleAfterSwap?: boolean;
 }
 
 interface PendingMrsPuffPuffUp {
@@ -434,9 +483,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [multiplayerJoinCode, setMultiplayerJoinCode] = useState('');
   const [multiplayerStatus, setMultiplayerStatus] = useState<string | null>(null);
   const [multiplayerPlayer, setMultiplayerPlayer] = useState<'P1' | 'P2' | null>(null);
+  const [multiplayerRoom, setMultiplayerRoom] = useState<MultiplayerRoomSnapshot | null>(null);
+  const [multiplayerRoomVersion, setMultiplayerRoomVersion] = useState(0);
   const [multiplayerMode, setMultiplayerMode] = useState(false);
   const multiplayerClientRef = useRef<MultiplayerClient | null>(null);
+  const multiplayerRoomCodeRef = useRef<string | null>(null);
+  const multiplayerPlayerRef = useRef<'P1' | 'P2' | null>(null);
   const suppressNextMultiplayerSyncRef = useRef(false);
+  const multiplayerRoomVersionRef = useRef(0);
 
   const saveMultiplayerSession = (roomCode: string, player: 'P1' | 'P2'): void => {
     window.localStorage.setItem(multiplayerStorageKey, JSON.stringify({ roomCode, player }));
@@ -457,6 +511,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [battleHandVisibleFor, setBattleHandVisibleFor] = useState<Controller | null>(null);
   const [expandedBoardPowerCardId, setExpandedBoardPowerCardId] = useState<string | null>(null);
   const [expandedBoardCharacterId, setExpandedBoardCharacterId] = useState<string | null>(null);
+  const [expandedAttachmentCardView, setExpandedAttachmentCardView] = useState<ExpandedAttachmentCardView | null>(null);
   const [boardEventLogOpen, setBoardEventLogOpen] = useState(false);
   const [showBattleFullBoard, setShowBattleFullBoard] = useState(false);
   const [pendingBotBoardAction, setPendingBotBoardAction] = useState<PendingBotBoardAction | null>(null);
@@ -487,6 +542,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const kingDrawFxTimerRef = useRef<number | null>(null);
   const antVictoryFxDelayTimerRef = useRef<number | null>(null);
   const processedDrawFxEventIndexRef = useRef<number>(-1);
+  const processedBoardFxEventIndexRef = useRef<number>(-1);
+  const processedBattlePowerRevealEventIndexRef = useRef<number>(-1);
+  const processedBattlePowerRevealUsedPileIndexRef = useRef<number>(-1);
+  const recentLocalBoardAnimationSignatureRef = useRef<string | null>(null);
+  const lastPendingBattleSnapshotRef = useRef<{
+    battleType: 'attack' | 'defend';
+    initiatorId: string;
+    opponentId: string;
+    initiatorStartPosition: RingPosition;
+    opponentStartPosition: RingPosition;
+  } | null>(null);
   const [battleUsedPileStartCount, setBattleUsedPileStartCount] = useState<number | null>(null);
   const [finalKingDuelTransitionPhase, setFinalKingDuelTransitionPhase] = useState<'idle' | 'rumble' | 'implode'>('idle');
   const [finalKingDuelRumbleIds, setFinalKingDuelRumbleIds] = useState<string[]>([]);
@@ -499,6 +565,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBoardPowerPlay, setPendingBoardPowerPlay] = useState<PendingBoardPowerPlay | null>(null);
   const [pendingBoardWeaponEquipPlay, setPendingBoardWeaponEquipPlay] = useState<PendingBoardWeaponEquipPlay | null>(null);
   const [pendingCurtainsPlay, setPendingCurtainsPlay] = useState<PendingCurtainsPlay | null>(null);
+  const attemptedCurtainsHydrationCardRef = useRef<string | null>(null);
   const [showCurtainsSelectionModal, setShowCurtainsSelectionModal] = useState<boolean>(true);
   const [pendingCurtainsSwapMotion, setPendingCurtainsSwapMotion] = useState<PendingCurtainsSwapMotion | null>(null);
   const [pendingBoardCharacterSpecial, setPendingBoardCharacterSpecial] = useState<PendingBoardCharacterSpecial | null>(null);
@@ -506,42 +573,309 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBattleWeaponEquipPlay, setPendingBattleWeaponEquipPlay] = useState<PendingBattleWeaponEquipPlay | null>(null);
   const [pendingBattleSwapPlay, setPendingBattleSwapPlay] = useState<PendingBattleSwapPlay | null>(null);
   const [phoneFriendAnimation, setPhoneFriendAnimation] = useState<PhoneFriendAnimationState | null>(null);
+  const [multiplayerBattlePowerReveal, setMultiplayerBattlePowerReveal] = useState<MultiplayerBattlePowerRevealState | null>(null);
+  const [multiplayerRpsResult, setMultiplayerRpsResult] = useState<MultiplayerRpsResultState | null>(null);
+  const multiplayerRpsResultRef = useRef<MultiplayerRpsResultState | null>(null);
+  const multiplayerRpsStartTimerRef = useRef<number | null>(null);
   const [pendingJeremySpecial, setPendingJeremySpecial] = useState<PendingJeremySpecial | null>(null);
   const [showJeremySelectionModal, setShowJeremySelectionModal] = useState<boolean>(true);
   const [pendingAangEscape, setPendingAangEscape] = useState<PendingAangEscape | null>(null);
   const [pendingSkarReclaim, setPendingSkarReclaim] = useState<PendingSkarReclaim | null>(null);
   const [pendingIrohCounter, setPendingIrohCounter] = useState<PendingIrohCounter | null>(null);
+  const canceledBattleCardPlayIdsRef = useRef<Set<string>>(new Set());
   const [irohTimerNowMs, setIrohTimerNowMs] = useState<number>(Date.now());
   const previousFrozenByIdRef = useRef<Map<string, boolean>>(new Map());
   const scoredSessionGamesRef = useRef<Set<number>>(new Set());
   const rapunzelTimerRefs = useRef<number[]>([]);
+
+  const toCurtainsCardSnapshot = (card: { instanceId: string; definitionId: string }): {
+    instanceId: string;
+    definitionId: string;
+    displayName: string;
+    rulesText: string;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  } => {
+    const definition = getPowerCardDefinition(card.definitionId);
+    const visual = powerCatalogById.get(card.definitionId);
+    return {
+      instanceId: card.instanceId,
+      definitionId: card.definitionId,
+      displayName: definition.displayName,
+      rulesText: definition.rulesText,
+      visualMode: visual?.visualMode,
+      artImageUrl: visual?.artImageUrl,
+      fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+    };
+  };
+
+  const hydrateCurtainsHandsFromServer = (cardInstanceId: string, sourceController: Controller): void => {
+    if (
+      !multiplayerMode
+      || !multiplayerRoomCode
+      || !multiplayerClientRef.current
+      || !multiplayerPlayer
+      || multiplayerPlayer !== sourceController
+    ) {
+      return;
+    }
+
+    void multiplayerClientRef.current.inspectCurtains(multiplayerRoomCode, cardInstanceId).then(result => {
+      setPendingCurtainsPlay(prev => {
+        if (!prev || prev.cardInstanceId !== cardInstanceId) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          ownHandCards: result.ownHand.map(toCurtainsCardSnapshot),
+          opponentHandCards: result.opponentHand.map(toCurtainsCardSnapshot),
+        };
+      });
+    }).catch(() => {
+      setMultiplayerStatus('Could not load opponent BTC hand. Retrying...');
+    });
+  };
+
+  useEffect(() => {
+    multiplayerRoomCodeRef.current = multiplayerRoomCode;
+  }, [multiplayerRoomCode]);
+
+  useEffect(() => {
+    multiplayerPlayerRef.current = multiplayerPlayer;
+  }, [multiplayerPlayer]);
+
+  useEffect(() => {
+    multiplayerRpsResultRef.current = multiplayerRpsResult;
+  }, [multiplayerRpsResult]);
 
   useEffect(() => {
     const client = createMultiplayerClient();
     multiplayerClientRef.current = client;
 
     const handleConnect = (): void => {
-      setMultiplayerStatus(current => current ?? 'Connected to multiplayer server.');
+      const roomCode = multiplayerRoomCodeRef.current;
+      const seat = multiplayerPlayerRef.current;
+
+      if (!roomCode || !seat) {
+        setMultiplayerStatus(current => current ?? 'Connected to multiplayer server.');
+        return;
+      }
+
+      setMultiplayerStatus(`Reconnecting to room ${roomCode}...`);
+      void client.joinRoom(roomCode, seat).then(result => {
+        if (multiplayerRoomCodeRef.current !== roomCode || multiplayerPlayerRef.current !== seat) {
+          return;
+        }
+        setMultiplayerRoom(result.room);
+        setMultiplayerRoomVersion(result.room.version);
+        multiplayerRoomVersionRef.current = result.room.version;
+        setSessionMode(result.room.settings.sessionMode);
+        setMultiplayerStatus(`Rejoined room ${roomCode} as ${seat}.`);
+
+        if (result.room.state && !multiplayerRpsResultRef.current) {
+          suppressNextMultiplayerSyncRef.current = true;
+          setState(result.room.state);
+          setScreen('match');
+        }
+      }).catch(() => {
+        setMultiplayerStatus('Connected, but could not rejoin the previous room.');
+      });
     };
 
     const handleConnectError = (): void => {
       setMultiplayerStatus('Could not connect to multiplayer server. Try again in a few seconds.');
     };
 
-    const handleRoomUpdate = (room: { code: string; state: GameState | null; players: { P1: string | null; P2: string | null } }) => {
-      if (room.code !== multiplayerRoomCode) {
+    const handleRoomUpdate = (room: MultiplayerRoomSnapshot) => {
+      if (room.code !== multiplayerRoomCodeRef.current) {
         return;
       }
 
-      if (room.state) {
+      setMultiplayerRoom(room);
+      setMultiplayerRoomVersion(room.version);
+      multiplayerRoomVersionRef.current = room.version;
+      setSessionMode(room.settings.sessionMode);
+      setPlayerColors({
+        P1: room.colors.P1 as PlayerColor,
+        P2: room.colors.P2 as PlayerColor,
+      });
+
+      if (room.phase === 'match-paused') {
+        setMultiplayerStatus('Match paused because a player disconnected. Waiting for reconnect...');
+      }
+
+      if (
+        room.phase === 'rps'
+        && !room.state
+        && room.rps.lastResult === 'tie'
+      ) {
+        const tieChoices = room.rps.lastTieChoices;
+        if (
+          tieChoices
+          && (tieChoices.P1 === 'rock' || tieChoices.P1 === 'paper' || tieChoices.P1 === 'scissors')
+          && (tieChoices.P2 === 'rock' || tieChoices.P2 === 'paper' || tieChoices.P2 === 'scissors')
+        ) {
+          setMultiplayerRpsResult({
+            p1Choice: tieChoices.P1,
+            p2Choice: tieChoices.P2,
+            outcome: 'tie',
+          });
+          setMultiplayerStatus('RPS tied. Re-doing Rock Paper Scissors.');
+
+          if (multiplayerRpsStartTimerRef.current !== null) {
+            window.clearTimeout(multiplayerRpsStartTimerRef.current);
+            multiplayerRpsStartTimerRef.current = null;
+          }
+
+          multiplayerRpsStartTimerRef.current = window.setTimeout(() => {
+            setMultiplayerRpsResult(null);
+            multiplayerRpsStartTimerRef.current = null;
+          }, 3100);
+        }
+        setScreen('start');
+      }
+
+      if (
+        room.phase === 'match'
+        && !room.state
+        && !multiplayerRpsResultRef.current
+        && room.rps.lastResult
+        && room.rps.firstPlayer
+        && room.rps.lastResult.includes('-')
+      ) {
+        const [p1Choice, p2Choice] = room.rps.lastResult.split('-');
+        if (
+          (p1Choice === 'rock' || p1Choice === 'paper' || p1Choice === 'scissors')
+          && (p2Choice === 'rock' || p2Choice === 'paper' || p2Choice === 'scissors')
+        ) {
+          setMultiplayerRpsResult({
+            p1Choice,
+            p2Choice,
+            firstPlayer: room.rps.firstPlayer,
+            outcome: room.rps.firstPlayer ? 'win' : 'tie',
+          });
+          setScreen('start');
+        }
+      }
+
+      if (room.state && !multiplayerRpsResultRef.current) {
         suppressNextMultiplayerSyncRef.current = true;
         setState(room.state);
+        setScreen('match');
       }
     };
 
+    const handleMatchStart = (payload: { firstPlayer: 'P1' | 'P2'; sessionMode: SessionMode; p1Choice?: 'rock' | 'paper' | 'scissors'; p2Choice?: 'rock' | 'paper' | 'scissors' }): void => {
+      setMultiplayerStatus(`RPS resolved. ${payload.firstPlayer} goes first.`);
+      setSessionMode(payload.sessionMode);
+      setFirstPlayer(payload.firstPlayer);
+
+      if (payload.p1Choice && payload.p2Choice) {
+        setMultiplayerRpsResult({
+          p1Choice: payload.p1Choice,
+          p2Choice: payload.p2Choice,
+          firstPlayer: payload.firstPlayer,
+          outcome: 'win',
+        });
+        setScreen('start');
+      }
+
+      if (multiplayerRpsStartTimerRef.current !== null) {
+        window.clearTimeout(multiplayerRpsStartTimerRef.current);
+        multiplayerRpsStartTimerRef.current = null;
+      }
+
+      multiplayerRpsStartTimerRef.current = window.setTimeout(() => {
+        setMultiplayerRpsResult(null);
+        multiplayerRpsStartTimerRef.current = null;
+      }, 3200);
+
+      if (multiplayerPlayerRef.current === 'P1') {
+        window.setTimeout(() => {
+          startNewGame(payload.firstPlayer, payload.sessionMode);
+        }, 3200);
+      } else {
+        setMultiplayerStatus(`RPS resolved. ${payload.firstPlayer} goes first. Waiting for host to start match...`);
+      }
+    };
+
+    const handleRpsTie = (payload: { p1Choice?: 'rock' | 'paper' | 'scissors' | null; p2Choice?: 'rock' | 'paper' | 'scissors' | null }): void => {
+      const p1Choice = payload.p1Choice;
+      const p2Choice = payload.p2Choice;
+      if (
+        !p1Choice
+        || !p2Choice
+        || (p1Choice !== 'rock' && p1Choice !== 'paper' && p1Choice !== 'scissors')
+        || (p2Choice !== 'rock' && p2Choice !== 'paper' && p2Choice !== 'scissors')
+      ) {
+        return;
+      }
+
+      setMultiplayerRpsResult({
+        p1Choice,
+        p2Choice,
+        outcome: 'tie',
+      });
+      setMultiplayerStatus('RPS tied. Re-doing Rock Paper Scissors.');
+      setScreen('start');
+
+      if (multiplayerRpsStartTimerRef.current !== null) {
+        window.clearTimeout(multiplayerRpsStartTimerRef.current);
+        multiplayerRpsStartTimerRef.current = null;
+      }
+
+      multiplayerRpsStartTimerRef.current = window.setTimeout(() => {
+        setMultiplayerRpsResult(null);
+        multiplayerRpsStartTimerRef.current = null;
+      }, 3100);
+    };
+
+    const handleHostExpiring = (payload: { expiresInMs: number }): void => {
+      const seconds = Math.max(1, Math.ceil(payload.expiresInMs / 1000));
+      setMultiplayerStatus(`Host disconnected. Room closes in ${seconds}s if host does not return.`);
+    };
+
+    const handleRoomClosed = (): void => {
+      setMultiplayerStatus('Room closed because host did not return in time.');
+      setMultiplayerMode(false);
+      setMultiplayerRoomCode(null);
+      setMultiplayerRoom(null);
+      setMultiplayerRoomVersion(0);
+      multiplayerRoomVersionRef.current = 0;
+      setMultiplayerPlayer(null);
+      multiplayerPlayerRef.current = null;
+      multiplayerRoomCodeRef.current = null;
+      setMultiplayerRpsResult(null);
+      clearMultiplayerSession();
+      setScreen('start');
+    };
+
     client.socket.on('room:update', handleRoomUpdate);
+    client.socket.on('match:start', handleMatchStart);
+    client.socket.on('room:host-expiring', handleHostExpiring);
+    client.socket.on('room:closed', handleRoomClosed);
+    client.socket.on('lobby:rps-tie', handleRpsTie);
     client.socket.on('connect', handleConnect);
     client.socket.on('connect_error', handleConnectError);
+
+    const roomPollTimer = window.setInterval(() => {
+      const roomCode = multiplayerRoomCodeRef.current;
+      const seat = multiplayerPlayerRef.current;
+      if (!roomCode || !seat) {
+        return;
+      }
+
+      void client.requestState(roomCode, seat).then(room => {
+        if (!room || room.code !== roomCode) {
+          return;
+        }
+        handleRoomUpdate(room);
+      }).catch(() => {
+        // room:update remains the primary sync path; polling is best-effort recovery
+      });
+    }, 1200);
 
     const storedSessionText = window.localStorage.getItem(multiplayerStorageKey);
     if (storedSessionText) {
@@ -550,14 +884,38 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         if (storedSession.roomCode && storedSession.player) {
           setMultiplayerMode(true);
           setMultiplayerRoomCode(storedSession.roomCode);
+          multiplayerRoomCodeRef.current = storedSession.roomCode;
           setMultiplayerPlayer(storedSession.player);
+          multiplayerPlayerRef.current = storedSession.player;
           setMultiplayerStatus(`Reconnecting to room ${storedSession.roomCode}...`);
-          void client.requestState(storedSession.roomCode).then(room => {
-            if (room?.state) {
-              suppressNextMultiplayerSyncRef.current = true;
-              setState(room.state);
-              setMultiplayerStatus(`Rejoined room ${storedSession.roomCode} as ${storedSession.player}.`);
+          void client.joinRoom(storedSession.roomCode, storedSession.player).then(result => {
+            if (
+              multiplayerRoomCodeRef.current !== storedSession.roomCode
+              || multiplayerPlayerRef.current !== storedSession.player
+            ) {
+              return;
             }
+            setMultiplayerRoom(result.room);
+            setMultiplayerRoomVersion(result.room.version);
+            multiplayerRoomVersionRef.current = result.room.version;
+            setSessionMode(result.room.settings.sessionMode);
+            if (result.room.state && !multiplayerRpsResultRef.current) {
+              suppressNextMultiplayerSyncRef.current = true;
+              setState(result.room.state);
+              setScreen('match');
+            }
+            setMultiplayerStatus(`Rejoined room ${storedSession.roomCode} as ${storedSession.player}.`);
+          }).catch(() => {
+            clearMultiplayerSession();
+            setMultiplayerMode(false);
+            setMultiplayerRoomCode(null);
+            setMultiplayerRoom(null);
+            setMultiplayerRoomVersion(0);
+            multiplayerRoomVersionRef.current = 0;
+            setMultiplayerPlayer(null);
+            multiplayerPlayerRef.current = null;
+            multiplayerRoomCodeRef.current = null;
+            setMultiplayerStatus('Saved multiplayer room no longer exists.');
           });
         }
       } catch {
@@ -567,12 +925,21 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     return () => {
       client.socket.off('room:update', handleRoomUpdate);
+      client.socket.off('match:start', handleMatchStart);
+      client.socket.off('room:host-expiring', handleHostExpiring);
+      client.socket.off('room:closed', handleRoomClosed);
+      client.socket.off('lobby:rps-tie', handleRpsTie);
       client.socket.off('connect', handleConnect);
       client.socket.off('connect_error', handleConnectError);
+      window.clearInterval(roomPollTimer);
+      if (multiplayerRpsStartTimerRef.current !== null) {
+        window.clearTimeout(multiplayerRpsStartTimerRef.current);
+        multiplayerRpsStartTimerRef.current = null;
+      }
       client.disconnect();
       multiplayerClientRef.current = null;
     };
-  }, [multiplayerRoomCode]);
+  }, []);
 
   const clearRapunzelTimers = (): void => {
     for (const timer of rapunzelTimerRefs.current) {
@@ -738,7 +1105,27 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   ]);
 
   const isBotMode = gameMode === 'human-y-vs-bot-a';
-  const isHumanBoardTurn = !isBotMode || state?.activePlayer === 'P1';
+  const localMultiplayerSeat = multiplayerMode ? multiplayerPlayer : null;
+  const isLocalPlayersBoardTurn = !multiplayerMode || (!!state && !!localMultiplayerSeat && state.activePlayer === localMultiplayerSeat);
+  const multiplayerInteractionLocked = multiplayerMode && multiplayerRoom?.phase === 'match-paused';
+  const withMultiplayerPauseOverlay = (content: React.ReactElement): React.ReactElement => {
+    if (!multiplayerInteractionLocked) {
+      return content;
+    }
+
+    return React.createElement(
+      'div',
+      { className: 'multiplayer-paused-shell', 'data-testid': 'multiplayer-paused-shell' },
+      React.createElement('div', { className: 'multiplayer-paused-content' }, content),
+      React.createElement(
+        'section',
+        { className: 'multiplayer-paused-overlay', 'data-testid': 'multiplayer-paused-overlay' },
+        React.createElement('h3', null, 'Match Paused'),
+        React.createElement('p', null, 'A player disconnected. Actions are locked until both players are connected again.'),
+      ),
+    );
+  };
+  const isHumanBoardTurn = (!isBotMode || state?.activePlayer === 'P1') && isLocalPlayersBoardTurn;
   const isBotBoardTurn = !!state
     && isBotMode
     && !state.pendingBattle
@@ -757,6 +1144,44 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const battlePrivateHand = useMemo<PrivateBattleHandView | null>(() => {
     if (!state?.pendingBattle) {
       return null;
+    }
+
+    if (multiplayerMode && multiplayerPlayer) {
+      const canActNow = state.pendingBattle.handoffRequiredFor === null
+        && state.pendingBattle.currentPriorityPlayer === multiplayerPlayer
+        && state.pendingBattle.status === 'WindowOpen';
+      if (canActNow) {
+        return getBattlePrivateHandView(state, multiplayerPlayer);
+      }
+
+      const privateCards = getPrivatePowerCardHand(state, multiplayerPlayer);
+      const disabledReason = state.pendingBattle.handoffRequiredFor !== null
+        ? 'Waiting for handoff acknowledgment'
+        : state.pendingBattle.status === 'ReadyToResolve'
+          ? 'Battle is ready to resolve'
+          : state.pendingBattle.status === 'Resolving'
+            ? 'Battle is resolving'
+            : 'Waiting for opponent action';
+
+      return {
+        player: multiplayerPlayer,
+        cards: privateCards.map(card => {
+          const definition = getPowerCardDefinition(card.definitionId);
+          const visual = powerCatalogById.get(card.definitionId);
+          return {
+            instanceId: card.instanceId,
+            definitionId: card.definitionId,
+            displayName: definition.displayName,
+            rulesText: definition.rulesText,
+            isPlayable: false,
+            disabledReason,
+            allowedChoices: [],
+            visualMode: visual?.visualMode,
+            artImageUrl: visual?.artImageUrl,
+            fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+          };
+        }),
+      };
     }
 
     if (isBotMode) {
@@ -791,10 +1216,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     return getBattlePrivateHandView(state, state.pendingBattle.currentPriorityPlayer);
-  }, [state, isBotMode, powerCatalogById]);
+  }, [state, isBotMode, multiplayerMode, multiplayerPlayer, powerCatalogById]);
 
   const manualBattleHandsByController = useMemo<{ P1: PrivateBattleHandView; P2: PrivateBattleHandView } | null>(() => {
-    if (!state?.pendingBattle || isBotMode) {
+    if (!state?.pendingBattle || isBotMode || multiplayerMode) {
       return null;
     }
 
@@ -832,7 +1257,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       : buildReadOnlyHand('P2');
 
     return { P1: p1, P2: p2 };
-  }, [battlePrivateHand, isBotMode, powerCatalogById, state]);
+  }, [battlePrivateHand, isBotMode, multiplayerMode, powerCatalogById, state]);
 
   useEffect(() => {
     if (!state?.pendingBattle) {
@@ -908,6 +1333,24 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     };
   }, [postBattleBoardAnimation, state]);
 
+  const endgameSequenceSignature = useMemo(() => {
+    if (!state || state.gameStatus === 'active') {
+      return 'active';
+    }
+
+    const hiddenBoardCharacterIds = state.characters
+      .filter(character => character.alive && !character.revealed)
+      .map(character => character.id);
+
+    return [
+      state.gameStatus,
+      state.sessionGameNumber,
+      hiddenBoardCharacterIds.join(','),
+      state.powerCardHands.P1.length,
+      state.powerCardHands.P2.length,
+    ].join('|');
+  }, [state]);
+
   useEffect(() => {
     if (!state || state.gameStatus === 'active') {
       setEndgameRevealCharacterIds([]);
@@ -936,11 +1379,29 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       window.clearTimeout(handRevealTimer);
       window.clearTimeout(messageTimer);
     };
-  }, [state]);
+  }, [endgameSequenceSignature]);
 
   const boardPhasePrivateHand = useMemo(() => {
     if (!state || state.pendingBattle) {
       return null;
+    }
+
+    if (multiplayerMode && multiplayerPlayer) {
+      const privateCards = getPrivatePowerCardHand(state, multiplayerPlayer);
+      return privateCards.map(card => {
+        const definition = getPowerCardDefinition(card.definitionId);
+        const visual = powerCatalogById.get(card.definitionId);
+        return {
+          controller: multiplayerPlayer,
+          instanceId: card.instanceId,
+          definitionId: card.definitionId,
+          displayName: definition.displayName,
+          rulesText: definition.rulesText,
+          visualMode: visual?.visualMode,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        };
+      });
     }
 
     if (isBotMode) {
@@ -979,7 +1440,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
       };
     });
-  }, [state, boardHandVisibleFor, isBotMode, powerCatalogById]);
+  }, [state, boardHandVisibleFor, isBotMode, multiplayerMode, multiplayerPlayer, powerCatalogById]);
 
   const expandedBoardPowerCard = useMemo(() => {
     if (!expandedBoardPowerCardId || !boardPhasePrivateHand) {
@@ -987,6 +1448,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     return boardPhasePrivateHand.find(card => card.instanceId === expandedBoardPowerCardId) ?? null;
   }, [expandedBoardPowerCardId, boardPhasePrivateHand]);
+
+  const expandedBoardPowerCardTiming = useMemo(() => {
+    if (!expandedBoardPowerCard) {
+      return null;
+    }
+    return getPowerCardAiMetadata(expandedBoardPowerCard.definitionId).timing;
+  }, [expandedBoardPowerCard]);
 
   const expandedBoardCharacter = useMemo(() => {
     if (!expandedBoardCharacterId || !safeView) {
@@ -1118,9 +1586,128 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    const definition = getPowerCardDefinition(attachment.definitionId);
+    const visual = powerCatalogById.get(attachment.definitionId);
+    setExpandedAttachmentCardView({
+      sourceCharacterId: characterId,
+      attachmentInstanceId,
+      displayName: attachment.displayName,
+      rulesText: `${definition.rulesText} (+${attachment.ATK} ATK / +${attachment.DEF} DEF)`,
+      artImageUrl: visual?.artImageUrl,
+      fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+      visualMode: visual?.visualMode,
+      definitionId: attachment.definitionId,
+    });
+
     if (attachment.definitionId === 'power-alpha-014' && canUseFreezeGunSpecial(characterId)) {
-      openFreezeSpecialPicker(characterId);
+      return;
     }
+  };
+
+  const renderCharacterAttachmentRail = (
+    character: {
+      instanceId: string;
+      attachments?: Array<{
+        instanceId: string;
+        definitionId: string;
+        displayName: string;
+        ATK: number;
+        DEF: number;
+      }>;
+    },
+    testPrefix: string,
+  ): React.ReactNode => {
+    const attachments = character.attachments ?? [];
+    if (attachments.length === 0) {
+      return null;
+    }
+
+    return React.createElement(
+      'aside',
+      { className: 'character-attachment-rail', 'data-testid': `${testPrefix}-attachment-rail` },
+      React.createElement('h4', null, 'Equipped Weapons'),
+      React.createElement(
+        'div',
+        { className: 'character-attachment-rail-list' },
+        attachments.map((attachment, index) => {
+          const visual = powerCatalogById.get(attachment.definitionId);
+          return React.createElement(
+            'button',
+            {
+              key: `${character.instanceId}-modal-attachment-${attachment.instanceId}`,
+              type: 'button',
+              className: 'character-attachment-rail-button',
+              onClick: () => handleAttachmentCardClick(character.instanceId, attachment.instanceId),
+              'data-testid': `${testPrefix}-attachment-${attachment.instanceId}`,
+            },
+            React.createElement(PowerCardFrame, {
+              size: 'compact',
+              displayName: attachment.displayName,
+              rulesText: `+${attachment.ATK} ATK / +${attachment.DEF} DEF`,
+              artSrc: visual?.artImageUrl ?? null,
+              fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+              visualMode: visual?.visualMode ?? 'layered-art',
+              state: 'attached',
+              testId: `${testPrefix}-attachment-card-${index}`,
+            }),
+          );
+        }),
+      ),
+    );
+  };
+
+  const getCharacterReadModalLayoutClass = (
+    attachments?: Array<{ instanceId: string }>,
+  ): string => {
+    const hasAttachments = (attachments?.length ?? 0) > 0;
+    return hasAttachments
+      ? 'character-read-modal-layout'
+      : 'character-read-modal-layout character-read-modal-layout-solo';
+  };
+
+  const renderExpandedAttachmentCardModal = (): React.ReactNode => {
+    if (!expandedAttachmentCardView) {
+      return null;
+    }
+
+    return React.createElement(
+      'section',
+      { className: 'board-card-modal', 'data-testid': 'attachment-card-read-modal' },
+      React.createElement(
+        'div',
+        { className: 'board-card-modal-panel board-power-card-modal-panel' },
+        React.createElement(PowerCardFrame, {
+          size: 'battle',
+          displayName: expandedAttachmentCardView.displayName,
+          rulesText: expandedAttachmentCardView.rulesText,
+          artSrc: expandedAttachmentCardView.artImageUrl ?? null,
+          fullCardFaceSrc: expandedAttachmentCardView.fullCardFaceImageUrl ?? null,
+          visualMode: expandedAttachmentCardView.visualMode ?? 'layered-art',
+          state: 'attached',
+          testId: 'attachment-card-read-frame',
+        }),
+        expandedAttachmentCardView.definitionId === 'power-alpha-014' && canUseFreezeGunSpecial(expandedAttachmentCardView.sourceCharacterId)
+          ? React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => openFreezeSpecialPicker(expandedAttachmentCardView.sourceCharacterId),
+                'data-testid': 'attachment-freeze-special-button',
+              },
+              'Use Freeze Gun Special',
+            )
+          : null,
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            onClick: () => setExpandedAttachmentCardView(null),
+            'data-testid': 'attachment-card-read-close',
+          },
+          'Close',
+        ),
+      ),
+    );
   };
 
   const closeFreezeSpecialPicker = (): void => {
@@ -1165,17 +1752,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [freezeSpecialSourceId, state]);
 
   const curtainsSourceController = useMemo<Controller | null>(() => {
-    if (!pendingCurtainsPlay || !state) {
-      return null;
-    }
-    if (state.powerCardHands.P1.some(card => card.instanceId === pendingCurtainsPlay.cardInstanceId)) {
-      return 'P1';
-    }
-    if (state.powerCardHands.P2.some(card => card.instanceId === pendingCurtainsPlay.cardInstanceId)) {
-      return 'P2';
-    }
-    return null;
-  }, [pendingCurtainsPlay, state]);
+    return pendingCurtainsPlay?.sourceController ?? null;
+  }, [pendingCurtainsPlay]);
 
   const curtainsOwnCardOptions = useMemo(() => {
     if (!pendingCurtainsPlay || !state) {
@@ -1193,23 +1771,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return [];
     }
 
-    const ownHand = state.powerCardHands[curtainsSourceController]
-      .filter(card => card.instanceId !== pendingCurtainsPlay.cardInstanceId)
-      .map(card => {
-        const definition = getPowerCardDefinition(card.definitionId);
-        const visual = powerCatalogById.get(card.definitionId);
-        return {
-          instanceId: card.instanceId,
-          displayName: definition.displayName,
-          rulesText: definition.rulesText,
-          visualMode: visual?.visualMode,
-          artImageUrl: visual?.artImageUrl,
-          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
-        };
-      });
-
-    return ownHand;
-  }, [curtainsSourceController, pendingCurtainsPlay, powerCatalogById, state]);
+    return pendingCurtainsPlay.ownHandCards;
+  }, [pendingCurtainsPlay, state]);
 
   const curtainsOpponentCardOptions = useMemo(() => {
     if (!pendingCurtainsPlay || !state) {
@@ -1227,20 +1790,41 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return [];
     }
 
-    const opponent: Controller = curtainsSourceController === 'P1' ? 'P2' : 'P1';
-    return state.powerCardHands[opponent].map(card => {
-      const definition = getPowerCardDefinition(card.definitionId);
-      const visual = powerCatalogById.get(card.definitionId);
-      return {
-        instanceId: card.instanceId,
-        displayName: definition.displayName,
-        rulesText: definition.rulesText,
-        visualMode: visual?.visualMode,
-        artImageUrl: visual?.artImageUrl,
-        fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
-      };
-    });
-  }, [curtainsSourceController, pendingCurtainsPlay, powerCatalogById, state]);
+    return pendingCurtainsPlay.opponentHandCards;
+  }, [pendingCurtainsPlay, state]);
+
+  useEffect(() => {
+    if (!pendingCurtainsPlay) {
+      attemptedCurtainsHydrationCardRef.current = null;
+      return;
+    }
+
+    if (
+      !multiplayerMode
+      || !multiplayerRoomCode
+      || !multiplayerPlayer
+      || multiplayerPlayer !== pendingCurtainsPlay.sourceController
+    ) {
+      return;
+    }
+
+    if (pendingCurtainsPlay.opponentHandCards.length > 0) {
+      attemptedCurtainsHydrationCardRef.current = pendingCurtainsPlay.cardInstanceId;
+      return;
+    }
+
+    if (attemptedCurtainsHydrationCardRef.current === pendingCurtainsPlay.cardInstanceId) {
+      return;
+    }
+
+    attemptedCurtainsHydrationCardRef.current = pendingCurtainsPlay.cardInstanceId;
+    hydrateCurtainsHandsFromServer(pendingCurtainsPlay.cardInstanceId, pendingCurtainsPlay.sourceController);
+  }, [
+    multiplayerMode,
+    multiplayerPlayer,
+    multiplayerRoomCode,
+    pendingCurtainsPlay,
+  ]);
 
   const startBoardReactionWindow = (
     currentState: GameState,
@@ -1448,6 +2032,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return playBattlePowerCard(currentState, actor, input);
   };
 
+  const clearPendingBattleCardPlayUi = (): void => {
+    setPendingBattlePhoneFriendPlay(null);
+    setPendingBattleWeaponEquipPlay(null);
+    setPendingBattleSwapPlay(null);
+    setPendingCurtainsPlay(null);
+    setShowBattleFullBoard(false);
+  };
+
   const startBattleReactionWindow = (
     currentState: GameState,
     sourceController: Controller,
@@ -1584,6 +2176,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           },
         };
 
+        canceledBattleCardPlayIdsRef.current.add(reaction.cardInstanceId);
+        clearPendingBattleCardPlayUi();
+
         consumed = logEvent(consumed, 'Battle Card Played', {
           actingPlayer: reaction.sourceController,
           definitionId: noSprayCard.definitionId,
@@ -1629,6 +2224,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           cardInstanceId: reaction.cardInstanceId,
           phase: 'battle-reaction',
         });
+
+        canceledBattleCardPlayIdsRef.current.add(reaction.cardInstanceId);
+        clearPendingBattleCardPlayUi();
 
         next = {
           ...next,
@@ -1876,6 +2474,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     opponentCharacter: GameState['characters'][number],
     ownFrom: RingPosition,
     opponentFrom: RingPosition,
+    options?: { durationMs?: number; commitNextState?: boolean },
   ): void => {
     const swappedOwn = nextState.characters.find(character => character.id === ownCharacter.id);
     const swappedOpponent = nextState.characters.find(character => character.id === opponentCharacter.id);
@@ -1916,6 +2515,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         fullCardFaceImageUrl: opponentCharacter.fullCardFaceImageUrl,
       },
       nextState,
+      durationMs: options?.durationMs,
+      commitNextState: options?.commitNextState,
+      returnToBattleAfterSwap: !!nextState.pendingBattle,
     });
   };
 
@@ -1985,7 +2587,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     let nextState = executeSwapCharactersMove(state, state.activePlayer, ownCharacter.id, opponentCharacter.id);
     nextState = consumeBoardPowerCard(nextState, state.activePlayer, pendingBoardPowerPlay.cardInstanceId, 'SWAP CHARACTERS board swap');
 
-    queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom);
+    if (multiplayerMode) {
+      setState(nextState);
+      queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom, { commitNextState: false });
+    } else {
+      queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom);
+    }
     setPendingBoardPowerPlay(null);
     setExpandedBoardCharacterId(null);
     setSelectedCardId(null);
@@ -2077,7 +2684,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const nextState = playBattlePowerCard(state, pendingBattleSwapPlay.actor, input);
-    queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom);
+    if (multiplayerMode) {
+      setState(nextState);
+      queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom, { commitNextState: false });
+    } else {
+      queueSwapCharactersAnimation(nextState, ownCharacter, opponentCharacter, ownFrom, opponentFrom);
+    }
     setPendingBattleSwapPlay(null);
     setExpandedBoardCharacterId(null);
   };
@@ -2242,10 +2854,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setScreen('match');
   };
 
-  const startNewGame = (firstPlayerOverride?: Controller): void => {
+  const startNewGame = (firstPlayerOverride?: Controller, sessionModeOverride?: SessionMode): void => {
     const effectiveFirstPlayer = firstPlayerOverride ?? firstPlayer;
+    const effectiveSessionMode = sessionModeOverride ?? sessionMode;
 
-    if (sessionMode === 'multi-game') {
+    if (effectiveSessionMode === 'multi-game') {
       const startingPools = createInitialSessionDeckPools(Math.random);
       const next = createMultiGameSessionSetup(effectiveFirstPlayer, Math.random, startingPools);
       const setupRunoutOccurred = startingPools.unusedCharacterDeck.length < 10 || startingPools.unusedPowerDeck.length < 6;
@@ -2292,14 +2905,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }, effectiveFirstPlayer);
 
     if (multiplayerMode && multiplayerRoomCode && multiplayerClientRef.current) {
-      multiplayerClientRef.current.syncState(multiplayerRoomCode, {
+      void multiplayerClientRef.current.syncState(multiplayerRoomCode, {
         ...next,
         sessionMode: 'single-game',
         sessionGameNumber: 1,
         sessionRunoutOccurred: false,
         sessionUsedCharacterPile: [],
         sessionUsedPowerCardPile: [],
-      });
+      }, multiplayerRoomVersionRef.current);
     }
   };
 
@@ -2315,7 +2928,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       const result = await client.createRoom();
       setMultiplayerMode(true);
       setMultiplayerRoomCode(result.roomCode);
+      multiplayerRoomCodeRef.current = result.roomCode;
       setMultiplayerPlayer('P1');
+      multiplayerPlayerRef.current = 'P1';
+      setMultiplayerRoom(null);
+      setMultiplayerRoomVersion(0);
+      multiplayerRoomVersionRef.current = 0;
       saveMultiplayerSession(result.roomCode, 'P1');
       setMultiplayerStatus(`Room created. Give code ${result.roomCode} to your friend.`);
     } catch (error) {
@@ -2340,11 +2958,18 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       const result = await client.joinRoom(multiplayerJoinCode);
       setMultiplayerMode(true);
       setMultiplayerRoomCode(result.code);
+      multiplayerRoomCodeRef.current = result.code;
       setMultiplayerPlayer(result.player);
+      multiplayerPlayerRef.current = result.player;
+      setMultiplayerRoom(result.room);
+      setMultiplayerRoomVersion(result.room.version);
+      multiplayerRoomVersionRef.current = result.room.version;
+      setSessionMode(result.room.settings.sessionMode);
       saveMultiplayerSession(result.code, result.player);
       setMultiplayerStatus(`Joined room ${result.code} as ${result.player}.`);
       if (result.state) {
         setState(result.state);
+        setScreen('match');
       }
     } catch (error) {
       setMultiplayerStatus(error instanceof Error ? error.message : 'Could not join room.');
@@ -2352,7 +2977,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   };
 
   const continueSession = (firstPlayerOverride?: Controller): void => {
+    if (multiplayerMode && multiplayerPlayer !== 'P1') {
+      setMultiplayerStatus('Waiting for host to continue the session...');
+      return;
+    }
+
     if (!state || state.gameStatus === 'active' || !sessionDeckPools) {
+      if (multiplayerMode && multiplayerPlayer === 'P1' && state && state.gameStatus !== 'active' && !sessionDeckPools) {
+        setMultiplayerStatus('Session deck data was lost. Start a new multiplayer match from lobby.');
+      }
       return;
     }
 
@@ -2472,8 +3105,20 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    multiplayerClientRef.current.syncState(multiplayerRoomCode, state);
-  }, [multiplayerMode, multiplayerRoomCode, state]);
+    const baseVersion = multiplayerRoomVersionRef.current;
+    void multiplayerClientRef.current.syncState(multiplayerRoomCode, state, baseVersion).then(result => {
+      if (!result.ok && result.conflict && result.room) {
+        suppressNextMultiplayerSyncRef.current = true;
+        setMultiplayerRoom(result.room);
+        setMultiplayerRoomVersion(result.room.version);
+        multiplayerRoomVersionRef.current = result.room.version;
+        if (result.room.state) {
+          setState(result.room.state);
+          setScreen('match');
+        }
+      }
+    });
+  }, [multiplayerMode, multiplayerRoomCode, multiplayerRoomVersion, state]);
 
   useEffect(() => {
     if (pendingCurtainsPlay) {
@@ -2524,12 +3169,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const displayName = stateCharacter?.displayName ?? boardCharacter?.displayName;
     const abilityUsed = stateCharacter?.abilityUsed ?? false;
     const owner = stateCharacter?.controller ?? boardCharacter?.controller ?? null;
-    const ownerCanActNow = owner !== null && (
-      owner === state.activePlayer
-      || state.pendingBattle?.currentPriorityPlayer === owner
-      || pendingBattleReactionWindow?.responder === owner
-      || pendingBoardReactionWindow?.responder === owner
-    );
+    const ownerMatchesLocalSeat = !multiplayerMode || (owner !== null && multiplayerPlayer === owner);
+    const ownerCanActNow = owner !== null && ownerMatchesLocalSeat;
 
     if (!ownerCanActNow) {
       return null;
@@ -2601,6 +3242,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     const sourceCharacter = state.characters.find(character => character.id === characterId);
     if (!sourceCharacter) {
+      return;
+    }
+
+    if (multiplayerMode && multiplayerPlayer !== sourceCharacter.controller) {
       return;
     }
 
@@ -2699,6 +3344,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
   const executeSelectedCharacterSpecial = (): void => {
     if (!state || !selectedLiveCharacter) {
+      return;
+    }
+
+    if (multiplayerMode && multiplayerPlayer !== selectedLiveCharacter.controller) {
+      return;
+    }
+
+    const anytimeStatus = getAnytimeCharacterSpecialStatus(selectedLiveCharacter.id);
+    if (anytimeStatus && !anytimeStatus.disabledReason) {
+      executeAnytimeCharacterSpecial(selectedLiveCharacter.id);
+      setSelectedCardId(null);
       return;
     }
 
@@ -2862,6 +3518,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           second: motionEntries[1],
           nextState,
           durationMs: 3000,
+          returnToBattleAfterSwap: false,
         });
       } else {
         setState(nextState);
@@ -2883,11 +3540,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const anytimeStatus = getAnytimeCharacterSpecialStatus(selectedLiveCharacter.id);
-    if (anytimeStatus && !anytimeStatus.disabledReason) {
-      executeAnytimeCharacterSpecial(selectedLiveCharacter.id);
-      setSelectedCardId(null);
-    }
   };
 
   const confirmJeremySpecial = (): void => {
@@ -2897,6 +3549,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     const sourceCharacter = state.characters.find(character => character.id === pendingJeremySpecial.characterId);
     if (!sourceCharacter || !sourceCharacter.alive || sourceCharacter.abilityUsed || !isJeremyJahnsName(sourceCharacter.displayName)) {
+      setPendingJeremySpecial(null);
+      return;
+    }
+
+    if (multiplayerMode && multiplayerPlayer !== sourceCharacter.controller) {
       setPendingJeremySpecial(null);
       return;
     }
@@ -3132,6 +3789,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (pendingBoardPowerPlay && state) {
+      if (pendingBoardPowerPlay.step === 'back-pick-character') {
+        const targets: Partial<Record<RingPosition, LegalActionType>> = {};
+        for (const character of state.characters) {
+          if (character.alive && character.boardPosition) {
+            targets[character.boardPosition as RingPosition] = 'move';
+          }
+        }
+        return targets;
+      }
+
       if (pendingBoardPowerPlay.step === 'portal-pick-destination') {
         const targets: Partial<Record<RingPosition, LegalActionType>> = {};
         for (const space of ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'] as RingPosition[]) {
@@ -3247,10 +3914,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setRoombaDrawTravelVectors(null);
 
     if (animateDeckTravel) {
+      const targetHandSelector = multiplayerMode
+        ? controller === 'P1'
+          ? '[data-testid="manual-handoff-row"]'
+          : multiplayerPlayer === 'P2'
+            ? '[data-testid="manual-hand-P2"]'
+            : '[data-testid="opponent-power-cards"]'
+        : controller === 'P1'
+          ? '[data-testid="human-power-cards"]'
+          : '[data-testid="opponent-power-cards"]';
       const sourceDeck = document.querySelector('[data-testid="power-deck-stack"] .deck-stack-cards') as HTMLElement | null;
-      const targetHand = document.querySelector(
-        controller === 'P1' ? '[data-testid="human-power-cards"]' : '[data-testid="opponent-power-cards"]',
-      ) as HTMLElement | null;
+      const targetHand = document.querySelector(targetHandSelector) as HTMLElement | null;
 
       if (sourceDeck && targetHand) {
         const sourceRect = sourceDeck.getBoundingClientRect();
@@ -3296,10 +3970,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setKingDrawBoardPosition(boardPosition);
     setKingDrawTravelVector(null);
 
+    const targetHandSelector = multiplayerMode
+      ? controller === 'P1'
+        ? '[data-testid="manual-handoff-row"]'
+        : multiplayerPlayer === 'P2'
+          ? '[data-testid="manual-hand-P2"]'
+          : '[data-testid="opponent-power-cards"]'
+      : controller === 'P1'
+        ? '[data-testid="human-power-cards"]'
+        : '[data-testid="opponent-power-cards"]';
     const sourceDeck = document.querySelector('[data-testid="power-deck-stack"] .deck-stack-cards') as HTMLElement | null;
-    const targetHand = document.querySelector(
-      controller === 'P1' ? '[data-testid="human-power-cards"]' : '[data-testid="opponent-power-cards"]',
-    ) as HTMLElement | null;
+    const targetHand = document.querySelector(targetHandSelector) as HTMLElement | null;
     const roombaTarget = document.querySelector(`[data-testid="space-${boardPosition}"]`) as HTMLElement | null;
 
     if (sourceDeck && targetHand && roombaTarget) {
@@ -3346,10 +4027,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setKingDrawBoardPosition(null);
     setRoombaDrawTravelVectors(null);
 
+    const targetHandSelector = multiplayerMode
+      ? controller === 'P1'
+        ? '[data-testid="manual-handoff-row"]'
+        : multiplayerPlayer === 'P2'
+          ? '[data-testid="manual-hand-P2"]'
+          : '[data-testid="opponent-power-cards"]'
+      : controller === 'P1'
+        ? '[data-testid="human-power-cards"]'
+        : '[data-testid="opponent-power-cards"]';
     const sourceDeck = document.querySelector('[data-testid="power-deck-stack"] .deck-stack-cards') as HTMLElement | null;
-    const targetHand = document.querySelector(
-      controller === 'P1' ? '[data-testid="human-power-cards"]' : '[data-testid="opponent-power-cards"]',
-    ) as HTMLElement | null;
+    const targetHand = document.querySelector(targetHandSelector) as HTMLElement | null;
 
     if (sourceDeck && targetHand) {
       const sourceRect = sourceDeck.getBoundingClientRect();
@@ -3377,7 +4065,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       setKingDrawTravelVector(null);
       setRoombaDrawTravelVectors(null);
       kingDrawFxTimerRef.current = null;
-    }, 3200);
+    }, 9200);
   };
 
   useEffect(() => {
@@ -3430,7 +4118,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         antVictoryFxDelayTimerRef.current = window.setTimeout(() => {
           triggerAntVictoryFx(controller);
           antVictoryFxDelayTimerRef.current = null;
-        }, 1250);
+        }, 900);
         continue;
       }
 
@@ -3447,6 +4135,353 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     processedDrawFxEventIndexRef.current = state.eventLog.length - 1;
   }, [state]);
+
+  useEffect(() => {
+    if (state?.pendingBattle) {
+      lastPendingBattleSnapshotRef.current = {
+        battleType: state.pendingBattle.battleType,
+        initiatorId: state.pendingBattle.initiatorId,
+        opponentId: state.pendingBattle.opponentId,
+        initiatorStartPosition: state.pendingBattle.initiatorStartPosition as RingPosition,
+        opponentStartPosition: state.pendingBattle.opponentStartPosition as RingPosition,
+      };
+    }
+  }, [
+    state?.pendingBattle?.battleType,
+    state?.pendingBattle?.initiatorId,
+    state?.pendingBattle?.initiatorStartPosition,
+    state?.pendingBattle?.opponentId,
+    state?.pendingBattle?.opponentStartPosition,
+  ]);
+
+  useEffect(() => {
+    if (!state) {
+      processedBoardFxEventIndexRef.current = -1;
+      return;
+    }
+
+    if (!multiplayerMode || state.eventLog.length === 0) {
+      return;
+    }
+
+    const startIndex = Math.max(processedBoardFxEventIndexRef.current + 1, 0);
+    if (startIndex >= state.eventLog.length) {
+      return;
+    }
+
+    for (let index = startIndex; index < state.eventLog.length; index += 1) {
+      const event = state.eventLog[index];
+
+      if (
+        event.action === 'Move Forward'
+        && !pendingBoardCardMotion
+        && !pendingBoardSpecialMotion
+        && !pendingSwapCharactersMotion
+      ) {
+        const characterId = typeof event.details.characterId === 'string'
+          ? event.details.characterId
+          : null;
+        const fromPosition = typeof event.details.fromSpace === 'string'
+          ? event.details.fromSpace as RingPosition
+          : null;
+        const toPosition = typeof event.details.toSpace === 'string'
+          ? event.details.toSpace as RingPosition
+          : null;
+
+        if (characterId && fromPosition && toPosition) {
+          const signature = `move:${characterId}:${fromPosition}:${toPosition}`;
+          if (recentLocalBoardAnimationSignatureRef.current === signature) {
+            recentLocalBoardAnimationSignatureRef.current = null;
+            continue;
+          }
+          setPendingBoardCardMotion({
+            characterId,
+            type: 'move',
+            fromPosition,
+            toPosition,
+          });
+        }
+      }
+
+      if (
+        event.action === 'Battle Window Open'
+        && event.details.battleType === 'attack'
+        && state.pendingBattle
+        && !pendingBoardCardMotion
+        && !pendingBoardSpecialMotion
+        && !pendingSwapCharactersMotion
+      ) {
+        const signature = `attack:${state.pendingBattle.initiatorId}:${state.pendingBattle.initiatorStartPosition}:${state.pendingBattle.opponentStartPosition}`;
+        if (recentLocalBoardAnimationSignatureRef.current === signature) {
+          recentLocalBoardAnimationSignatureRef.current = null;
+          continue;
+        }
+        setPendingBoardCardMotion({
+          characterId: state.pendingBattle.initiatorId,
+          type: 'attack',
+          fromPosition: state.pendingBattle.initiatorStartPosition as RingPosition,
+          toPosition: state.pendingBattle.opponentStartPosition as RingPosition,
+        });
+      }
+
+      if (
+        (event.action === 'Attack Forward Outcome' || event.action === 'Self-Defend Outcome')
+        && !postBattleBoardAnimation
+      ) {
+        const snapshot = lastPendingBattleSnapshotRef.current;
+        const loserId = typeof event.details.loserId === 'string'
+          ? event.details.loserId
+          : null;
+        const winnerId = typeof event.details.winnerId === 'string'
+          ? event.details.winnerId
+          : null;
+        const bothDied = event.details.bothDied === true;
+
+        if (snapshot && loserId) {
+          const loserCharacter = state.characters.find(character => character.id === loserId) ?? null;
+          const winnerCharacter = winnerId ? (state.characters.find(character => character.id === winnerId) ?? null) : null;
+          const loserFrom = loserId === snapshot.initiatorId
+            ? snapshot.initiatorStartPosition
+            : loserId === snapshot.opponentId
+              ? snapshot.opponentStartPosition
+              : null;
+
+          const winnerAdvance = (
+            snapshot.battleType === 'attack'
+            && !bothDied
+            && winnerId === snapshot.initiatorId
+            && winnerCharacter
+          )
+            ? {
+                id: winnerCharacter.id,
+                displayName: winnerCharacter.displayName ?? 'Unknown',
+                ATK: winnerCharacter.ATK,
+                DEF: winnerCharacter.DEF,
+                isKing: winnerCharacter.isKing,
+                controller: winnerCharacter.controller,
+                fromPosition: snapshot.initiatorStartPosition,
+                toPosition: snapshot.opponentStartPosition,
+                visualMode: winnerCharacter.visualMode,
+                artImageUrl: winnerCharacter.artImageUrl,
+                fullCardFaceImageUrl: winnerCharacter.fullCardFaceImageUrl,
+              }
+            : null;
+
+          if (loserCharacter && loserFrom) {
+            setPostBattleBoardAnimation({
+              loser: {
+                id: loserCharacter.id,
+                displayName: loserCharacter.displayName ?? 'Unknown',
+                ATK: loserCharacter.ATK,
+                DEF: loserCharacter.DEF,
+                isKing: loserCharacter.isKing,
+                controller: loserCharacter.controller,
+                fromPosition: loserFrom,
+                visualMode: loserCharacter.visualMode,
+                artImageUrl: loserCharacter.artImageUrl,
+                fullCardFaceImageUrl: loserCharacter.fullCardFaceImageUrl,
+              },
+              winnerAdvance,
+            });
+          }
+
+          lastPendingBattleSnapshotRef.current = null;
+        }
+      }
+    }
+
+    processedBoardFxEventIndexRef.current = state.eventLog.length - 1;
+  }, [
+    multiplayerMode,
+    pendingBoardCardMotion,
+    pendingBoardSpecialMotion,
+    postBattleBoardAnimation,
+    pendingSwapCharactersMotion,
+    state,
+  ]);
+
+  useEffect(() => {
+    if (!state) {
+      processedBattlePowerRevealEventIndexRef.current = -1;
+      return;
+    }
+
+    if (!multiplayerMode || state.eventLog.length === 0) {
+      return;
+    }
+
+    const startIndex = Math.max(processedBattlePowerRevealEventIndexRef.current + 1, 0);
+    if (startIndex >= state.eventLog.length) {
+      return;
+    }
+
+    for (let index = startIndex; index < state.eventLog.length; index += 1) {
+      const event = state.eventLog[index];
+      if (event.action !== 'Battle Card Play Began' && event.action !== 'Battle Card Played') {
+        continue;
+      }
+
+      const definitionId = typeof event.details.cardDefinitionId === 'string'
+        ? event.details.cardDefinitionId
+        : typeof event.details.definitionId === 'string'
+          ? event.details.definitionId
+        : null;
+      const actor = event.details.actingPlayer === 'P2' ? 'P2' : 'P1';
+      if (!definitionId || actor === multiplayerPlayer) {
+        continue;
+      }
+
+      const cardInstanceId = typeof event.details.cardInstanceId === 'string' ? event.details.cardInstanceId : null;
+      const shouldShowReveal = event.action === 'Battle Card Play Began'
+        || !multiplayerBattlePowerReveal?.cardInstanceId
+        || multiplayerBattlePowerReveal.cardInstanceId !== cardInstanceId;
+
+      if (shouldShowReveal) {
+        const definition = getPowerCardDefinition(definitionId);
+        const visual = powerCatalogById.get(definitionId);
+        setMultiplayerBattlePowerReveal({
+          actor,
+          cardInstanceId: cardInstanceId ?? undefined,
+          displayName: definition.displayName,
+          rulesText: definition.rulesText,
+          visualMode: visual?.visualMode,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        });
+      }
+
+      if (event.action === 'Battle Card Played') {
+        const phoneFriend = event.details.phoneFriend as Record<string, unknown> | undefined;
+        if (phoneFriend) {
+          setPhoneFriendAnimation({
+            oldCharacterId: typeof phoneFriend.targetCharacterId === 'string' ? phoneFriend.targetCharacterId : 'unknown',
+            oldController: phoneFriend.oldController === 'P2' ? 'P2' : 'P1',
+            oldDisplayName: typeof phoneFriend.oldDisplayName === 'string' ? phoneFriend.oldDisplayName : 'Unknown',
+            oldATK: typeof phoneFriend.oldATK === 'number' ? phoneFriend.oldATK : 0,
+            oldDEF: typeof phoneFriend.oldDEF === 'number' ? phoneFriend.oldDEF : 0,
+            oldVisualMode: phoneFriend.oldVisualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+            oldArtImageUrl: typeof phoneFriend.oldArtImageUrl === 'string' ? phoneFriend.oldArtImageUrl : undefined,
+            oldFullCardFaceImageUrl: typeof phoneFriend.oldFullCardFaceImageUrl === 'string' ? phoneFriend.oldFullCardFaceImageUrl : undefined,
+            newDisplayName: typeof phoneFriend.newDisplayName === 'string' ? phoneFriend.newDisplayName : 'Unknown',
+            newATK: typeof phoneFriend.newATK === 'number' ? phoneFriend.newATK : 0,
+            newDEF: typeof phoneFriend.newDEF === 'number' ? phoneFriend.newDEF : 0,
+            newVisualMode: phoneFriend.newVisualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+            newArtImageUrl: typeof phoneFriend.newArtImageUrl === 'string' ? phoneFriend.newArtImageUrl : undefined,
+            newFullCardFaceImageUrl: typeof phoneFriend.newFullCardFaceImageUrl === 'string' ? phoneFriend.newFullCardFaceImageUrl : undefined,
+          });
+        }
+
+        const swapCharacters = event.details.swapCharacters as Record<string, unknown> | undefined;
+        const first = swapCharacters?.first as Record<string, unknown> | undefined;
+        const second = swapCharacters?.second as Record<string, unknown> | undefined;
+        if (first && second) {
+          setPendingSwapCharactersMotion({
+            first: {
+              characterId: typeof first.characterId === 'string' ? first.characterId : 'unknown',
+              revealed: first.revealed !== false,
+              displayName: typeof first.displayName === 'string' ? first.displayName : 'Unknown',
+              ATK: typeof first.ATK === 'number' ? first.ATK : 0,
+              DEF: typeof first.DEF === 'number' ? first.DEF : 0,
+              isKing: first.isKing === true,
+              toIsKing: first.toIsKing === true,
+              isFrozen: first.isFrozen === true,
+              fromController: first.fromController === 'P2' ? 'P2' : 'P1',
+              toController: first.toController === 'P2' ? 'P2' : 'P1',
+              fromPosition: first.fromPosition as RingPosition,
+              toPosition: first.toPosition as RingPosition,
+              visualMode: first.visualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+              artImageUrl: typeof first.artImageUrl === 'string' ? first.artImageUrl : undefined,
+              fullCardFaceImageUrl: typeof first.fullCardFaceImageUrl === 'string' ? first.fullCardFaceImageUrl : undefined,
+            },
+            second: {
+              characterId: typeof second.characterId === 'string' ? second.characterId : 'unknown',
+              revealed: second.revealed !== false,
+              displayName: typeof second.displayName === 'string' ? second.displayName : 'Unknown',
+              ATK: typeof second.ATK === 'number' ? second.ATK : 0,
+              DEF: typeof second.DEF === 'number' ? second.DEF : 0,
+              isKing: second.isKing === true,
+              toIsKing: second.toIsKing === true,
+              isFrozen: second.isFrozen === true,
+              fromController: second.fromController === 'P2' ? 'P2' : 'P1',
+              toController: second.toController === 'P2' ? 'P2' : 'P1',
+              fromPosition: second.fromPosition as RingPosition,
+              toPosition: second.toPosition as RingPosition,
+              visualMode: second.visualMode === 'full-card-face' ? 'full-card-face' : 'layered-art',
+              artImageUrl: typeof second.artImageUrl === 'string' ? second.artImageUrl : undefined,
+              fullCardFaceImageUrl: typeof second.fullCardFaceImageUrl === 'string' ? second.fullCardFaceImageUrl : undefined,
+            },
+            nextState: state,
+            durationMs: 1650,
+            commitNextState: false,
+            returnToBattleAfterSwap: true,
+          });
+        }
+      }
+    }
+
+    processedBattlePowerRevealEventIndexRef.current = state.eventLog.length - 1;
+  }, [multiplayerMode, multiplayerPlayer, powerCatalogById, state]);
+
+  useEffect(() => {
+    if (!state) {
+      processedBattlePowerRevealUsedPileIndexRef.current = -1;
+      return;
+    }
+
+    if (!multiplayerMode || !state.pendingBattle) {
+      processedBattlePowerRevealUsedPileIndexRef.current = state.usedPowerCardPile.length - 1;
+      return;
+    }
+
+    const startIndex = Math.max(processedBattlePowerRevealUsedPileIndexRef.current + 1, battleUsedPileStartCount ?? 0);
+    if (startIndex >= state.usedPowerCardPile.length) {
+      return;
+    }
+
+    for (let index = startIndex; index < state.usedPowerCardPile.length; index += 1) {
+      const card = state.usedPowerCardPile[index];
+      if (card.controller === multiplayerPlayer) {
+        continue;
+      }
+
+      const definition = getPowerCardDefinition(card.definitionId);
+      const visual = powerCatalogById.get(card.definitionId);
+      setMultiplayerBattlePowerReveal({
+        actor: card.controller,
+        displayName: definition.displayName,
+        rulesText: definition.rulesText,
+        visualMode: visual?.visualMode,
+        artImageUrl: visual?.artImageUrl,
+        fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+      });
+    }
+
+    processedBattlePowerRevealUsedPileIndexRef.current = state.usedPowerCardPile.length - 1;
+  }, [battleUsedPileStartCount, multiplayerMode, multiplayerPlayer, powerCatalogById, state]);
+
+  useEffect(() => {
+    if (!multiplayerBattlePowerReveal) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setMultiplayerBattlePowerReveal(null);
+    }, 2400);
+
+    return () => window.clearTimeout(timer);
+  }, [multiplayerBattlePowerReveal]);
+
+  useEffect(() => {
+    if (!phoneFriendAnimation || pendingBattlePhoneFriendPlay) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPhoneFriendAnimation(null);
+    }, 2450);
+
+    return () => window.clearTimeout(timer);
+  }, [pendingBattlePhoneFriendPlay, phoneFriendAnimation]);
 
   useEffect(() => {
     if (!pendingMrsPuffPuffUp) {
@@ -3702,6 +4737,28 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (pendingBoardPowerPlay && state) {
+      if (pendingBoardPowerPlay.step === 'back-pick-character' && targetPosition) {
+        const sourceCharacter = state.characters.find(character => (
+          character.alive
+          && character.boardPosition === targetPosition
+        ));
+        if (!sourceCharacter) {
+          return;
+        }
+
+        const legal = getBackItUpDestinations(state, sourceCharacter.id);
+        if (legal.length === 0) {
+          return;
+        }
+
+        setPendingBoardPowerPlay({
+          ...pendingBoardPowerPlay,
+          sourceCharacterId: sourceCharacter.id,
+          step: 'back-pick-destination',
+        });
+        return;
+      }
+
       if ((pendingBoardPowerPlay.step === 'portal-pick-destination' || pendingBoardPowerPlay.step === 'back-pick-destination') && targetPosition && pendingBoardPowerPlay.sourceCharacterId) {
         const actingPlayer = state.activePlayer;
         if (
@@ -3845,6 +4902,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       if (crossedTerritory) {
         triggerKingTerritoryFx(selected.controller, toPosition, canDrawFromDeck);
       }
+      recentLocalBoardAnimationSignatureRef.current = `move:${selectedCardId}:${selected.boardPosition}:${toPosition}`;
       setPendingHumanBoardAction({ action: 'move', characterId: selectedCardId });
       if (isNightcrawlerName(selected.displayName) && selected.revealed) {
         setPendingBoardSpecialMotion({
@@ -3890,6 +4948,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         return;
       }
       const toPosition = getForwardSpace(selected.boardPosition) as RingPosition;
+      recentLocalBoardAnimationSignatureRef.current = `attack:${selectedCardId}:${selected.boardPosition}:${toPosition}`;
       setPendingHumanBoardAction({ action: 'attack', characterId: selectedCardId });
       setPendingBoardCardMotion({
         characterId: selectedCardId,
@@ -3965,8 +5024,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           setState(nextState);
           setPendingCurtainsPlay({
             cardInstanceId: curtainsCard.instanceId,
+            sourceController: 'P2',
             ownSwapCardInstanceId: curtainsDecision.ownSwapCardInstanceId,
             opponentSwapCardInstanceId: curtainsDecision.opponentSwapCardInstanceId,
+            ownHandCards: state.powerCardHands.P2.filter(card => card.instanceId !== curtainsCard.instanceId).map(toCurtainsCardSnapshot),
+            opponentHandCards: state.powerCardHands.P1.map(toCurtainsCardSnapshot),
           });
           setShowCurtainsSelectionModal(false);
           setSelectedCardId(null);
@@ -4423,10 +5485,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const shouldReturnToBattleAfterSwap = !!state?.pendingBattle;
+    const shouldReturnToBattleAfterSwap = pendingSwapCharactersMotion.returnToBattleAfterSwap
+      ?? !!pendingSwapCharactersMotion.nextState.pendingBattle;
 
     const timer = window.setTimeout(() => {
-      setState(pendingSwapCharactersMotion.nextState);
+      if (pendingSwapCharactersMotion.commitNextState !== false) {
+        setState(pendingSwapCharactersMotion.nextState);
+      }
       setPendingSwapCharactersMotion(null);
       if (shouldReturnToBattleAfterSwap) {
         setShowBattleFullBoard(false);
@@ -4434,7 +5499,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }, pendingSwapCharactersMotion.durationMs ?? 1650);
 
     return () => window.clearTimeout(timer);
-  }, [pendingSwapCharactersMotion, state?.pendingBattle]);
+  }, [pendingSwapCharactersMotion]);
 
   const handleSetBattleReady = (ready: boolean): void => {
     if (!state?.pendingBattle) {
@@ -4450,6 +5515,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const actor = state.pendingBattle.currentPriorityPlayer;
+    if (multiplayerMode && multiplayerPlayer !== actor) {
+      return;
+    }
     const next = setBattleReady(state, actor, ready);
     setState(next);
   };
@@ -4761,7 +5829,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setState(next);
   };
 
-  const handleResolveBattle = (): void => {
+  const finalizeBattleResolution = (): void => {
     if (!state?.pendingBattle) {
       return;
     }
@@ -4923,6 +5991,37 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
   };
 
+  const handleResolveBattle = (): void => {
+    if (!state?.pendingBattle) {
+      return;
+    }
+
+    if (state.pendingBattle.status === 'ReadyToResolve') {
+      if (multiplayerMode && multiplayerPlayer !== state.pendingBattle.currentPriorityPlayer) {
+        return;
+      }
+
+      const actor = multiplayerMode
+        ? multiplayerPlayer
+        : state.pendingBattle.currentPriorityPlayer;
+      if (!actor) {
+        return;
+      }
+      setState(beginBattleResolution(state, actor));
+      return;
+    }
+
+    if (state.pendingBattle.status !== 'Resolving') {
+      return;
+    }
+
+    if (multiplayerMode && multiplayerPlayer !== 'P1') {
+      return;
+    }
+
+    finalizeBattleResolution();
+  };
+
   const queueBattleCardPlay = (
     currentState: GameState,
     actor: Controller,
@@ -4938,9 +6037,47 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-017') {
+    if (canceledBattleCardPlayIdsRef.current.has(card.instanceId)) {
+      canceledBattleCardPlayIdsRef.current.delete(card.instanceId);
       if (persistCurrentStateOnEarlyExit) {
         setState(currentState);
+      }
+      clearPendingBattleCardPlayUi();
+      return;
+    }
+
+    const revealDefinition = getPowerCardDefinition(card.definitionId);
+    const revealVisual = powerCatalogById.get(card.definitionId);
+    const promptedState = multiplayerMode
+      ? logEvent(currentState, 'Battle Card Play Began', {
+          actingPlayer: actor,
+          cardInstanceId: card.instanceId,
+          cardDefinitionId: card.definitionId,
+          selectedChoice: input.selectedChoice ?? null,
+          targetCharacterId: input.targetCharacterId ?? null,
+        })
+      : currentState;
+
+    if (multiplayerMode) {
+      setMultiplayerBattlePowerReveal({
+        actor,
+        cardInstanceId: card.instanceId,
+        displayName: revealDefinition.displayName,
+        rulesText: revealDefinition.rulesText,
+        visualMode: revealVisual?.visualMode,
+        artImageUrl: revealVisual?.artImageUrl,
+        fullCardFaceImageUrl: revealVisual?.fullCardFaceImageUrl,
+      });
+      setState(promptedState);
+    }
+
+    const reactionPrimed = multiplayerMode
+      ? startBattleReactionWindow(promptedState, actor, input, card.definitionId)
+      : false;
+
+    if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-017') {
+      if (persistCurrentStateOnEarlyExit) {
+        setState(promptedState);
       }
       setPendingBattlePhoneFriendPlay({
         actor,
@@ -4953,7 +6090,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     if ((actor === 'P1' || !isBotMode) && isWeaponDefinitionId(card.definitionId)) {
       if (persistCurrentStateOnEarlyExit) {
-        setState(currentState);
+        setState(promptedState);
       }
       setPendingBattleWeaponEquipPlay({
         cardInstanceId: input.instanceId,
@@ -4965,7 +6102,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-018') {
       if (persistCurrentStateOnEarlyExit) {
-        setState(currentState);
+        setState(promptedState);
       }
       setPendingBattleSwapPlay({
         cardInstanceId: input.instanceId,
@@ -4980,13 +6117,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-019') {
       if (persistCurrentStateOnEarlyExit) {
-        setState(currentState);
+        setState(promptedState);
       }
       setPendingCurtainsPlay({
         cardInstanceId: input.instanceId,
+        sourceController: actor,
         ownSwapCardInstanceId: null,
         opponentSwapCardInstanceId: null,
+        ownHandCards: currentState.powerCardHands[actor]
+          .filter(card => card.instanceId !== input.instanceId)
+          .map(toCurtainsCardSnapshot),
+        opponentHandCards: currentState.powerCardHands[actor === 'P1' ? 'P2' : 'P1'].map(toCurtainsCardSnapshot),
       });
+      hydrateCurtainsHandsFromServer(input.instanceId, actor);
       setShowBattleFullBoard(true);
       return;
     }
@@ -5003,6 +6146,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         cardInstanceId: card.instanceId,
         phase: 'battle',
       });
+      canceledBattleCardPlayIdsRef.current.add(card.instanceId);
+      clearPendingBattleCardPlayUi();
       canceled = {
         ...canceled,
         characters: canceled.characters.map(character => (
@@ -5016,20 +6161,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const startedReaction = startBattleReactionWindow(currentState, actor, input, card.definitionId);
-    if (startedReaction) {
+    if (reactionPrimed) {
       if (persistCurrentStateOnEarlyExit) {
-        setState(currentState);
+        setState(promptedState);
       }
       return;
     }
 
     try {
-      const next = playBattlePowerCard(currentState, actor, input);
+      const next = playBattlePowerCard(promptedState, actor, input);
       setState(next);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown battle card play error';
-      const rejected = logEvent(currentState, 'Battle Card Play Rejected', {
+      const rejected = logEvent(promptedState, 'Battle Card Play Rejected', {
         controller: actor,
         definitionId: card.definitionId,
         instanceId: card.instanceId,
@@ -5048,8 +6192,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const actor = state.pendingBattle.currentPriorityPlayer;
-    if (isBotMode && actor === 'P2') {
+    const priorityPlayer = state.pendingBattle.currentPriorityPlayer;
+    const actor = multiplayerMode ? multiplayerPlayer : priorityPlayer;
+    if (!actor) {
+      return;
+    }
+
+    const actorCard = state.powerCardHands[actor].find(card => card.instanceId === input.instanceId);
+    const actorTiming = actorCard ? getPowerCardAiMetadata(actorCard.definitionId).timing : 'battle';
+
+    if (multiplayerMode && actor !== priorityPlayer && actorTiming !== 'anytime') {
+      return;
+    }
+    if (isBotMode && priorityPlayer === 'P2') {
       return;
     }
 
@@ -5494,6 +6649,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       multiplayerRoomCode,
       multiplayerStatus,
       multiplayerJoinCode,
+      multiplayerPlayer,
+      multiplayerRoomPhase: multiplayerRoom?.phase ?? null,
+      multiplayerReady: multiplayerRoom?.ready ?? null,
+      multiplayerRpsChoiceState: multiplayerRoom
+        ? { hasP1Choice: multiplayerRoom.rps.hasP1Choice, hasP2Choice: multiplayerRoom.rps.hasP2Choice }
+        : null,
+      multiplayerSessionMode: multiplayerRoom?.settings.sessionMode ?? null,
+      multiplayerRpsResult,
       playerColors,
       onFirstPlayerChange: setFirstPlayer,
       onGameModeChange: setGameMode,
@@ -5502,13 +6665,109 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       onMultiplayerJoinCodeChange: setMultiplayerJoinCode,
       onCreateMultiplayerRoom: () => { void createMultiplayerRoom(); },
       onJoinMultiplayerRoom: () => { void joinMultiplayerRoom(); },
+      onMultiplayerSessionModeChange: next => {
+        if (!multiplayerRoomCode || !multiplayerClientRef.current) {
+          return;
+        }
+        setSessionMode(next);
+        void multiplayerClientRef.current.updateSessionMode(multiplayerRoomCode, next).catch(error => {
+          setMultiplayerStatus(error instanceof Error ? error.message : 'Could not update session mode.');
+        });
+      },
+      onMultiplayerReadyToggle: ready => {
+        if (!multiplayerRoomCode || !multiplayerClientRef.current) {
+          return;
+        }
+        void multiplayerClientRef.current.setReady(multiplayerRoomCode, ready).catch(error => {
+          setMultiplayerStatus(error instanceof Error ? error.message : 'Could not update ready state.');
+        });
+      },
+      onMultiplayerRpsChoice: choice => {
+        if (!multiplayerRoomCode || !multiplayerClientRef.current) {
+          return;
+        }
+        void multiplayerClientRef.current.submitRpsChoice(multiplayerRoomCode, choice).catch(error => {
+          setMultiplayerStatus(error instanceof Error ? error.message : 'Could not submit RPS choice.');
+        });
+      },
+      onMultiplayerRpsRedo: () => {
+        if (!multiplayerRoomCode || !multiplayerClientRef.current) {
+          return;
+        }
+        setMultiplayerRpsResult(null);
+        setMultiplayerStatus('RPS restarted. Pick again.');
+        void multiplayerClientRef.current.redoRps(multiplayerRoomCode).catch(error => {
+          setMultiplayerStatus(error instanceof Error ? error.message : 'Could not restart RPS.');
+        });
+      },
+      onMultiplayerRpsBack: () => {
+        if (!multiplayerRoomCode || !multiplayerClientRef.current) {
+          return;
+        }
+        setMultiplayerRpsResult(null);
+        setMultiplayerStatus('Returning both players to setup...');
+        void multiplayerClientRef.current.backFromRps(multiplayerRoomCode).catch(error => {
+          setMultiplayerStatus(error instanceof Error ? error.message : 'Could not return to setup.');
+        });
+      },
       onPlayerColorChange: (player, color) => {
+        if (multiplayerMode && multiplayerRoomCode && multiplayerClientRef.current && multiplayerPlayer === player) {
+          void multiplayerClientRef.current.updateColor(multiplayerRoomCode, color).catch(error => {
+            setMultiplayerStatus(error instanceof Error ? error.message : 'Could not update color.');
+          });
+        }
         setPlayerColors(prev => ({ ...prev, [player]: color }));
       },
       onNewGame: startNewGame,
       initialPhase: gameCatalogOpen ? 'catalog' : undefined,
       onCatalogBack: gameCatalogOpen ? closeInGameCatalog : undefined,
     });
+  }
+
+  const shouldDelayBattleScreenForAttack = !!state?.pendingBattle
+    && !!battleView
+    && multiplayerMode
+    && state.pendingBattle.battleType === 'attack'
+    && !showBattleFullBoard
+    && !!pendingBoardCardMotion
+    && pendingBoardCardMotion.type === 'attack';
+
+  if (shouldDelayBattleScreenForAttack && battleView) {
+    return withMultiplayerPauseOverlay(React.createElement(
+      'main',
+      { className: 'app-shell', 'data-testid': 'match-screen' },
+      React.createElement('header', { className: 'tabletop-header' },
+        React.createElement('h1', { className: 'tabletop-game-title' }, 'Roundtable Rumble'),
+      ),
+      React.createElement('section', { className: 'tabletop-board-row' },
+        React.createElement('div', { className: 'tabletop-board-shell' },
+          React.createElement(Board, {
+            view: battleView.boardView,
+            selectedCardId: null,
+            onCardClick: () => undefined,
+            readOnly: true,
+            inspectAllCards: true,
+            playerColors,
+            cardMotion: pendingBoardCardMotion,
+            characterStatusById: irohStatusByCharacterId,
+            thawingCharacterIds,
+          }),
+        ),
+        React.createElement('aside', { className: 'tabletop-status-rail', 'data-testid': 'tabletop-status-rail' },
+          React.createElement('div', { className: 'turn-banner', 'data-testid': 'turn-banner' },
+            React.createElement('span', { className: 'turn-banner-label' }, displayTurnLabel(safeView.activePlayer, boardActiveColor)),
+            React.createElement(
+              'span',
+              { className: 'turn-banner-subtitle' },
+              multiplayerMode && multiplayerPlayer
+                ? `You are ${displayPlayerLabel(multiplayerPlayer)}. Opponent is ${displayPlayerLabel(multiplayerPlayer === 'P1' ? 'P2' : 'P1')}.`
+                : `${displayController(safeView.activePlayer)} controls ${displayPlayerLabel(safeView.activePlayer)}`,
+            ),
+          ),
+          React.createElement('div', { className: 'battle-banner', 'data-testid': 'multiplayer-attack-windup' }, 'Attack Forward wind-up in progress...'),
+        ),
+      ),
+    ));
   }
 
   if (state?.pendingBattle && battleView) {
@@ -5590,7 +6849,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         setExpandedBoardCharacterId(selected.id);
       };
 
-      return React.createElement(
+      return withMultiplayerPauseOverlay(React.createElement(
         'main',
         { className: 'app-shell battle-shell battle-fullboard-shell', 'data-testid': 'match-screen' },
         React.createElement('section', { className: 'battle-fullboard-view', 'data-testid': 'battle-full-board-view' },
@@ -5759,23 +7018,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     className: 'board-card-modal-panel board-character-card-modal-panel',
                     onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
                   },
-                  React.createElement(CharacterCardFrame, {
-                    size: 'battle',
-                    revealed: selectedBattleWeaponTarget.revealed,
-                    controllerColorClass: selectedBattleWeaponTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
-                    displayName: selectedBattleWeaponTarget.displayName,
-                    ATK: selectedBattleWeaponTarget.ATK,
-                    DEF: selectedBattleWeaponTarget.DEF,
-                    ability: selectedBattleWeaponTarget.ability ?? null,
-                    statRule: selectedBattleWeaponTarget.statRule ?? null,
-                    artSrc: selectedBattleWeaponTarget.artImageUrl ?? null,
-                    fullCardFaceSrc: selectedBattleWeaponTarget.fullCardFaceImageUrl ?? null,
-                    visualMode: selectedBattleWeaponTarget.visualMode,
-                    isKing: selectedBattleWeaponTarget.isKing,
-                    isFrozen: selectedBattleWeaponTarget.isFrozen,
-                    statusTag: irohStatusByCharacterId[selectedBattleWeaponTarget.id] ?? null,
-                    testId: 'battle-weapon-read-card',
-                  }),
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(selectedBattleWeaponTarget.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: selectedBattleWeaponTarget.revealed,
+                      controllerColorClass: selectedBattleWeaponTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: selectedBattleWeaponTarget.displayName,
+                      ATK: selectedBattleWeaponTarget.ATK,
+                      DEF: selectedBattleWeaponTarget.DEF,
+                      ability: selectedBattleWeaponTarget.ability ?? null,
+                      statRule: selectedBattleWeaponTarget.statRule ?? null,
+                      artSrc: selectedBattleWeaponTarget.artImageUrl ?? null,
+                      fullCardFaceSrc: selectedBattleWeaponTarget.fullCardFaceImageUrl ?? null,
+                      visualMode: selectedBattleWeaponTarget.visualMode,
+                      isKing: selectedBattleWeaponTarget.isKing,
+                      isFrozen: selectedBattleWeaponTarget.isFrozen,
+                      statusTag: irohStatusByCharacterId[selectedBattleWeaponTarget.id] ?? null,
+                      testId: 'battle-weapon-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: selectedBattleWeaponTarget.id,
+                      attachments: selectedBattleWeaponTarget.attachments,
+                    }, 'battle-weapon-read'),
+                  ),
                   renderAnytimeCharacterSpecialControl(selectedBattleWeaponTarget.id, 'battle-weapon'),
                   React.createElement(
                     'div',
@@ -5816,23 +7083,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     className: 'board-card-modal-panel board-character-card-modal-panel',
                     onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
                   },
-                  React.createElement(CharacterCardFrame, {
-                    size: 'battle',
-                    revealed: selectedBattleSwapTarget.revealed,
-                    controllerColorClass: selectedBattleSwapTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
-                    displayName: selectedBattleSwapTarget.displayName,
-                    ATK: selectedBattleSwapTarget.ATK,
-                    DEF: selectedBattleSwapTarget.DEF,
-                    ability: selectedBattleSwapTarget.ability ?? null,
-                    statRule: selectedBattleSwapTarget.statRule ?? null,
-                    artSrc: selectedBattleSwapTarget.artImageUrl ?? null,
-                    fullCardFaceSrc: selectedBattleSwapTarget.fullCardFaceImageUrl ?? null,
-                    visualMode: selectedBattleSwapTarget.visualMode,
-                    isKing: selectedBattleSwapTarget.isKing,
-                    isFrozen: selectedBattleSwapTarget.isFrozen,
-                    statusTag: irohStatusByCharacterId[selectedBattleSwapTarget.id] ?? null,
-                    testId: 'battle-swap-read-card',
-                  }),
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(selectedBattleSwapTarget.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: selectedBattleSwapTarget.revealed,
+                      controllerColorClass: selectedBattleSwapTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: selectedBattleSwapTarget.displayName,
+                      ATK: selectedBattleSwapTarget.ATK,
+                      DEF: selectedBattleSwapTarget.DEF,
+                      ability: selectedBattleSwapTarget.ability ?? null,
+                      statRule: selectedBattleSwapTarget.statRule ?? null,
+                      artSrc: selectedBattleSwapTarget.artImageUrl ?? null,
+                      fullCardFaceSrc: selectedBattleSwapTarget.fullCardFaceImageUrl ?? null,
+                      visualMode: selectedBattleSwapTarget.visualMode,
+                      isKing: selectedBattleSwapTarget.isKing,
+                      isFrozen: selectedBattleSwapTarget.isFrozen,
+                      statusTag: irohStatusByCharacterId[selectedBattleSwapTarget.id] ?? null,
+                      testId: 'battle-swap-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: selectedBattleSwapTarget.id,
+                      attachments: selectedBattleSwapTarget.attachments,
+                    }, 'battle-swap-read'),
+                  ),
                   renderAnytimeCharacterSpecialControl(selectedBattleSwapTarget.id, 'battle-swap'),
                   React.createElement(
                     'div',
@@ -6097,23 +7372,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     className: 'board-card-modal-panel board-character-card-modal-panel',
                     onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
                   },
-                  React.createElement(CharacterCardFrame, {
-                    size: 'battle',
-                    revealed: true,
-                    controllerColorClass: selectedPhoneFriendCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
-                    displayName: selectedPhoneFriendCharacter.displayName,
-                    ATK: selectedPhoneFriendCharacter.ATK,
-                    DEF: selectedPhoneFriendCharacter.DEF,
-                    ability: selectedPhoneFriendCharacter.ability ?? null,
-                    statRule: selectedPhoneFriendCharacter.statRule ?? null,
-                    artSrc: selectedPhoneFriendCharacter.artImageUrl ?? null,
-                    fullCardFaceSrc: selectedPhoneFriendCharacter.fullCardFaceImageUrl ?? null,
-                    visualMode: selectedPhoneFriendCharacter.visualMode,
-                    isKing: selectedPhoneFriendCharacter.isKing,
-                    isFrozen: selectedPhoneFriendCharacter.isFrozen,
-                    statusTag: irohStatusByCharacterId[selectedPhoneFriendCharacter.id] ?? null,
-                    testId: 'battle-phone-friend-read-card',
-                  }),
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(selectedPhoneFriendCharacter.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: true,
+                      controllerColorClass: selectedPhoneFriendCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: selectedPhoneFriendCharacter.displayName,
+                      ATK: selectedPhoneFriendCharacter.ATK,
+                      DEF: selectedPhoneFriendCharacter.DEF,
+                      ability: selectedPhoneFriendCharacter.ability ?? null,
+                      statRule: selectedPhoneFriendCharacter.statRule ?? null,
+                      artSrc: selectedPhoneFriendCharacter.artImageUrl ?? null,
+                      fullCardFaceSrc: selectedPhoneFriendCharacter.fullCardFaceImageUrl ?? null,
+                      visualMode: selectedPhoneFriendCharacter.visualMode,
+                      isKing: selectedPhoneFriendCharacter.isKing,
+                      isFrozen: selectedPhoneFriendCharacter.isFrozen,
+                      statusTag: irohStatusByCharacterId[selectedPhoneFriendCharacter.id] ?? null,
+                      testId: 'battle-phone-friend-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: selectedPhoneFriendCharacter.id,
+                      attachments: selectedPhoneFriendCharacter.attachments,
+                    }, 'battle-phone-friend-read'),
+                  ),
                   renderAnytimeCharacterSpecialControl(selectedPhoneFriendCharacter.id, 'battle-phone-friend'),
                   React.createElement(
                     'button',
@@ -6141,23 +7424,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     className: 'board-card-modal-panel board-character-card-modal-panel',
                     onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
                   },
-                  React.createElement(CharacterCardFrame, {
-                    size: 'battle',
-                    revealed: expandedBattleReadCharacter.revealed,
-                    controllerColorClass: expandedBattleReadCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
-                    displayName: expandedBattleReadCharacter.displayName,
-                    ATK: expandedBattleReadCharacter.ATK,
-                    DEF: expandedBattleReadCharacter.DEF,
-                    ability: expandedBattleReadCharacter.ability,
-                    statRule: expandedBattleReadCharacter.statRule ?? null,
-                    artSrc: expandedBattleReadCharacter.artImageUrl ?? null,
-                    fullCardFaceSrc: expandedBattleReadCharacter.fullCardFaceImageUrl ?? null,
-                    visualMode: expandedBattleReadCharacter.visualMode,
-                    isKing: expandedBattleReadCharacter.isKing,
-                    isFrozen: expandedBattleReadCharacter.isFrozen,
-                    statusTag: irohStatusByCharacterId[expandedBattleReadCharacter.id] ?? null,
-                    testId: 'battle-fullboard-read-card',
-                  }),
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(expandedBattleReadCharacter.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: expandedBattleReadCharacter.revealed,
+                      controllerColorClass: expandedBattleReadCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: expandedBattleReadCharacter.displayName,
+                      ATK: expandedBattleReadCharacter.ATK,
+                      DEF: expandedBattleReadCharacter.DEF,
+                      ability: expandedBattleReadCharacter.ability,
+                      statRule: expandedBattleReadCharacter.statRule ?? null,
+                      artSrc: expandedBattleReadCharacter.artImageUrl ?? null,
+                      fullCardFaceSrc: expandedBattleReadCharacter.fullCardFaceImageUrl ?? null,
+                      visualMode: expandedBattleReadCharacter.visualMode,
+                      isKing: expandedBattleReadCharacter.isKing,
+                      isFrozen: expandedBattleReadCharacter.isFrozen,
+                      statusTag: irohStatusByCharacterId[expandedBattleReadCharacter.id] ?? null,
+                      testId: 'battle-fullboard-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: expandedBattleReadCharacter.id,
+                      attachments: expandedBattleReadCharacter.attachments,
+                    }, 'battle-fullboard-read'),
+                  ),
                   canUseFreezeGunSpecial(expandedBattleReadCharacter.id)
                     ? React.createElement(
                         'button',
@@ -6184,10 +7475,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             : null,
           jeremySpecialModal,
         ),
-      );
+      ));
     }
 
-    return React.createElement(
+    return withMultiplayerPauseOverlay(React.createElement(
       'main',
       { className: 'app-shell battle-shell', 'data-testid': 'match-screen' },
       React.createElement(BattleScreen, {
@@ -6209,7 +7500,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 message: 'Bot is weighing a power card...',
                 handCount: battleView.powerCardHandCount.P2,
               }
-          : null,
+            : null,
         botPowerReveal: pendingBotBattleReveal
           ? {
               displayName: pendingBotBattleReveal.displayName,
@@ -6219,11 +7510,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               fullCardFaceImageUrl: pendingBotBattleReveal.fullCardFaceImageUrl,
             }
           : null,
+        multiplayerPowerReveal: multiplayerBattlePowerReveal,
         hasUsedPowerThisBattle: battleUsedPileStartCount !== null
           ? state.usedPowerCardPile.length > battleUsedPileStartCount
           : false,
         usedPowerCardsThisBattle,
         isBotMode,
+        multiplayerSeat: multiplayerMode ? multiplayerPlayer : null,
+        cardMotion: pendingBoardCardMotion,
+        swapCharacterMotion: pendingSwapCharactersMotion,
+        postBattleMotion: postBattleBoardAnimation,
         onOpenFullBoard: () => setShowBattleFullBoard(true),
         characterStatusById: irohStatusByCharacterId,
         playerColors,
@@ -6238,6 +7534,72 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         onPlayCard: handlePlayBattleCard,
         onResolveBattle: handleResolveBattle,
       }),
+      phoneFriendAnimation
+        ? React.createElement(
+            'section',
+            { className: 'board-card-modal', 'data-testid': 'battle-phone-friend-animation' },
+            React.createElement(
+              'div',
+              { className: 'board-card-modal-panel board-power-card-modal-panel battle-phone-friend-cinematic-panel' },
+              React.createElement('h3', null, 'PHONE A FRIEND'),
+              React.createElement('p', { className: 'status-label battle-phone-friend-ring' }, 'Riiing... Riiing...'),
+              React.createElement(
+                'div',
+                { className: 'battle-phone-friend-cinematic-stage' },
+                React.createElement(
+                  'div',
+                  { className: 'battle-phone-friend-card-column' },
+                  React.createElement('p', { className: 'battle-phone-friend-caption' }, 'Selected Character'),
+                  React.createElement(CharacterCardFrame, {
+                    size: 'compact',
+                    revealed: true,
+                    controllerColorClass: phoneFriendAnimation.oldController === 'P2' ? 'player-color-red' : 'player-color-blue',
+                    displayName: phoneFriendAnimation.oldDisplayName,
+                    ATK: phoneFriendAnimation.oldATK,
+                    DEF: phoneFriendAnimation.oldDEF,
+                    ability: null,
+                    artSrc: phoneFriendAnimation.oldArtImageUrl ?? null,
+                    fullCardFaceSrc: phoneFriendAnimation.oldFullCardFaceImageUrl ?? null,
+                    visualMode: phoneFriendAnimation.oldVisualMode,
+                    isKing: false,
+                    isFrozen: false,
+                    testId: 'battle-phone-friend-old-card',
+                  }),
+                ),
+                React.createElement(
+                  'div',
+                  { className: 'battle-phone-friend-call-column', 'aria-hidden': 'true' },
+                  React.createElement('span', { className: 'battle-phone-friend-call-icon' }, '☎'),
+                  React.createElement('span', { className: 'battle-phone-friend-wave battle-phone-friend-wave-a' }),
+                  React.createElement('span', { className: 'battle-phone-friend-wave battle-phone-friend-wave-b' }),
+                ),
+                React.createElement(
+                  'div',
+                  { className: 'battle-phone-friend-card-column' },
+                  React.createElement('p', { className: 'battle-phone-friend-caption' }, 'Backup Arrives'),
+                  React.createElement(CharacterCardFrame, {
+                    size: 'compact',
+                    revealed: true,
+                    controllerColorClass: phoneFriendAnimation.oldController === 'P2' ? 'player-color-red' : 'player-color-blue',
+                    displayName: phoneFriendAnimation.newDisplayName,
+                    ATK: phoneFriendAnimation.newATK,
+                    DEF: phoneFriendAnimation.newDEF,
+                    ability: null,
+                    artSrc: phoneFriendAnimation.newArtImageUrl ?? null,
+                    fullCardFaceSrc: phoneFriendAnimation.newFullCardFaceImageUrl ?? null,
+                    visualMode: phoneFriendAnimation.newVisualMode,
+                    isKing: false,
+                    isFrozen: false,
+                    testId: 'battle-phone-friend-new-card',
+                  }),
+                ),
+              ),
+              React.createElement('p', { className: 'status-label' }, `${phoneFriendAnimation.oldDisplayName} called in ${phoneFriendAnimation.newDisplayName}.`),
+              React.createElement('p', { className: 'status-label' }, `Incoming Stats: ATK ${phoneFriendAnimation.newATK} / DEF ${phoneFriendAnimation.newDEF}`),
+            ),
+          )
+        : null,
+      renderExpandedAttachmentCardModal(),
       freezeBattleSources.length > 0
         ? React.createElement(
             'section',
@@ -6491,7 +7853,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       pendingBattleReactionWindow
       && (
         (isBotMode && pendingBattleReactionWindow.responder === 'P1')
-        || (!isBotMode && state.pendingBattle?.handoffRequiredFor === null)
+        || (
+          !isBotMode
+          && (multiplayerMode || state.pendingBattle?.handoffRequiredFor === null)
+        )
       )
         ? React.createElement(
             'section',
@@ -6560,7 +7925,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               React.createElement(
                 'div',
                 { className: 'power-popover-controls' },
-                !isBotMode || pendingBattleReactionWindow.responder === 'P1'
+                (!isBotMode && (!multiplayerMode || multiplayerPlayer === pendingBattleReactionWindow.responder))
+                || (isBotMode && pendingBattleReactionWindow.responder === 'P1')
                   ? React.createElement(
                       'button',
                       {
@@ -6587,10 +7953,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           )
         : null,
       jeremySpecialModal,
-    );
+    ));
   }
 
-  return React.createElement(
+  return withMultiplayerPauseOverlay(React.createElement(
     'main',
     { className: 'app-shell', 'data-testid': 'match-screen' },
     state.sessionMode === 'multi-game'
@@ -6618,7 +7984,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     React.createElement('section', { className: 'tabletop-top-hand' },
       React.createElement('div', { className: 'opponent-hand-strip', 'data-testid': 'opponent-power-cards' },
         React.createElement('h3', null, isBotMode ? displayPlayerLabel(topHandController) : displayPlayerLabel('P2')),
-        !isBotMode
+        !isBotMode && !multiplayerMode
           ? React.createElement(
               'div',
               { className: 'power-popover-controls' },
@@ -6659,7 +8025,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 );
               }),
             )
-          : !isBotMode && boardHandVisibleFor === 'P2'
+          : !isBotMode && ((multiplayerMode && multiplayerPlayer === 'P2') || (!multiplayerMode && boardHandVisibleFor === 'P2'))
             ? React.createElement('div', { className: 'power-card-row', 'data-testid': 'manual-hand-P2' },
                 (boardPhasePrivateHand ?? [])
                   .filter(card => card.controller === 'P2')
@@ -6706,7 +8072,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           onAttachmentClick: handleAttachmentCardClick,
           actionTargets: boardActionTargets,
           onActionTargetClick: handleExecuteAction,
-          allowCardClickOnActionTargets: pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent',
+          allowCardClickOnActionTargets: pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
           allowWeaponTargetClicks: !!pendingBoardWeaponEquipPlay,
           portalRetargetEnabled: pendingBoardPowerPlay?.step === 'portal-pick-destination',
           portalSourceCharacterId: pendingBoardPowerPlay?.step === 'portal-pick-destination'
@@ -6751,8 +8117,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                                   beginSessionRps();
                                   return;
                                 }
+                                if (multiplayerMode && multiplayerPlayer !== 'P1') {
+                                  setMultiplayerStatus('Waiting for host to continue the session...');
+                                  return;
+                                }
                                 continueSession();
                               },
+                              disabled: multiplayerMode && multiplayerPlayer !== 'P1',
                               'data-testid': 'endgame-continue-session-button',
                             },
                             'Continue Session',
@@ -6772,6 +8143,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                       {
                         type: 'button',
                         onClick: () => {
+                          if (multiplayerMode) {
+                            if (multiplayerPlayer === 'P1') {
+                              startNewGame();
+                            } else {
+                              setMultiplayerStatus('Waiting for host to start a new game...');
+                            }
+                            return;
+                          }
                           setState(null);
                           setScreen('start');
                         },
@@ -6786,7 +8165,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       React.createElement('aside', { className: 'tabletop-status-rail', 'data-testid': 'tabletop-status-rail' },
         React.createElement('div', { className: 'turn-banner', 'data-testid': 'turn-banner' },
           React.createElement('span', { className: 'turn-banner-label' }, displayTurnLabel(safeView.activePlayer, boardActiveColor)),
-          React.createElement('span', { className: 'turn-banner-subtitle' }, `${displayController(safeView.activePlayer)} controls ${displayPlayerLabel(safeView.activePlayer)}`),
+          React.createElement(
+            'span',
+            { className: 'turn-banner-subtitle' },
+            multiplayerMode && multiplayerPlayer
+              ? `You are ${displayPlayerLabel(multiplayerPlayer)}. Opponent is ${displayPlayerLabel(multiplayerPlayer === 'P1' ? 'P2' : 'P1')}.`
+              : `${displayController(safeView.activePlayer)} controls ${displayPlayerLabel(safeView.activePlayer)}`,
+          ),
         ),
         React.createElement('div', { className: 'status-strip' },
           React.createElement('span', { 'data-testid': 'active-player' }, `Turn: ${displayPlayerLabel(safeView.activePlayer)}`),
@@ -6983,7 +8368,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     React.createElement('section', { className: 'tabletop-bottom-row' },
       React.createElement('div', { className: 'human-hand-panel', 'data-testid': 'human-hand-panel' },
         React.createElement('h3', null, isBotMode ? 'Human Power Cards' : displayPlayerLabel('P1')),
-        !isBotMode
+        !isBotMode && !multiplayerMode
           ? React.createElement(
               'div',
               { className: 'power-popover-controls' },
@@ -7028,7 +8413,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           : React.createElement(
               'div',
               { className: 'power-card-row', 'data-testid': 'manual-handoff-row' },
-              boardHandVisibleFor === 'P1' && boardPhasePrivateHand
+              isGameOver && multiplayerMode && multiplayerPlayer === 'P2'
+                ? state.powerCardHands.P1.map((card, index) => {
+                    const definition = getPowerCardDefinition(card.definitionId);
+                    const visual = powerCatalogById.get(card.definitionId);
+
+                    return React.createElement(
+                      'div',
+                      {
+                        key: `bottom-power-reveal-${card.instanceId}`,
+                        className: `endgame-hand-card ${endgameRevealOpponentHand ? 'face-up' : 'face-down'}`,
+                        style: { '--flip-delay': `${index * 90}ms` } as React.CSSProperties,
+                      },
+                      React.createElement(PowerCardFrame, {
+                        size: 'compact',
+                        displayName: definition.displayName,
+                        rulesText: definition.rulesText,
+                        artSrc: visual?.artImageUrl ?? null,
+                        fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                        visualMode: visual?.visualMode ?? 'layered-art',
+                        state: endgameRevealOpponentHand ? 'playable' : 'back',
+                        testId: endgameRevealOpponentHand ? `bottom-power-reveal-${card.instanceId}` : `bottom-power-back-${index}`,
+                      }),
+                    );
+                  })
+                : (((multiplayerMode && multiplayerPlayer === 'P1') || (!multiplayerMode && boardHandVisibleFor === 'P1')) && boardPhasePrivateHand)
                 ? boardPhasePrivateHand.map(card => React.createElement(
                     'button',
                     {
@@ -7050,7 +8459,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                       testId: `manual-power-${card.instanceId}`,
                     }),
                   ))
-                : null,
+                : multiplayerMode && multiplayerPlayer === 'P2'
+                  ? Array.from({ length: safeView.powerCardHandCount.P1 }).map((_, index) => React.createElement(PowerCardFrame, {
+                      key: `bottom-power-back-${index}`,
+                      size: 'hand',
+                      state: 'back',
+                      testId: `bottom-power-back-${index}`,
+                    }))
+                  : null,
             ),
       ),
       React.createElement('div', { className: 'action-dock', 'data-testid': 'action-dock' },
@@ -7195,7 +8611,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     ? 'SWAP CHARACTERS: select your living card, then select an opponent living card.'
                     : expandedBoardPowerCard.definitionId === 'power-alpha-019'
                       ? 'BEHIND THE CURTAINS: inspect opponent hand and optionally swap one card each.'
-                  : 'Read-only on board phase. Play availability: battle window only with priority.',
+                      : expandedBoardPowerCardTiming === 'anytime'
+                        ? 'Anytime card: you can play this even when it is not your turn.'
+                        : 'Read-only on board phase. Play availability: battle window only with priority.',
             ),
             React.createElement(
               'div',
@@ -7212,8 +8630,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 && state
                 && state.gameStatus === 'active'
                 && !state.pendingBattle
-                && boardHandVisibleFor === state.activePlayer
-                && isHumanBoardTurn
+                && (
+                  expandedBoardPowerCardTiming === 'anytime'
+                  || (multiplayerMode && multiplayerPlayer === state.activePlayer)
+                  || (!multiplayerMode && boardHandVisibleFor === state.activePlayer)
+                )
+                && (isHumanBoardTurn || expandedBoardPowerCardTiming === 'anytime')
                 && !pendingBoardPowerPlay
                 && !pendingCurtainsPlay
                 ? React.createElement(
@@ -7229,9 +8651,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         } else if (expandedBoardPowerCard.definitionId === 'power-alpha-019') {
                           setPendingCurtainsPlay({
                             cardInstanceId: expandedBoardPowerCard.instanceId,
+                            sourceController: expandedBoardPowerCard.controller ?? state.activePlayer,
                             ownSwapCardInstanceId: null,
                             opponentSwapCardInstanceId: null,
+                            ownHandCards: state.powerCardHands[expandedBoardPowerCard.controller ?? state.activePlayer].filter(card => card.instanceId !== expandedBoardPowerCard.instanceId).map(toCurtainsCardSnapshot),
+                            opponentHandCards: state.powerCardHands[(expandedBoardPowerCard.controller ?? state.activePlayer) === 'P1' ? 'P2' : 'P1'].map(toCurtainsCardSnapshot),
                           });
+                          hydrateCurtainsHandsFromServer(
+                            expandedBoardPowerCard.instanceId,
+                            expandedBoardPowerCard.controller ?? state.activePlayer,
+                          );
                         } else {
                           setPendingBoardPowerPlay({
                             cardInstanceId: expandedBoardPowerCard.instanceId,
@@ -7289,24 +8718,32 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               },
               'Close',
             ),
-            React.createElement(CharacterCardFrame, {
-              size: 'battle',
-              revealed: expandedBoardCharacter.revealed,
-              controllerColorClass: expandedBoardCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
-              displayName: expandedBoardCharacter.displayName,
-              ATK: expandedBoardCharacter.ATK,
-              DEF: expandedBoardCharacter.DEF,
-              ability: expandedBoardCharacter.ability,
-              statRule: expandedBoardCharacter.statRule ?? null,
-              artSrc: expandedBoardCharacter.artImageUrl ?? null,
-              fullCardFaceSrc: expandedBoardCharacter.fullCardFaceImageUrl ?? null,
-              visualMode: expandedBoardCharacter.visualMode,
-              isKing: expandedBoardCharacter.isKing,
-              isFrozen: expandedBoardCharacter.isFrozen,
-              isThawing: thawingCharacterIds.includes(expandedBoardCharacter.instanceId),
-              statusTag: irohStatusByCharacterId[expandedBoardCharacter.instanceId] ?? null,
-              testId: 'board-character-read-card',
-            }),
+            React.createElement(
+              'div',
+              { className: getCharacterReadModalLayoutClass(expandedBoardCharacter.attachments) },
+              React.createElement(CharacterCardFrame, {
+                size: 'battle',
+                revealed: expandedBoardCharacter.revealed,
+                controllerColorClass: expandedBoardCharacter.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                displayName: expandedBoardCharacter.displayName,
+                ATK: expandedBoardCharacter.ATK,
+                DEF: expandedBoardCharacter.DEF,
+                ability: expandedBoardCharacter.ability,
+                statRule: expandedBoardCharacter.statRule ?? null,
+                artSrc: expandedBoardCharacter.artImageUrl ?? null,
+                fullCardFaceSrc: expandedBoardCharacter.fullCardFaceImageUrl ?? null,
+                visualMode: expandedBoardCharacter.visualMode,
+                isKing: expandedBoardCharacter.isKing,
+                isFrozen: expandedBoardCharacter.isFrozen,
+                isThawing: thawingCharacterIds.includes(expandedBoardCharacter.instanceId),
+                statusTag: irohStatusByCharacterId[expandedBoardCharacter.instanceId] ?? null,
+                testId: 'board-character-read-card',
+              }),
+              renderCharacterAttachmentRail({
+                instanceId: expandedBoardCharacter.instanceId,
+                attachments: expandedBoardCharacter.attachments,
+              }, 'board-character-read'),
+            ),
             canUseFreezeGunSpecial(expandedBoardCharacter.instanceId)
               ? React.createElement(
                   'button',
@@ -7361,6 +8798,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           ),
         )
       : null,
+    renderExpandedAttachmentCardModal(),
     freezeSpecialSourceId && freezeSpecialSourceCharacter
       ? React.createElement(
           'section',
@@ -7412,7 +8850,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     pendingBoardReactionWindow
     && (
       (isBotMode && pendingBoardReactionWindow.responder === 'P1')
-      || (!isBotMode && boardHandoffRequiredFor === null && boardHandVisibleFor === pendingBoardReactionWindow.responder)
+      || (
+        !isBotMode
+          && (multiplayerMode || (boardHandoffRequiredFor === null && boardHandVisibleFor === pendingBoardReactionWindow.responder))
+      )
     )
       ? React.createElement(
           'section',
@@ -7462,6 +8903,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 selected: true,
                 testId: 'board-nospray-reaction-card',
               }),
+              React.createElement(
+                'div',
+                { className: 'nospray-cinematic', 'aria-hidden': 'true' },
+                React.createElement('span', { className: 'nospray-hand' }),
+                React.createElement('span', { className: 'nospray-bottle' }),
+                React.createElement('span', { className: 'nospray-mist' }),
+              ),
             ),
             React.createElement(
               'div',
@@ -7928,5 +9376,5 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         )
       : null,
     null,
-  );
+  ));
 }
