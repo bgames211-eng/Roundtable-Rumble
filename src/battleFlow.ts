@@ -1792,7 +1792,17 @@ export function previewBattlePowerCardPlay(
   actingPlayer: Controller,
   input: PlayBattlePowerCardInput,
 ): { projectedResult: ProjectedBattleResult; nextPublicView: BattlePublicView } {
-  const nextState = playBattlePowerCard(state, actingPlayer, input);
+  const previewState = state.pendingBattle
+    ? {
+        ...state,
+        pendingBattle: {
+          ...state.pendingBattle,
+          handoffRequiredFor: null,
+        },
+      }
+    : state;
+
+  const nextState = playBattlePowerCard(previewState, actingPlayer, input);
   return {
     projectedResult: getProjectedBattleResult(nextState),
     nextPublicView: getBattlePublicView(nextState),
