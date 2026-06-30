@@ -429,6 +429,76 @@ describe('Phase 5 Bot', () => {
     }
   });
 
+  it('hard mode prioritizes king draw moves when behind on power cards', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 19,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      recentBotActionType: 'attack',
+      recentBotActionStreak: 1,
+      ownPowerCardCount: 0,
+      opponentPowerCardCount: 4,
+      legalActions: [
+        action('move', 'king-draw', null, {
+          actorIsKing: true,
+          mayGainPowerCardDraw: true,
+          crossesIntoEnemyTerritory: true,
+        }),
+        action('attack', 'ordinary-attack', 'draw', {
+          actorIsKing: false,
+          targetCharacterId: 'p1-front',
+          targetRevealed: true,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('move');
+      expect(decision.action.characterId).toBe('king-draw');
+    }
+  });
+
+  it('hard mode favors frontline defense when opponent has more cards', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 20,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      recentBotActionType: 'move',
+      recentBotActionStreak: 1,
+      ownPowerCardCount: 1,
+      opponentPowerCardCount: 5,
+      legalActions: [
+        action('defend', 'frontline-defense', 'draw', {
+          actorIsKing: false,
+          targetCharacterId: 'p1-front',
+          targetRevealed: true,
+        }),
+        action('attack', 'uncertain-attack', null, {
+          actorIsKing: false,
+          targetCharacterId: 'p1-hidden',
+          targetRevealed: false,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('defend');
+      expect(decision.action.characterId).toBe('frontline-defense');
+    }
+  });
+
   it('bot battle decision chooses pass when already projected to win', () => {
     const decision = chooseBotBattleDecision('P2', {
       winner: 'P2',

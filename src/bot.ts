@@ -412,6 +412,9 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
   const targetKnownDEF = action.targetKnownDEF;
   const actorAbilityValue = action.actorAbilityStrategicScore;
   const targetAbilityValue = action.targetAbilityStrategicScore ?? 0;
+  const ownPowerCardCount = view.ownPowerCardCount ?? 0;
+  const opponentPowerCardCount = view.opponentPowerCardCount ?? 0;
+  const cardPressure = opponentPowerCardCount - ownPowerCardCount;
 
   let score = 0;
   const reasons: string[] = [];
@@ -428,6 +431,16 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
     if (action.mayGainPowerCardDraw) {
       score += difficulty === 'Hard' ? 68 : difficulty === 'Standard' ? 34 : 22;
       reasons.push('safe king crossing can draw a power card');
+
+      if (cardPressure > 0) {
+        score += Math.min(30, cardPressure * (difficulty === 'Hard' ? 8 : difficulty === 'Standard' ? 6 : 4));
+        reasons.push('king draw helps catch up on card pressure');
+      }
+
+      if (ownPowerCardCount === 0) {
+        score += difficulty === 'Hard' ? 22 : difficulty === 'Standard' ? 16 : 10;
+        reasons.push('empty hand makes king draw especially valuable');
+      }
     }
 
     if (action.crossesIntoEnemyTerritory && !action.mayGainPowerCardDraw) {
@@ -479,6 +492,11 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
     if (isTargetKing && action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 260 : difficulty === 'Standard' ? 230 : 170;
       reasons.push('winning line threatens enemy king directly');
+
+      if (cardPressure > 0) {
+        score += Math.min(24, cardPressure * (difficulty === 'Hard' ? 5 : difficulty === 'Standard' ? 4 : 2));
+        reasons.push('king pressure is stronger when opponent has more cards');
+      }
     }
 
     if (isTargetKing && action.knownBattleOutcomeForBot === null) {
@@ -559,6 +577,16 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
     if (isTargetKing && action.knownBattleOutcomeForBot === 'win') {
       score += difficulty === 'Hard' ? 120 : 95;
       reasons.push('defensive line can remove enemy king threat');
+    }
+
+    if (cardPressure > 0 && action.knownBattleOutcomeForBot !== 'loss') {
+      score += Math.min(26, cardPressure * (difficulty === 'Hard' ? 6 : difficulty === 'Standard' ? 5 : 3));
+      reasons.push('frontline defense gains value while trailing on cards');
+    }
+
+    if (ownPowerCardCount === 0 && action.knownBattleOutcomeForBot !== 'loss') {
+      score += difficulty === 'Hard' ? 12 : difficulty === 'Standard' ? 8 : 4;
+      reasons.push('preserve board stability with no cards in hand');
     }
   }
 
