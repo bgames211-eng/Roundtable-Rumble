@@ -205,6 +205,7 @@ function isWeaponDefinition(definitionId: string): boolean {
     || definitionId === 'power-alpha-013'
     || definitionId === 'power-alpha-014'
     || definitionId === 'power-alpha-015'
+    || definitionId === 'power-alpha-023'
   );
 }
 
@@ -279,6 +280,16 @@ function getPersistentStatModifierTotal(
   return state.persistentCharacterModifiers[characterId]?.[stat] ?? 0;
 }
 
+function getAttachmentStatValue(
+  attachment: Character['attachments'][number],
+  stat: StatLabel,
+): number {
+  if (attachment.definitionId === 'power-alpha-027') {
+    return 2;
+  }
+  return attachment[stat] ?? 0;
+}
+
 function getAttachmentStatModifierTotal(
   state: GameState,
   characterId: string,
@@ -289,7 +300,7 @@ function getAttachmentStatModifierTotal(
     return 0;
   }
 
-  return character.attachments.reduce((total, attachment) => total + attachment[stat], 0);
+  return character.attachments.reduce((total, attachment) => total + getAttachmentStatValue(attachment, stat), 0);
 }
 
 function getConditionalBattleStatModifier(
@@ -604,7 +615,7 @@ export function startFinalKingDuel(state: GameState): GameState {
   const initiator = initiatorController === 'P1' ? p1King : p2King;
   const opponent = initiatorController === 'P1' ? p2King : p1King;
 
-  const battle: PendingBattle = {
+  let battle: PendingBattle = {
     isFinalKingDuel: true,
     battleType: 'defend',
     status: 'WindowOpen',
@@ -614,8 +625,8 @@ export function startFinalKingDuel(state: GameState): GameState {
     opponentController: initiatorController === 'P1' ? 'P2' : 'P1',
     initiatorStartPosition: initiator.boardPosition,
     opponentStartPosition: opponent.boardPosition,
-    initiatorBaseComparisonStat: initiator.ATK,
-    opponentBaseComparisonStat: opponent.ATK,
+    initiatorBaseComparisonStat: 0,
+    opponentBaseComparisonStat: 0,
     currentPriorityPlayer: initiatorController,
     consecutivePassCount: 0,
     readyPlayers: { P1: false, P2: false },
@@ -636,10 +647,31 @@ export function startFinalKingDuel(state: GameState): GameState {
     ],
   };
 
+  const ensuredRiddler = ensureActiveBattlerRiddlerSources(state, battle);
+  const stateAfterSetup = ensuredRiddler.state;
+  battle = ensuredRiddler.battle;
+
+  const initiatorRiddlerSource = battle.riddlerStatSourceByCharacterId[initiator.id] ?? null;
+  const opponentRiddlerSource = battle.riddlerStatSourceByCharacterId[opponent.id] ?? null;
+  battle = {
+    ...battle,
+    initiatorBaseComparisonStat: initiatorRiddlerSource?.ATK ?? initiator.ATK,
+    opponentBaseComparisonStat: opponentRiddlerSource?.ATK ?? opponent.ATK,
+    eventHistory: [
+      ...battle.eventHistory,
+      ...(initiatorRiddlerSource
+        ? [`Riddler source revealed for ${initiator.displayName ?? initiator.id}: ${initiatorRiddlerSource.displayName} (${initiatorRiddlerSource.ATK}/${initiatorRiddlerSource.DEF})`]
+        : []),
+      ...(opponentRiddlerSource
+        ? [`Riddler source revealed for ${opponent.displayName ?? opponent.id}: ${opponentRiddlerSource.displayName} (${opponentRiddlerSource.ATK}/${opponentRiddlerSource.DEF})`]
+        : []),
+    ],
+  };
+
   let next: GameState = {
-    ...state,
+    ...stateAfterSetup,
     pendingBattle: battle,
-    characters: state.characters.map(character => {
+    characters: stateAfterSetup.characters.map(character => {
       if (character.id === p1King.id || character.id === p2King.id) {
         return { ...character, revealed: true };
       }
@@ -803,6 +835,40 @@ function getCardPlayability(
     };
   }
 
+  if (definitionId === 'power-alpha-024') {
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: [],
+    };
+  }
+
+  if (definitionId === 'power-alpha-025') {
+    const hasCharacterSupply = state.characterDeck.length > 0 || state.sessionUsedCharacterPile.length > 0;
+    return {
+      isPlayable: hasCharacterSupply,
+      disabledReason: hasCharacterSupply ? null : 'Illegal unless Character Deck or backup character pile has cards',
+      allowedChoices: [],
+    };
+  }
+
+  if (definitionId === 'power-alpha-026') {
+    const ownBattlerId = getBattlingCharacterIdForController(battle, actingPlayer);
+    const opponentBattlerId = getBattlingCharacterIdForController(battle, actingPlayer === 'P1' ? 'P2' : 'P1');
+    const legalSacrifices = state.characters.filter(character => (
+      character.alive
+      && character.controller === actingPlayer
+      && character.id !== ownBattlerId
+      && character.id !== opponentBattlerId
+    ));
+
+    return {
+      isPlayable: legalSacrifices.length > 0,
+      disabledReason: legalSacrifices.length > 0 ? null : 'Illegal unless you can sacrifice one of your other living characters',
+      allowedChoices: ['ATK', 'DEF'],
+    };
+  }
+
   if (definitionId === 'power-alpha-017') {
     const livingOwn = state.characters.filter(character => character.alive && character.controller === actingPlayer);
     if (livingOwn.length === 0) {
@@ -908,7 +974,23 @@ function getCardPlayability(
     };
   }
 
+  if (definitionId === 'power-alpha-023') {
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: [],
+    };
+  }
+
   if (definitionId === 'power-alpha-019') {
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: [],
+    };
+  }
+
+  if (definitionId === 'power-alpha-028') {
     return {
       isPlayable: true,
       disabledReason: null,
@@ -1125,6 +1207,29 @@ export function playBattlePowerCard(
 
     if (isGenghisKhan(ownCharacter.displayName)) {
       effectSummary = '+5 ATK permanent while alive (GENGHIS KHAN)';
+      const currentAttachments = ownCharacter.attachments ?? [];
+      state = {
+        ...state,
+        characters: state.characters.map(character => (
+          character.id === ownCharacterId
+            ? {
+                ...character,
+                attachments: [
+                  ...currentAttachments,
+                  {
+                    instanceId: cardInHand.instanceId,
+                    definitionId: cardInHand.definitionId,
+                    displayName: definition.displayName,
+                    category: 'weapon',
+                    ATK: 5,
+                    DEF: 0,
+                    specialUsed: false,
+                  },
+                ],
+              }
+            : character
+        )),
+      };
     } else {
       effectSummary = '+5 ATK to own battler this battle';
       updatedBattle = applyModifier(
@@ -1215,6 +1320,10 @@ export function playBattlePowerCard(
       'power-alpha-013': { ATK: 3, DEF: 1 },
       'power-alpha-014': { ATK: 4, DEF: 2 },
       'power-alpha-015': { ATK: 2, DEF: 4 },
+      'power-alpha-023': {
+        ATK: (state.infinityGauntletEmpowered ? 7 : 4),
+        DEF: (state.infinityGauntletEmpowered ? 5 : 2),
+      },
     };
 
     const baseBonus = statsByDefinitionId[cardInHand.definitionId];
@@ -1240,6 +1349,7 @@ export function playBattlePowerCard(
         ATK: bonusATK,
         DEF: bonusDEF,
         specialUsed: false,
+        infinityEmpowered: cardInHand.definitionId === 'power-alpha-023' ? !!state.infinityGauntletEmpowered : undefined,
       },
     ];
 
@@ -1260,6 +1370,138 @@ export function playBattlePowerCard(
           'FREEZE GUN equipped. Mr. Freeze special shot is available once via equipped card action.',
         ],
       };
+    }
+  } else if (cardInHand.definitionId === 'power-alpha-024') {
+    effectSummary = 'MIND STONE revealed all current board characters';
+    const currentRevealed = state.revealedPowerCardInstanceIds ?? { P1: [], P2: [] };
+    const p1Current = state.powerCardHands.P1.map(card => card.instanceId);
+    const p2Current = state.powerCardHands.P2.map(card => card.instanceId);
+    state = {
+      ...state,
+      characters: state.characters.map(character => (
+        character.alive && !character.revealed
+          ? { ...character, revealed: true }
+          : character
+      )),
+      revealedPowerCardInstanceIds: {
+        P1: [...new Set([...currentRevealed.P1, ...p1Current])],
+        P2: [...new Set([...currentRevealed.P2, ...p2Current])],
+      },
+    };
+  } else if (cardInHand.definitionId === 'power-alpha-025') {
+    const targetCharacterId = input.targetCharacterId ?? opponentCharacterId;
+    const targetCharacter = getCharacter(state, targetCharacterId);
+    if (!targetCharacter || !targetCharacter.alive) {
+      throw new Error('Cannot play card: REALITY STONE target is invalid');
+    }
+
+    if (state.characterDeck.length === 0 && state.sessionUsedCharacterPile.length > 0) {
+      state = {
+        ...state,
+        characterDeck: shuffleCharacterInstances(state.sessionUsedCharacterPile, Math.random),
+        sessionUsedCharacterPile: [],
+        sessionRunoutOccurred: true,
+      };
+    }
+
+    if (state.characterDeck.length === 0) {
+      throw new Error('Cannot play card: Character Deck is empty');
+    }
+
+    const topDeckCard = state.characterDeck[0];
+    const transformed: Character = {
+      ...targetCharacter,
+      definitionId: topDeckCard.definitionId,
+      displayName: topDeckCard.displayName,
+      ATK: topDeckCard.ATK,
+      DEF: topDeckCard.DEF,
+      ability: topDeckCard.ability,
+      statRule: topDeckCard.statRule,
+      imageKey: topDeckCard.imageKey,
+      visualMode: topDeckCard.visualMode,
+      artImageUrl: topDeckCard.artImageUrl,
+      fullCardFaceImageUrl: topDeckCard.fullCardFaceImageUrl,
+    };
+
+    state = {
+      ...state,
+      characterDeck: state.characterDeck.slice(1),
+      characters: state.characters.map(character => (
+        character.id === targetCharacter.id ? transformed : character
+      )),
+    };
+    effectSummary = `REALITY STONE transformed ${targetCharacter.displayName ?? targetCharacter.id} into ${topDeckCard.displayName}`;
+  } else if (cardInHand.definitionId === 'power-alpha-026') {
+    const ownBattlerId = getBattlingCharacterIdForController(updatedBattle, actingPlayer);
+    const opponentBattlerId = getBattlingCharacterIdForController(updatedBattle, actingPlayer === 'P1' ? 'P2' : 'P1');
+    const legalSacrifices = state.characters.filter(character => (
+      character.alive
+      && character.controller === actingPlayer
+      && character.id !== ownBattlerId
+      && character.id !== opponentBattlerId
+    ));
+
+    const targetId = input.targetCharacterId ?? legalSacrifices[0]?.id;
+    const sacrificeTarget = targetId ? getCharacter(state, targetId) : null;
+    if (!sacrificeTarget || !legalSacrifices.some(character => character.id === sacrificeTarget.id)) {
+      throw new Error('Cannot play card: SOUL STONE sacrifice target is invalid');
+    }
+
+    const selectedStat = input.selectedChoice ?? 'ATK';
+    const sacrificedAttachments = sacrificeTarget.attachments ?? [];
+    extraUsedEntries = [
+      ...extraUsedEntries,
+      ...sacrificedAttachments.map(attachment => ({
+        instanceId: attachment.instanceId,
+        definitionId: attachment.definitionId,
+        controller: sacrificeTarget.controller,
+        displayName: attachment.displayName,
+        selectedChoice: null,
+        effectSummary: `Sent from sacrificed ${sacrificeTarget.displayName ?? sacrificeTarget.id} via SOUL STONE`,
+      })),
+    ];
+
+    const nextPersistent = { ...state.persistentCharacterModifiers };
+    delete nextPersistent[sacrificeTarget.id];
+
+    state = {
+      ...state,
+      characters: state.characters.map(character => (
+        character.id === sacrificeTarget.id
+          ? { ...character, alive: false, boardPosition: null }
+          : character
+      )),
+      graveyard: [
+        ...state.graveyard,
+        {
+          ...sacrificeTarget,
+          alive: false,
+          boardPosition: null,
+        },
+      ],
+      persistentCharacterModifiers: nextPersistent,
+    };
+
+    if (sacrificeTarget.isKing) {
+      state = {
+        ...state,
+        gameStatus: actingPlayer === 'P1' ? 'P2 wins' : 'P1 wins',
+      };
+      effectSummary = `SOUL STONE sacrificed King ${sacrificeTarget.displayName ?? sacrificeTarget.id}; ${actingPlayer === 'P1' ? 'P2' : 'P1'} wins`;
+    } else {
+      effectSummary = `SOUL STONE sacrificed ${sacrificeTarget.displayName ?? sacrificeTarget.id} and granted +5 ${selectedStat}`;
+      updatedBattle = applyModifier(
+        updatedBattle,
+        cardInHand.instanceId,
+        cardInHand.definitionId,
+        definition.displayName,
+        actingPlayer,
+        ownCharacterId,
+        selectedStat,
+        5,
+        effectSummary,
+        selectedStat,
+      );
     }
   } else if (cardInHand.definitionId === 'power-alpha-016') {
     const behind = findTagTeamBehindCharacter(state, updatedBattle, actingPlayer);
@@ -1680,9 +1922,10 @@ export function playBattlePowerCard(
   };
 
   const ownCharacter = getCharacter(state, ownCharacterId);
-  const addPermanent = cardInHand.definitionId === 'power-alpha-010' && isGenghisKhan(ownCharacter?.displayName);
+  const addPermanent = false;
   const existingPersistent = state.persistentCharacterModifiers[ownCharacterId] ?? { ATK: 0, DEF: 0 };
-  const shouldEnterUsedPileImmediately = !isWeaponDefinition(cardInHand.definitionId);
+  const shouldEnterUsedPileImmediately = !isWeaponDefinition(cardInHand.definitionId)
+    && !(cardInHand.definitionId === 'power-alpha-010' && isGenghisKhan(ownCharacter?.displayName));
 
   const ensuredRiddler = ensureActiveBattlerRiddlerSources(state, updatedBattle);
   state = ensuredRiddler.state;
@@ -1789,6 +2032,47 @@ export function getLegalBattleCardPlayOptions(
             definitionId: card.definitionId,
             displayName: `${card.displayName} (replace ${candidate.displayName ?? candidate.id})`,
           });
+        }
+        continue;
+      }
+
+      if (card.definitionId === 'power-alpha-025') {
+        const targetCharacters = state.characters.filter(character => character.alive && !!character.boardPosition);
+        for (const target of targetCharacters) {
+          options.push({
+            input: {
+              instanceId: card.instanceId,
+              targetCharacterId: target.id,
+            },
+            definitionId: card.definitionId,
+            displayName: `${card.displayName} (transform ${target.displayName ?? target.id})`,
+          });
+        }
+        continue;
+      }
+
+      if (card.definitionId === 'power-alpha-026') {
+        const ownBattlerId = getBattlingCharacterIdForController(requirePendingBattle(state), actingPlayer);
+        const opponentBattlerId = getBattlingCharacterIdForController(requirePendingBattle(state), actingPlayer === 'P1' ? 'P2' : 'P1');
+        const legalSacrifices = state.characters.filter(character => (
+          character.alive
+          && character.controller === actingPlayer
+          && character.id !== ownBattlerId
+          && character.id !== opponentBattlerId
+        ));
+
+        for (const target of legalSacrifices) {
+          for (const choice of ['ATK', 'DEF'] as const) {
+            options.push({
+              input: {
+                instanceId: card.instanceId,
+                targetCharacterId: target.id,
+                selectedChoice: choice,
+              },
+              definitionId: card.definitionId,
+              displayName: `${card.displayName} (${target.displayName ?? target.id}, +5 ${choice})`,
+            });
+          }
         }
         continue;
       }

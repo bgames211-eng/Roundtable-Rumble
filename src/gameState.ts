@@ -107,6 +107,7 @@ export interface CharacterAttachment {
   ATK: number;
   DEF: number;
   specialUsed?: boolean;
+  infinityEmpowered?: boolean;
 }
 
 export interface PersistentCharacterModifier {
@@ -134,6 +135,10 @@ export interface GameState {
   gameStatus: GameStatus;
   eventLog: ActionEvent[];
   pendingBattle: PendingBattle | null;
+  revealedPowerCardInstanceIds?: { P1: string[]; P2: string[] };
+  thanosFirstCrossTriggered?: boolean;
+  infinityStoneSeenByController?: { P1: string[]; P2: string[] };
+  infinityGauntletEmpowered?: boolean;
 }
 
 /**
@@ -164,6 +169,10 @@ export function initializeGameState(initialCharacters: Character[]): GameState {
     drawCount: { P1: 0, P2: 0 },
     gameStatus: 'active',
     pendingBattle: null,
+    revealedPowerCardInstanceIds: { P1: [], P2: [] },
+    thanosFirstCrossTriggered: false,
+    infinityStoneSeenByController: { P1: [], P2: [] },
+    infinityGauntletEmpowered: false,
     eventLog: [
       {
         turn: 1,

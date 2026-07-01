@@ -17,7 +17,7 @@ interface BoardProps {
   allowWeaponTargetClicks?: boolean;
   portalRetargetEnabled?: boolean;
   portalSourceCharacterId?: string | null;
-  actionTargetFx?: 'power-portal' | 'back-it-up' | null;
+  actionTargetFx?: 'power-portal' | 'space-stone-portal' | 'back-it-up' | null;
   readOnly?: boolean;
   playerColors?: { P1: PlayerColor; P2: PlayerColor };
   cardMotion?: {
@@ -75,7 +75,7 @@ interface BoardProps {
     visualMode?: 'layered-art' | 'full-card-face';
     artImageUrl?: string;
     fullCardFaceImageUrl?: string;
-    style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'back-it-up';
+    style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up';
   } | null;
   rapunzelHairTrail?: {
     sourceCharacterId: string;
@@ -124,6 +124,7 @@ interface BoardProps {
   boardImploding?: boolean;
   inspectAllCards?: boolean;
   characterStatusById?: Record<string, string>;
+  gauntletEnergizedCharacterIds?: string[];
 }
 
 const ringOrder = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_5', 'P2_4', 'P2_3', 'P2_2', 'P2_1'] as const;
@@ -185,10 +186,12 @@ function renderRingSpace(
   kingDuelRumbleIds: string[] = [],
   thawingCharacterIds: string[] = [],
   freezingCharacterIds: string[] = [],
+  gauntletEnergizedCharacterIds: string[] = [],
 ): React.ReactNode {
   const card = cardAt(view, position);
   const isSelected = card?.instanceId === selectedCardId;
   const controller = card?.controller ?? (position.startsWith('P1_') ? 'P1' : 'P2');
+  const gauntletEnergized = !!card && gauntletEnergizedCharacterIds.includes(card.instanceId);
   const colorClass = colorClassFor(playerColors?.[controller]);
   const layout = RING_LAYOUT[position];
   const actionTarget = actionTargets[position as RingPosition] ?? null;
@@ -265,7 +268,7 @@ function renderRingSpace(
     card
       ? React.createElement(
           'div',
-          { className: `ring-space-card anchor-${layout.cardAnchor} ${(animatedSourceHidden || specialAnimatedSourceHidden || swapAnimatedSourceHidden) ? 'motion-source-hidden' : ''} ${revealAnimated ? 'endgame-reveal-flip' : ''} ${rumbleAnimated ? 'king-duel-rumble-card' : ''}${portalSourceSelected ? ' portal-source-selected' : ''}` },
+          { className: `ring-space-card anchor-${layout.cardAnchor} ${(animatedSourceHidden || specialAnimatedSourceHidden || swapAnimatedSourceHidden) ? 'motion-source-hidden' : ''} ${revealAnimated ? 'endgame-reveal-flip' : ''} ${rumbleAnimated ? 'king-duel-rumble-card' : ''}${portalSourceSelected ? ' portal-source-selected' : ''}${gauntletEnergized ? ' gauntlet-energized-card' : ''}` },
           React.createElement(CharacterCardFrame, {
             size: 'board',
             revealed: card.revealed,
@@ -332,7 +335,7 @@ function renderRingSpace(
   );
 }
 
-export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], freezingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {} }: BoardProps): React.ReactElement {
+export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], freezingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {}, gauntletEnergizedCharacterIds = [] }: BoardProps): React.ReactElement {
   const segments = ringOrder.map((position, index) => [position, ringOrder[(index + 1) % ringOrder.length]] as const);
   const animatedCard = cardMotion ? view.boardCards.find(card => card.instanceId === cardMotion.characterId) : null;
   const animatedControllerClass = animatedCard ? colorClassFor(playerColors?.[animatedCard.controller]) : 'player-color-blue';
@@ -448,7 +451,7 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
         }),
       ),
       React.createElement('div', { className: 'territory-divider', 'data-testid': 'territory-divider' }),
-      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds, freezingCharacterIds)),
+      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds, freezingCharacterIds, gauntletEnergizedCharacterIds)),
       rapunzelHairPoints
         ? React.createElement(
             'svg',

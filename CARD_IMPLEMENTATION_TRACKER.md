@@ -2,6 +2,8 @@
 
 Status legend: `todo` | `in-progress` | `done` | `blocked`
 
+See also: [CARD_TAXONOMY.md](CARD_TAXONOMY.md) and [CARD_IMPLEMENTATION_MATRIX.md](CARD_IMPLEMENTATION_MATRIX.md)
+
 ## Requested Characters
 
 | Character | Status | Notes |

@@ -408,6 +408,101 @@ describe('Board Phase Power Relocation Cards', () => {
   });
 });
 
+describe('Infinity Batch 1: Thanos and Gauntlet core rules', () => {
+  it('first Thanos territory crossing collects Infinity Stones from power deck in single-game mode', () => {
+    const thanos: Character = {
+      ...createChar('thanos-1', 'P1', 10, 10, false, true, 'P1_5'),
+      displayName: 'THANOS',
+      attachments: [],
+    };
+
+    const state = initializeGameState([thanos]);
+    const next = executeMoveForward(state, 'thanos-1');
+
+    expect(next.thanosFirstCrossTriggered).toBe(true);
+    const p1Stones = next.powerCardHands.P1.filter(card => (
+      ['power-alpha-006', 'power-alpha-024', 'power-alpha-025', 'power-alpha-026', 'power-alpha-027', 'power-alpha-028'].includes(card.definitionId)
+    ));
+    expect(p1Stones).toHaveLength(6);
+  });
+
+  it('without gauntlet in multi-game mode, Thanos pulls stones from backup only when active deck has none', () => {
+    const thanos: Character = {
+      ...createChar('thanos-2', 'P1', 10, 10, false, true, 'P1_5'),
+      displayName: 'THANOS',
+      attachments: [],
+    };
+
+    const base = initializeGameState([thanos]);
+    const state: GameState = {
+      ...base,
+      sessionMode: 'multi-game',
+      powerCardDeck: base.powerCardDeck.filter(card => card.definitionId === 'power-alpha-001'),
+      sessionUsedPowerCardPile: [
+        { instanceId: 'backup-space', definitionId: 'power-alpha-027' },
+      ],
+    };
+
+    const next = executeMoveForward(state, 'thanos-2');
+
+    expect(next.powerCardHands.P1.some(card => card.instanceId === 'backup-space')).toBe(true);
+    expect(next.sessionUsedPowerCardPile.some(card => card.instanceId === 'backup-space')).toBe(false);
+  });
+
+  it('gauntlet-equipped Thanos crossing collects stones from anywhere and empowers gauntlet attachment', () => {
+    const thanos: Character = {
+      ...createChar('thanos-3', 'P1', 10, 10, false, true, 'P1_5'),
+      displayName: 'THANOS',
+      attachments: [
+        {
+          instanceId: 'gauntlet-1',
+          definitionId: 'power-alpha-023',
+          displayName: 'INFINITY GAUNTLET',
+          category: 'weapon',
+          ATK: 4,
+          DEF: 2,
+          specialUsed: false,
+        },
+      ],
+    };
+
+    const other: Character = {
+      ...createChar('other-1', 'P2', 6, 6, false, true, 'P2_3'),
+      displayName: 'OTHER',
+      attachments: [],
+    };
+
+    const base = initializeGameState([thanos, other]);
+    const state: GameState = {
+      ...base,
+      powerCardHands: {
+        P1: [],
+        P2: [{ instanceId: 'enemy-stone', definitionId: 'power-alpha-024' }],
+      },
+      usedPowerCardPile: [
+        {
+          instanceId: 'used-stone',
+          definitionId: 'power-alpha-025',
+          controller: 'P2',
+          displayName: 'REALITY STONE',
+          selectedChoice: null,
+          effectSummary: 'used',
+        },
+      ],
+    };
+
+    const next = executeMoveForward(state, 'thanos-3');
+    const updatedThanos = getCharacter(next, 'thanos-3')!;
+    const gauntlet = updatedThanos.attachments?.find(attachment => attachment.instanceId === 'gauntlet-1');
+
+    expect(next.infinityGauntletEmpowered).toBe(true);
+    expect(next.powerCardHands.P1.some(card => card.instanceId === 'enemy-stone')).toBe(true);
+    expect(next.powerCardHands.P1.some(card => card.instanceId === 'used-stone')).toBe(true);
+    expect(gauntlet?.ATK).toBe(7);
+    expect(gauntlet?.DEF).toBe(5);
+  });
+});
+
 describe('Requested Character Mechanics', () => {
   it('revealed Roomba draws a power card when it moves forward', () => {
     const chars: Character[] = [

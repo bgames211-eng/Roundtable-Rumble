@@ -828,6 +828,42 @@ describe('Phase 5 UI', () => {
       expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
       expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
     });
+
+    expect(screen.getByTestId('battle-event-history').textContent ?? '').toContain('NO SPRAY canceled SWAP CHARACTERS');
+  });
+
+  it('bot battle still shows opponent power-card backs when Mind Stone was not played', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 7, 7, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-1', definitionId: 'power-alpha-004' }],
+          P2: [
+            { instanceId: 'power-a-1', definitionId: 'power-alpha-001' },
+            { instanceId: 'power-a-2', definitionId: 'power-alpha-020' },
+          ],
+        },
+      };
+    };
+
+    render(<App initialGameMode="Human vs Bot" createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+
+    expect(screen.getByTestId('battle-hidden-back-P2-0')).toBeInTheDocument();
+    expect(screen.getByTestId('battle-hidden-back-P2-1')).toBeInTheDocument();
   });
 
   it('does not show selected-card special button for an opponent revealed ability card', async () => {

@@ -70,9 +70,10 @@ describe('Phase 3A Card Definitions', () => {
       { definitionId: 'alpha-036', displayName: 'SKAR PRODUCTIONS', printedATK: 7.5, printedDEF: 6 },
       { definitionId: 'alpha-037', displayName: 'BIRD', printedATK: 2, printedDEF: 2 },
       { definitionId: 'alpha-038', displayName: 'AVATAR AANG', printedATK: 8.5, printedDEF: 8.5 },
+      { definitionId: 'alpha-039', displayName: 'THANOS', printedATK: 10, printedDEF: 10 },
     ];
 
-    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(38);
+    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(39);
     expect(
       ALPHA_1_CHARACTER_DEFINITIONS.map(def => ({
         definitionId: def.definitionId,
@@ -198,6 +199,73 @@ describe('Phase 3A Standard Setup', () => {
     expect(target?.ATK).toBeDefined();
     expect(target?.DEF).toBeDefined();
     expect(target?.definitionId).toBeDefined();
+  });
+
+  it('player-safe view applies attachment stat boosts and normalizes legacy Space Stone values', () => {
+    const state = initializeGameState([
+      {
+        id: 'jeremy',
+        controller: 'P1',
+        ATK: 6,
+        DEF: 6.5,
+        isKing: false,
+        boardPosition: 'P1_2',
+        revealed: true,
+        alive: true,
+        displayName: 'JEREMY JAHNS',
+        attachments: [
+          {
+            instanceId: 'space-legacy',
+            definitionId: 'power-alpha-027',
+            displayName: 'SPACE STONE',
+            category: 'weapon',
+            ATK: 2,
+            DEF: 0,
+            specialUsed: false,
+          },
+          {
+            instanceId: 'batarang',
+            definitionId: 'power-alpha-013',
+            displayName: 'BATARANG',
+            category: 'weapon',
+            ATK: 3,
+            DEF: 1,
+            specialUsed: false,
+          },
+        ],
+      } as Character,
+      {
+        id: 'p1-king',
+        controller: 'P1',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P1_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P1 KING',
+      } as Character,
+      {
+        id: 'p2-king',
+        controller: 'P2',
+        ATK: 8,
+        DEF: 8,
+        isKing: true,
+        boardPosition: 'P2_3',
+        revealed: false,
+        alive: true,
+        displayName: 'P2 KING',
+      } as Character,
+    ]);
+
+    const view = getPlayerGameView(state);
+    const jeremy = view.boardCards.find(card => card.instanceId === 'jeremy');
+
+    expect(jeremy?.ATK).toBe(11);
+    expect(jeremy?.DEF).toBe(9.5);
+    const normalizedSpace = jeremy?.attachments?.find(attachment => attachment.definitionId === 'power-alpha-027');
+    expect(normalizedSpace?.ATK).toBe(2);
+    expect(normalizedSpace?.DEF).toBe(2);
   });
 
   it('Rick and Carl gain +2 while Rick is alive/revealed, and Rick keeps +2 after Carl is defeated', () => {

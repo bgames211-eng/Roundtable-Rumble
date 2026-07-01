@@ -27,7 +27,248 @@ import {
   countLivingCharacters,
   getPowerCardHandCounts,
 } from './gameState';
-import { shufflePowerCardInstances } from './powerCards';
+import { shufflePowerCardInstances, type PowerCardInstance } from './powerCards';
+
+const INFINITY_STONE_DEFINITION_IDS = [
+  'power-alpha-006',
+  'power-alpha-024',
+  'power-alpha-025',
+  'power-alpha-026',
+  'power-alpha-027',
+  'power-alpha-028',
+] as const;
+
+function isInfinityStoneDefinitionId(definitionId: string): boolean {
+  return INFINITY_STONE_DEFINITION_IDS.includes(definitionId as (typeof INFINITY_STONE_DEFINITION_IDS)[number]);
+}
+
+function isThanos(name: string | undefined): boolean {
+  return normalizeName(name) === 'THANOS';
+}
+
+function mergeUnique(values: string[], extra: string[]): string[] {
+  const merged = new Set(values);
+  for (const entry of extra) {
+    merged.add(entry);
+  }
+  return [...merged];
+}
+
+function hasAllInfinityStones(values: string[]): boolean {
+  return INFINITY_STONE_DEFINITION_IDS.every(definitionId => values.includes(definitionId));
+}
+
+function applyInfinityGauntletEmpowermentToAttachments(state: GameState): GameState {
+  return {
+    ...state,
+    characters: state.characters.map(character => {
+      const attachments = character.attachments ?? [];
+      let changed = false;
+      const nextAttachments = attachments.map(attachment => {
+        if (attachment.definitionId !== 'power-alpha-023' || attachment.infinityEmpowered) {
+          return attachment;
+        }
+        changed = true;
+        return {
+          ...attachment,
+          ATK: attachment.ATK + 3,
+          DEF: attachment.DEF + 3,
+          infinityEmpowered: true,
+        };
+      });
+
+      if (!changed) {
+        return character;
+      }
+
+      return {
+        ...character,
+        attachments: nextAttachments,
+      };
+    }),
+  };
+}
+
+function collectInfinityStonesForThanosCrossing(
+  state: GameState,
+  collector: Controller,
+  fromAnywhere: boolean,
+): { state: GameState; collected: PowerCardInstance[] } {
+  let next = state;
+  const collected: PowerCardInstance[] = [];
+
+  const collectFromZone = (cards: PowerCardInstance[]): { kept: PowerCardInstance[]; found: PowerCardInstance[] } => {
+    const found: PowerCardInstance[] = [];
+    const kept = cards.filter(card => {
+      if (!isInfinityStoneDefinitionId(card.definitionId)) {
+        return true;
+      }
+      found.push(card);
+      return false;
+    });
+    return { kept, found };
+  };
+
+  if (fromAnywhere) {
+    const fromDeck = collectFromZone(next.powerCardDeck);
+    const fromBackup = collectFromZone(next.sessionUsedPowerCardPile);
+    const fromP1Hand = collectFromZone(next.powerCardHands.P1);
+    const fromP2Hand = collectFromZone(next.powerCardHands.P2);
+
+    const keptUsedPile = next.usedPowerCardPile.filter(entry => {
+      if (!isInfinityStoneDefinitionId(entry.definitionId)) {
+        return true;
+      }
+      collected.push({ instanceId: entry.instanceId, definitionId: entry.definitionId });
+      return false;
+    });
+
+    const nextCharacters = next.characters.map(character => {
+      const attachments = character.attachments ?? [];
+      const keptAttachments = attachments.filter(attachment => {
+        if (!isInfinityStoneDefinitionId(attachment.definitionId)) {
+          return true;
+        }
+        collected.push({ instanceId: attachment.instanceId, definitionId: attachment.definitionId });
+        return false;
+      });
+      return keptAttachments.length === attachments.length
+        ? character
+        : { ...character, attachments: keptAttachments };
+    });
+
+    collected.push(...fromDeck.found, ...fromBackup.found, ...fromP1Hand.found, ...fromP2Hand.found);
+
+    next = {
+      ...next,
+      powerCardDeck: fromDeck.kept,
+      sessionUsedPowerCardPile: fromBackup.kept,
+      powerCardHands: {
+        P1: fromP1Hand.kept,
+        P2: fromP2Hand.kept,
+      },
+      usedPowerCardPile: keptUsedPile,
+      characters: nextCharacters,
+    };
+  } else {
+    const fromDeck = collectFromZone(next.powerCardDeck);
+    collected.push(...fromDeck.found);
+    next = {
+      ...next,
+      powerCardDeck: fromDeck.kept,
+    };
+
+    if (collected.length === 0 && next.sessionMode === 'multi-game') {
+      const fromBackup = collectFromZone(next.sessionUsedPowerCardPile);
+      collected.push(...fromBackup.found);
+      next = {
+        ...next,
+        sessionUsedPowerCardPile: fromBackup.kept,
+      };
+    }
+  }
+
+  if (collected.length > 0) {
+    next = {
+      ...next,
+      powerCardHands: {
+        ...next.powerCardHands,
+        [collector]: [...next.powerCardHands[collector], ...collected],
+      },
+    };
+  }
+
+  return { state: next, collected };
+}
+
+function maybeResolveThanosCrossing(
+  state: GameState,
+  characterId: string,
+  fromSpace: BoardSpace,
+  toSpace: BoardSpace,
+): GameState {
+  if (getSpaceTerritory(fromSpace) === getSpaceTerritory(toSpace)) {
+    return state;
+  }
+
+  if (state.thanosFirstCrossTriggered) {
+    return state;
+  }
+
+  const movedCharacter = getCharacter(state, characterId);
+  if (!movedCharacter || !movedCharacter.alive || !isThanos(movedCharacter.displayName)) {
+    return state;
+  }
+
+  const collector = movedCharacter.controller;
+  const hasGauntletEquipped = (movedCharacter.attachments ?? []).some(attachment => attachment.definitionId === 'power-alpha-023');
+
+  const collectionResult = collectInfinityStonesForThanosCrossing(state, collector, hasGauntletEquipped);
+  let next = collectionResult.state;
+  const seen = next.infinityStoneSeenByController ?? { P1: [], P2: [] };
+  const seenByCollector = mergeUnique(
+    seen[collector],
+    collectionResult.collected.map(card => card.definitionId).filter(isInfinityStoneDefinitionId),
+  );
+
+  let gauntletEmpowered = next.infinityGauntletEmpowered ?? false;
+  if (!gauntletEmpowered && (hasGauntletEquipped || hasAllInfinityStones(seenByCollector))) {
+    gauntletEmpowered = true;
+  }
+
+  next = {
+    ...next,
+    thanosFirstCrossTriggered: true,
+    infinityStoneSeenByController: {
+      ...seen,
+      [collector]: seenByCollector,
+    },
+    infinityGauntletEmpowered: gauntletEmpowered,
+  };
+
+  if (gauntletEmpowered) {
+    next = applyInfinityGauntletEmpowermentToAttachments(next);
+  }
+
+  next = logEvent(next, 'Thanos Infinity Collection', {
+    controller: collector,
+    characterId,
+    fromSpace,
+    toSpace,
+    viaGauntlet: hasGauntletEquipped,
+    collectedDefinitionIds: collectionResult.collected.map(card => card.definitionId),
+    collectedCount: collectionResult.collected.length,
+  });
+
+  return next;
+}
+
+function refreshInfinityStoneSeenFromCurrentHands(state: GameState): GameState {
+  const currentSeen = state.infinityStoneSeenByController ?? { P1: [], P2: [] };
+  const p1SeenNow = state.powerCardHands.P1.filter(card => isInfinityStoneDefinitionId(card.definitionId)).map(card => card.definitionId);
+  const p2SeenNow = state.powerCardHands.P2.filter(card => isInfinityStoneDefinitionId(card.definitionId)).map(card => card.definitionId);
+
+  const mergedSeen = {
+    P1: mergeUnique(currentSeen.P1, p1SeenNow),
+    P2: mergeUnique(currentSeen.P2, p2SeenNow),
+  };
+
+  const shouldEmpower = (state.infinityGauntletEmpowered ?? false)
+    || hasAllInfinityStones(mergedSeen.P1)
+    || hasAllInfinityStones(mergedSeen.P2);
+
+  let next: GameState = {
+    ...state,
+    infinityStoneSeenByController: mergedSeen,
+    infinityGauntletEmpowered: shouldEmpower,
+  };
+
+  if (shouldEmpower) {
+    next = applyInfinityGauntletEmpowermentToAttachments(next);
+  }
+
+  return next;
+}
 
 function normalizeName(name: string | undefined): string {
   return (name ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -143,12 +384,13 @@ function drawTopPowerCardForController(
       [controller]: workingState.drawCount[controller] + 1,
     },
   };
+  const refreshed = refreshInfinityStoneSeenFromCurrentHands(next);
 
-  return logEvent(next, action, {
+  return logEvent(refreshed, action, {
     ...logDetails,
     controller,
     drawnPowerCardAuditInstanceId: drawnCard.instanceId,
-    remainingPowerCardDeckCount: remainingDeck.length,
+    remainingPowerCardDeckCount: refreshed.powerCardDeck.length,
   });
 }
 
@@ -238,6 +480,8 @@ function resolveKingTerritoryDraw(
   };
 
   const handCounts = getPowerCardHandCounts(newState);
+
+  newState = refreshInfinityStoneSeenFromCurrentHands(newState);
 
   newState = logEvent(newState, 'King Territory Draw', {
     ...logDetails,
@@ -495,6 +739,8 @@ export function executeMoveForward(state: GameState, characterId: string): GameS
     toSpace: forwardSpace,
   }]);
 
+  newState = maybeResolveThanosCrossing(newState, character.id, character.boardPosition!, forwardSpace);
+
   // Check King Territory Draw
   if (character.isKing) {
     const originTerritory = getSpaceTerritory(character.boardPosition!);
@@ -597,6 +843,8 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
       fromSpace: attacker.boardPosition!,
       toSpace: forwardSpace,
     }]);
+
+    newState = maybeResolveThanosCrossing(newState, attacker.id, attacker.boardPosition!, forwardSpace);
   }
 
   // Step 6: Send defeated to Graveyard
@@ -885,6 +1133,8 @@ export function executeNightcrawlerTeleportMove(
     toSpace: destination,
   }]);
 
+  next = maybeResolveThanosCrossing(next, characterId, fromSpace, destination);
+
   const crossed = character.isKing
     && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
 
@@ -952,6 +1202,8 @@ export function executePortalMove(
     toSpace: destination,
   }]);
 
+  next = maybeResolveThanosCrossing(next, characterId, fromSpace, destination);
+
   const crossed = character.isKing
     && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
 
@@ -1015,6 +1267,8 @@ export function executeBackItUpMove(
     fromSpace,
     toSpace: destination,
   }]);
+
+  next = maybeResolveThanosCrossing(next, characterId, fromSpace, destination);
 
   const crossed = character.isKing
     && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
@@ -1118,6 +1372,9 @@ export function executeSwapCharactersMove(
     })),
   };
 
+  next = maybeResolveThanosCrossing(next, ownCharacterId, ownFrom, opponentFrom);
+  next = maybeResolveThanosCrossing(next, opponentCharacterId, opponentFrom, ownFrom);
+
   next = logEvent(next, 'Swap Characters Move', {
     actingPlayer,
     ownCharacterId,
@@ -1205,6 +1462,8 @@ export function executeRapunzelSpecial(state: GameState, characterId: string): G
     });
   }
 
+  next = maybeResolveThanosCrossing(next, target.id, fromSpace, frontSpace);
+
   next = resolveRoombaMoveDraws(next, [{
     characterId: target.id,
     fromSpace,
@@ -1287,6 +1546,13 @@ export function executeMrsPuffSpecial(state: GameState, characterId: string): Ga
     ...(behind && behindDestination && behind.boardPosition ? [{ characterId: behind.id, fromSpace: behind.boardPosition, toSpace: behindDestination }] : []),
   ]);
 
+  if (front && frontDestination && front.boardPosition) {
+    next = maybeResolveThanosCrossing(next, front.id, front.boardPosition, frontDestination);
+  }
+  if (behind && behindDestination && behind.boardPosition) {
+    next = maybeResolveThanosCrossing(next, behind.id, behind.boardPosition, behindDestination);
+  }
+
   next = logEvent(next, 'Mrs. Puff Special', {
     characterId: puff.id,
     frontCharacterId: front?.id ?? null,
@@ -1332,7 +1598,9 @@ export function executeBehindTheCurtainsSwap(
     },
   };
 
-  return logEvent(next, 'Behind The Curtains Swap', {
+  const refreshed = refreshInfinityStoneSeenFromCurrentHands(next);
+
+  return logEvent(refreshed, 'Behind The Curtains Swap', {
     actingPlayer,
     ownHandCardInstanceId,
     opponentHandCardInstanceId,
@@ -1427,6 +1695,8 @@ function endTurn(state: GameState): GameState {
     activePlayer: nextPlayer,
     turnNumber: nextTurn,
   };
+
+  newState = refreshInfinityStoneSeenFromCurrentHands(newState);
 
   newState = logEvent(newState, 'Turn End', {
     nextActivePlayer: nextPlayer,

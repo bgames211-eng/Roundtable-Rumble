@@ -121,6 +121,16 @@ function isCarlGrimes(name: string | undefined): boolean {
   return normalizeName(name) === 'CARLGRIMES';
 }
 
+function getAttachmentStatValue(
+  attachment: Character['attachments'][number],
+  stat: 'ATK' | 'DEF',
+): number {
+  if (attachment.definitionId === 'power-alpha-027') {
+    return 2;
+  }
+  return attachment[stat] ?? 0;
+}
+
 function buildOpaqueInstanceId(oneBasedIndex: number): string {
   return `card-${String(oneBasedIndex).padStart(3, '0')}`;
 }
@@ -523,8 +533,8 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,
         displayName: attachment.displayName,
-        ATK: attachment.ATK,
-        DEF: attachment.DEF,
+        ATK: getAttachmentStatValue(attachment, 'ATK'),
+        DEF: getAttachmentStatValue(attachment, 'DEF'),
         specialUsed: attachment.specialUsed,
       })),
     };
@@ -534,9 +544,16 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
       const hasRickCarlBonus = hasLivingRevealedRick
         && hasRevealedCarl
         && (isRickGrimes(card.displayName) || isCarlGrimes(card.displayName));
+      const attachmentBonus = (card.attachments ?? []).reduce(
+        (total, attachment) => ({
+          ATK: total.ATK + getAttachmentStatValue(attachment, 'ATK'),
+          DEF: total.DEF + getAttachmentStatValue(attachment, 'DEF'),
+        }),
+        { ATK: 0, DEF: 0 },
+      );
       safeCard.displayName = card.displayName ?? 'Unknown';
-      safeCard.ATK = card.ATK + (hasRickCarlBonus ? 2 : 0);
-      safeCard.DEF = card.DEF + (hasRickCarlBonus ? 2 : 0);
+      safeCard.ATK = card.ATK + attachmentBonus.ATK + (hasRickCarlBonus ? 2 : 0);
+      safeCard.DEF = card.DEF + attachmentBonus.DEF + (hasRickCarlBonus ? 2 : 0);
       safeCard.definitionId = card.definitionId;
       safeCard.ability = card.ability ?? null;
       safeCard.statRule = hasRickCarlBonus

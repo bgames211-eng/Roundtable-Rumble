@@ -55,6 +55,7 @@ describe('Phase 5 Bot', () => {
     targetBoardPosition: null,
     crossesIntoEnemyTerritory: false,
     mayGainPowerCardDraw: false,
+    allowsOpponentKingCrossDrawReply: false,
     opponentKnownWinningReplies: 0,
     exposesOwnKingToKnownWinningReply: false,
     actorAbilityStrategicScore: 0,
@@ -207,6 +208,34 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('action');
     if (decision.kind === 'action') {
       expect(decision.action.characterId).toBe('safe-move');
+    }
+  });
+
+  it('hard mode avoids moves that allow the opponent king to cross for a free power-card draw', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 10,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('move', 'hold-the-line', null, {
+          actorIsKing: false,
+          allowsOpponentKingCrossDrawReply: false,
+        }),
+        action('move', 'step-aside', null, {
+          actorIsKing: false,
+          allowsOpponentKingCrossDrawReply: true,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.characterId).toBe('hold-the-line');
     }
   });
 
@@ -682,6 +711,41 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('play');
     if (decision.kind === 'play') {
       expect(decision.definitionId).toBe('power-alpha-017');
+    }
+  });
+
+  it('bot always uses last-card Phone a Friend on king when king is losing', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 12,
+        opponentComparisonValue: 7,
+        winningMargin: 5,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'phone-friend-last', targetCharacterId: 'p2-king' },
+          displayName: 'PHONE A FRIEND',
+          definitionId: 'power-alpha-017',
+          projectedResult: {
+            winner: 'P1',
+            initiatorComparisonValue: 10,
+            opponentComparisonValue: 8,
+            winningMargin: 2,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      imminentKingLoss: true,
+      botBattlerIsKing: true,
+      remainingBattleHandCount: 1,
+    });
+
+    expect(decision.kind).toBe('play');
+    if (decision.kind === 'play') {
+      expect(decision.definitionId).toBe('power-alpha-017');
+      expect(decision.input.targetCharacterId).toBe('p2-king');
     }
   });
 

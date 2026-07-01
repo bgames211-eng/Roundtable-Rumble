@@ -352,4 +352,13 @@ export const ALPHA_1_CHARACTER_DEFINITIONS: CharacterCardDefinition[] = [
     statRule: null,
     imageKey: 'placeholder-alpha-038',
   },
+  {
+    definitionId: 'alpha-039',
+    displayName: 'THANOS',
+    printedATK: 10,
+    printedDEF: 10,
+    ability: 'First time Thanos crosses a territory line in a game, collect Infinity Stones.',
+    statRule: null,
+    imageKey: 'placeholder-alpha-039',
+  },
 ];

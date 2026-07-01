@@ -568,6 +568,232 @@ input:focus-visible {
   border: 1px solid rgba(188, 223, 255, 0.5);
 }
 
+.infinity-cinematic-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.08), rgba(4, 8, 24, 0.82) 64%);
+  animation: infinity-cinematic-fade var(--infinity-duration, 5200ms) ease forwards;
+}
+
+.infinity-cinematic-stars,
+.infinity-cinematic-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.infinity-cinematic-stars {
+  background-image:
+    radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.78) 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 18%, rgba(255, 255, 255, 0.68) 0 1px, transparent 2px),
+    radial-gradient(circle at 84% 68%, rgba(255, 255, 255, 0.64) 0 1px, transparent 2px),
+    radial-gradient(circle at 33% 79%, rgba(255, 255, 255, 0.56) 0 1px, transparent 2px),
+    radial-gradient(circle at 58% 48%, rgba(255, 255, 255, 0.5) 0 1px, transparent 2px);
+  animation: infinity-stars-drift 9s linear infinite;
+}
+
+.infinity-cinematic-glow {
+  background:
+    radial-gradient(circle at center, var(--infinity-color-soft, rgba(123, 190, 255, 0.42)) 0%, rgba(0, 0, 0, 0) 56%),
+    radial-gradient(circle at center, var(--infinity-color-strong, rgba(80, 156, 255, 0.3)) 0%, rgba(0, 0, 0, 0) 72%);
+  filter: blur(1px);
+  animation: infinity-glow-pulse 1.35s ease-in-out infinite alternate;
+}
+
+.infinity-cinematic-panel {
+  position: relative;
+  z-index: 2;
+  width: min(760px, 88vw);
+  padding: 1.1rem 1.3rem;
+  border-radius: 14px;
+  border: 2px solid rgba(245, 237, 220, 0.85);
+  background: linear-gradient(165deg, rgba(8, 14, 34, 0.94), rgba(13, 22, 48, 0.9));
+  box-shadow:
+    0 0 36px var(--infinity-color-strong, rgba(80, 156, 255, 0.36)),
+    0 20px 44px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.infinity-cinematic-panel h3 {
+  margin: 0;
+  letter-spacing: 0.06em;
+  color: #fff5d3;
+}
+
+.infinity-cinematic-panel p {
+  margin: 0.36rem 0 0;
+  color: #f4e7cf;
+}
+
+.infinity-cinematic-thanos { --infinity-duration: 7000ms; --infinity-color-soft: rgba(82, 120, 255, 0.42); --infinity-color-strong: rgba(146, 109, 255, 0.5); }
+.infinity-cinematic-gauntlet { --infinity-duration: 5000ms; --infinity-color-soft: rgba(255, 210, 98, 0.44); --infinity-color-strong: rgba(122, 219, 255, 0.44); }
+.infinity-cinematic-space { --infinity-duration: 5000ms; --infinity-color-soft: rgba(62, 132, 255, 0.52); --infinity-color-strong: rgba(21, 84, 228, 0.56); }
+.infinity-cinematic-mind { --infinity-duration: 5000ms; --infinity-color-soft: rgba(255, 225, 110, 0.52); --infinity-color-strong: rgba(242, 188, 54, 0.56); }
+.infinity-cinematic-soul { --infinity-duration: 7000ms; --infinity-color-soft: rgba(255, 172, 82, 0.52); --infinity-color-strong: rgba(240, 118, 46, 0.58); }
+.infinity-cinematic-time { --infinity-duration: 7000ms; --infinity-color-soft: rgba(109, 242, 142, 0.5); --infinity-color-strong: rgba(63, 195, 102, 0.56); }
+.infinity-cinematic-reality { --infinity-duration: 7000ms; --infinity-color-soft: rgba(255, 118, 118, 0.52); --infinity-color-strong: rgba(228, 52, 66, 0.6); }
+.infinity-cinematic-power { --infinity-duration: 5000ms; --infinity-color-soft: rgba(187, 124, 255, 0.52); --infinity-color-strong: rgba(129, 74, 232, 0.6); }
+
+.infinity-stone-trails,
+.infinity-hand-entry-trails,
+.infinity-space-vortex,
+.infinity-mind-flash,
+.infinity-soul-stream,
+.infinity-time-rings,
+.infinity-reality-ripple,
+.infinity-power-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.infinity-stone-trails {
+  overflow: hidden;
+}
+
+.infinity-hand-entry-trails {
+  overflow: hidden;
+}
+
+.infinity-hand-entry {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 120px;
+  border-radius: 999px;
+  transform-origin: 50% 100%;
+  opacity: 0;
+  filter: blur(0.2px);
+  animation: infinity-hand-entry 7s cubic-bezier(0.16, 0.84, 0.26, 1) forwards;
+}
+
+.infinity-hand-entry.stone-power { background: linear-gradient(180deg, rgba(129, 74, 232, 0), rgba(129, 74, 232, 0.96)); --hand-angle: -24deg; --hand-x: -32vw; --hand-y: 34vh; animation-delay: 160ms; }
+.infinity-hand-entry.stone-mind { background: linear-gradient(180deg, rgba(242, 188, 54, 0), rgba(242, 188, 54, 0.96)); --hand-angle: -10deg; --hand-x: -24vw; --hand-y: 34vh; animation-delay: 240ms; }
+.infinity-hand-entry.stone-time { background: linear-gradient(180deg, rgba(63, 195, 102, 0), rgba(63, 195, 102, 0.96)); --hand-angle: 6deg; --hand-x: -16vw; --hand-y: 34vh; animation-delay: 320ms; }
+.infinity-hand-entry.stone-reality { background: linear-gradient(180deg, rgba(228, 52, 66, 0), rgba(228, 52, 66, 0.96)); --hand-angle: 18deg; --hand-x: 16vw; --hand-y: 34vh; animation-delay: 400ms; }
+.infinity-hand-entry.stone-space { background: linear-gradient(180deg, rgba(21, 84, 228, 0), rgba(21, 84, 228, 0.96)); --hand-angle: 30deg; --hand-x: 24vw; --hand-y: 34vh; animation-delay: 480ms; }
+.infinity-hand-entry.stone-soul { background: linear-gradient(180deg, rgba(240, 118, 46, 0), rgba(240, 118, 46, 0.96)); --hand-angle: 42deg; --hand-x: 32vw; --hand-y: 34vh; animation-delay: 560ms; }
+
+.infinity-stone-trail {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 34vh;
+  border-radius: 999px;
+  transform-origin: 50% 100%;
+  filter: blur(0.6px);
+  animation: infinity-stone-orbit 2.4s linear infinite;
+}
+
+.infinity-stone-trail.stone-power { background: linear-gradient(180deg, rgba(129, 74, 232, 0), rgba(129, 74, 232, 0.95)); --orbit-angle: 0deg; }
+.infinity-stone-trail.stone-mind { background: linear-gradient(180deg, rgba(242, 188, 54, 0), rgba(242, 188, 54, 0.96)); --orbit-angle: 60deg; }
+.infinity-stone-trail.stone-time { background: linear-gradient(180deg, rgba(63, 195, 102, 0), rgba(63, 195, 102, 0.96)); --orbit-angle: 120deg; }
+.infinity-stone-trail.stone-reality { background: linear-gradient(180deg, rgba(228, 52, 66, 0), rgba(228, 52, 66, 0.96)); --orbit-angle: 180deg; }
+.infinity-stone-trail.stone-space { background: linear-gradient(180deg, rgba(21, 84, 228, 0), rgba(21, 84, 228, 0.96)); --orbit-angle: 240deg; }
+.infinity-stone-trail.stone-soul { background: linear-gradient(180deg, rgba(240, 118, 46, 0), rgba(240, 118, 46, 0.96)); --orbit-angle: 300deg; }
+
+.infinity-space-vortex {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(156, 212, 255, 0.22), rgba(15, 50, 156, 0.12) 28%, rgba(0, 0, 0, 0) 58%),
+    conic-gradient(from 0deg at 50% 50%, rgba(27, 101, 236, 0.0), rgba(38, 123, 255, 0.45), rgba(18, 76, 208, 0.05), rgba(27, 101, 236, 0.0));
+  animation: infinity-space-vortex-spin 1.6s linear infinite;
+}
+
+.infinity-mind-flash {
+  background: radial-gradient(circle at 50% 50%, rgba(255, 236, 137, 0.72), rgba(255, 209, 64, 0.32) 38%, rgba(0, 0, 0, 0) 62%);
+  animation: infinity-mind-flash 1.1s ease-in-out infinite;
+}
+
+.infinity-soul-stream .soul-source,
+.infinity-soul-stream .soul-target {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 24px rgba(240, 118, 46, 0.72);
+  background: rgba(240, 118, 46, 0.9);
+}
+
+.infinity-soul-stream .soul-source {
+  left: 22%;
+}
+
+.infinity-soul-stream .soul-target {
+  right: 22%;
+}
+
+.infinity-soul-stream .soul-current {
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  top: 50%;
+  height: 10px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(240, 118, 46, 0.1), rgba(255, 192, 120, 0.92), rgba(240, 118, 46, 0.14));
+  box-shadow: 0 0 26px rgba(255, 170, 84, 0.62);
+  animation: infinity-soul-flow 1.2s ease-in-out infinite;
+}
+
+.infinity-time-rings .time-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 3px dashed rgba(104, 231, 124, 0.84);
+  box-shadow: 0 0 20px rgba(87, 212, 114, 0.55);
+}
+
+.infinity-time-rings .time-ring-a { width: 210px; height: 210px; margin-left: -105px; margin-top: -105px; animation: infinity-time-spin 1.9s linear infinite; }
+.infinity-time-rings .time-ring-b { width: 300px; height: 300px; margin-left: -150px; margin-top: -150px; animation: infinity-time-spin-reverse 2.5s linear infinite; }
+.infinity-time-rings .time-ring-c { width: 390px; height: 390px; margin-left: -195px; margin-top: -195px; animation: infinity-time-spin 3.2s linear infinite; opacity: 0.62; }
+
+.infinity-reality-ripple .reality-wave {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 3px solid rgba(228, 52, 66, 0.82);
+  box-shadow: 0 0 26px rgba(228, 52, 66, 0.48);
+  transform: translate(-50%, -50%) scale(0.3);
+  animation: infinity-reality-ripple 1.45s ease-out infinite;
+}
+
+.infinity-reality-ripple .reality-wave-a { width: 180px; height: 180px; animation-delay: 0ms; }
+.infinity-reality-ripple .reality-wave-b { width: 260px; height: 260px; animation-delay: 220ms; }
+.infinity-reality-ripple .reality-wave-c { width: 340px; height: 340px; animation-delay: 440ms; }
+
+.infinity-power-burst {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(193, 138, 255, 0.74), rgba(140, 80, 232, 0.34) 36%, rgba(0, 0, 0, 0) 62%);
+  animation: infinity-power-burst 1.05s ease-out infinite;
+}
+
+.infinity-cinematic-reality {
+  animation-name: infinity-cinematic-fade, infinity-camera-shake;
+  animation-duration: var(--infinity-duration, 5200ms), 620ms;
+  animation-iteration-count: 1, infinite;
+}
+
+.infinity-cinematic-power {
+  animation-name: infinity-cinematic-fade, infinity-camera-shake;
+  animation-duration: var(--infinity-duration, 5200ms), 540ms;
+  animation-iteration-count: 1, infinite;
+}
+
+.infinity-cinematic-reality .infinity-cinematic-panel,
+.infinity-cinematic-power .infinity-cinematic-panel {
+  animation: infinity-panel-ripple 820ms ease-in-out infinite;
+}
+
 .endgame-facts {
   margin: 0;
   padding-left: 1.2rem;
@@ -782,6 +1008,104 @@ input:focus-visible {
     transform: scale(1);
     box-shadow: 0 0 0 2px rgba(255, 197, 88, 0.42), 0 10px 24px rgba(0, 0, 0, 0.32);
   }
+}
+
+@keyframes infinity-cinematic-fade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes infinity-stars-drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-16px); }
+}
+
+@keyframes infinity-glow-pulse {
+  0% { transform: scale(0.96); opacity: 0.78; }
+  100% { transform: scale(1.04); opacity: 1; }
+}
+
+@keyframes infinity-stone-orbit {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--orbit-angle, 0deg)) translateY(-18vh) scale(0.82);
+    opacity: 0.74;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(calc(var(--orbit-angle, 0deg) + 180deg)) translateY(-20vh) scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(calc(var(--orbit-angle, 0deg) + 360deg)) translateY(-18vh) scale(0.82);
+    opacity: 0.74;
+  }
+}
+
+@keyframes infinity-hand-entry {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--hand-angle, 0deg)) translateY(-12vh) scale(0.7);
+    opacity: 0;
+  }
+  56% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--hand-x, 0px)), calc(-50% + var(--hand-y, 0px))) rotate(var(--hand-angle, 0deg)) scale(0.38);
+    opacity: 0;
+  }
+}
+
+@keyframes infinity-space-vortex-spin {
+  0% { transform: rotate(0deg) scale(0.96); opacity: 0.78; }
+  100% { transform: rotate(360deg) scale(1.04); opacity: 1; }
+}
+
+@keyframes infinity-mind-flash {
+  0% { opacity: 0.24; }
+  50% { opacity: 0.86; }
+  100% { opacity: 0.24; }
+}
+
+@keyframes infinity-soul-flow {
+  0% { transform: translateY(-50%) scaleX(0.78); opacity: 0.66; }
+  50% { transform: translateY(-50%) scaleX(1); opacity: 1; }
+  100% { transform: translateY(-50%) scaleX(0.78); opacity: 0.66; }
+}
+
+@keyframes infinity-time-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes infinity-time-spin-reverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes infinity-reality-ripple {
+  0% { transform: translate(-50%, -50%) scale(0.24); opacity: 0; }
+  32% { opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(1.18); opacity: 0; }
+}
+
+@keyframes infinity-power-burst {
+  0% { transform: scale(0.78); opacity: 0.22; }
+  38% { transform: scale(1.06); opacity: 0.9; }
+  100% { transform: scale(1.26); opacity: 0; }
+}
+
+@keyframes infinity-camera-shake {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(2px, -1px); }
+  50% { transform: translate(-2px, 2px); }
+  75% { transform: translate(1px, -2px); }
+}
+
+@keyframes infinity-panel-ripple {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
 }
 
 @keyframes ant-draw-flash {
@@ -1523,7 +1847,9 @@ input:focus-visible {
   background: transparent;
   backdrop-filter: none;
   align-items: start;
+  justify-items: start;
   padding-top: 1rem;
+  padding-left: 1rem;
 }
 
 .board-power-targeting-panel {
@@ -1533,6 +1859,7 @@ input:focus-visible {
   padding: 0.85rem 1rem;
   gap: 0.55rem;
   background: rgba(8, 12, 22, 0.9);
+  margin: 0;
 }
 
 .board-power-targeting-panel .power-card-battle {

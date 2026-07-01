@@ -49,7 +49,7 @@ export const FIRST_ALPHA_POWER_CARD_DEFINITIONS: PowerCardDefinition[] = [
     definitionId: 'power-alpha-001',
     displayName: 'SUPER BAT',
     rulesText:
-      'During battle where opponent DEF is being used: subtract 4 DEF from opponent for this battle.',
+      'On your turn only: move your own character to any open spot and attach +2 ATK / +2 DEF while that character is alive.',
     alphaDeckCount: 2,
   },
   {
@@ -189,6 +189,48 @@ export const FIRST_ALPHA_POWER_CARD_DEFINITIONS: PowerCardDefinition[] = [
       'On your turn only: move your card to any open spot. May be used on a King. Cannot be played during battle.',
     alphaDeckCount: 1,
   },
+  {
+    definitionId: 'power-alpha-023',
+    displayName: 'INFINITY GAUNTLET',
+    rulesText:
+      'Any time, including battle: equip to any character. +4 ATK / +2 DEF while equipped.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-024',
+    displayName: 'MIND STONE',
+    rulesText:
+      'Any time, including battle: reveal all face-down Character Cards and both players\' current Power Cards.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-025',
+    displayName: 'REALITY STONE',
+    rulesText:
+      'Any time, including battle: change any one character into the top card of the Character Deck.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-026',
+    displayName: 'SOUL STONE',
+    rulesText:
+      'During battle: sacrifice one of your other living characters to add +5 ATK or +5 DEF this battle. Sacrificing your King loses the game.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-027',
+    displayName: 'SPACE STONE',
+    rulesText:
+      'On your turn only: move your own character to any open spot and attach +2 ATK while that character is alive.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-028',
+    displayName: 'TIME STONE',
+    rulesText:
+      'Any time, including battle: reverse the most recently completed action (cannot reverse playing Time Stone itself).',
+    alphaDeckCount: 1,
+  },
 ];
 
 const POWER_CARD_DEFINITION_MAP = new Map(
@@ -218,6 +260,12 @@ const POWER_CARD_AI_METADATA: Record<string, PowerCardAiMetadata> = {
   'power-alpha-020': { timing: 'battle', effectType: 'counter', targetType: 'opponent', strategicValue: 'premium' },
   'power-alpha-021': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'medium' },
   'power-alpha-022': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-023': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'high' },
+  'power-alpha-024': { timing: 'anytime', effectType: 'hand-disruption', targetType: 'both', strategicValue: 'premium' },
+  'power-alpha-025': { timing: 'anytime', effectType: 'replace', targetType: 'board', strategicValue: 'premium' },
+  'power-alpha-026': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'premium' },
+  'power-alpha-027': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'high' },
+  'power-alpha-028': { timing: 'anytime', effectType: 'replace', targetType: 'both', strategicValue: 'premium' },
 };
 
 export function getPowerCardDefinition(definitionId: string): PowerCardDefinition {

@@ -37,6 +37,7 @@ export interface BotLegalActionDescriptor {
   targetBoardPosition: BoardSpace | null;
   crossesIntoEnemyTerritory: boolean;
   mayGainPowerCardDraw: boolean;
+  allowsOpponentKingCrossDrawReply: boolean;
   opponentKnownWinningReplies: number;
   exposesOwnKingToKnownWinningReply: boolean;
   actorAbilityStrategicScore: number;
@@ -137,6 +138,7 @@ function toBotLegalActionDescriptors(
 
     let opponentKnownWinningReplies = 0;
     let exposesOwnKingToKnownWinningReply = false;
+    let allowsOpponentKingCrossDrawReply = false;
 
     if (action.type === 'move' && canMoveForward(state, action.characterId)) {
       const nextState = executeMoveForward(state, action.characterId);
@@ -150,6 +152,17 @@ function toBotLegalActionDescriptors(
         ));
 
         for (const opponentAction of opponentActions) {
+          if (opponentAction.type === 'move') {
+            const opponentActor = getCharacter(nextState, opponentAction.characterId);
+            if (opponentActor?.alive && opponentActor.isKing && opponentActor.boardPosition) {
+              const nextSpace = getForwardSpace(opponentActor.boardPosition);
+              const crosses = getTerritory(nextSpace) !== getTerritory(opponentActor.boardPosition);
+              if (crosses && nextState.powerCardDeck.length > 0) {
+                allowsOpponentKingCrossDrawReply = true;
+              }
+            }
+          }
+
           const knownOutcome = getKnownBattleOutcome(nextState, opponent, opponentAction);
           if (knownOutcome !== 'win') {
             continue;
@@ -186,6 +199,7 @@ function toBotLegalActionDescriptors(
       targetBoardPosition: target?.boardPosition ?? null,
       crossesIntoEnemyTerritory,
       mayGainPowerCardDraw,
+      allowsOpponentKingCrossDrawReply,
       opponentKnownWinningReplies,
       exposesOwnKingToKnownWinningReply,
       actorAbilityStrategicScore: abilityStrategicScore(actor?.displayName),

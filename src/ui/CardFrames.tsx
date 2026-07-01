@@ -184,20 +184,11 @@ export function PowerCardFrame({
     React.createElement(
       'div',
       { className: 'card-art-area' },
-      shouldRenderFullCardFace
-        ? React.createElement('img', {
-            className: 'card-full-face-image',
-            src: fullCardFaceSrc ?? '',
-            alt: '',
-            'aria-hidden': 'true',
-            onError: () => setFullFaceImageFailed(true),
-          })
-        : artSrc
-        ? React.createElement('img', { className: 'card-art-image', src: artSrc, alt: '', 'aria-hidden': 'true' })
-        : React.createElement(
+      isBackView
+        ? React.createElement(
             'div',
             { className: 'card-art-placeholder' },
-            isBackView && shouldRenderPowerBackImage
+            shouldRenderPowerBackImage
               ? React.createElement('img', {
                   className: 'power-back-image',
                   src: PUBLIC_ASSETS.powerBack,
@@ -205,10 +196,19 @@ export function PowerCardFrame({
                   'aria-hidden': 'true',
                   onError: () => setBackImageFailed(true),
                 })
-              : isBackView
-                ? 'RR power card'
-                : 'ART',
-          ),
+              : 'RR power card',
+          )
+        : shouldRenderFullCardFace
+          ? React.createElement('img', {
+              className: 'card-full-face-image',
+              src: fullCardFaceSrc ?? '',
+              alt: '',
+              'aria-hidden': 'true',
+              onError: () => setFullFaceImageFailed(true),
+            })
+          : artSrc
+            ? React.createElement('img', { className: 'card-art-image', src: artSrc, alt: '', 'aria-hidden': 'true' })
+            : React.createElement('div', { className: 'card-art-placeholder' }, 'ART'),
     ),
     !isBackView && !shouldRenderFullCardFace
       ? React.createElement(

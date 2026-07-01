@@ -496,6 +496,11 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
       reasons.push('safe king crossing can draw a power card');
     }
 
+    if (action.allowsOpponentKingCrossDrawReply) {
+      score -= difficulty === 'Hard' ? 180 : difficulty === 'Standard' ? 135 : 80;
+      reasons.push('avoid allowing opponent king to cross for a free power-card draw');
+    }
+
     if (action.crossesIntoEnemyTerritory && !action.mayGainPowerCardDraw) {
       score -= difficulty === 'Hard' ? 10 : 6;
       reasons.push('crossing territory without clear card gain has positional risk');
@@ -816,6 +821,26 @@ export function chooseBotBattleDecision(
       explanation: `Bot passes: already ahead by ${currentMargin}.`,
       alternativesConsidered: candidates.length,
     };
+  }
+
+  if (imminentKingLoss && remainingBattleHandCount === 1) {
+    const emergencyPhoneFriend = candidates.find(candidate => candidate.definitionId === 'power-alpha-017');
+    if (emergencyPhoneFriend) {
+      const projectedMargin = marginForController(botController, emergencyPhoneFriend.projectedResult);
+      return {
+        kind: 'play',
+        input: emergencyPhoneFriend.input,
+        displayName: emergencyPhoneFriend.displayName,
+        definitionId: emergencyPhoneFriend.definitionId,
+        explanation: 'Bot plays PHONE A FRIEND: last-card emergency to save its king in a losing battle.',
+        projectedMarginForBot: projectedMargin,
+        score: 999,
+        alternativesConsidered: candidates.length,
+        counterStabilityMarginForBot: emergencyPhoneFriend.opponentBestCounterMarginForBot,
+        deepCounterStabilityMarginForBot: emergencyPhoneFriend.opponentBestCounterAfterBotBestRejoinderMarginForBot,
+        expectedDeepCounterStabilityMarginForBot: emergencyPhoneFriend.opponentExpectedCounterAfterBotBestRejoinderMarginForBot,
+      };
+    }
   }
 
   const evaluated = candidates.map(candidate => {

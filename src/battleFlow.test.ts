@@ -6,6 +6,7 @@ import {
   passBattlePriority,
   recordBattleCardPlay,
   resolvePendingBattle,
+  startFinalKingDuel,
   startBattle,
 } from './battleFlow';
 
@@ -346,5 +347,124 @@ describe('Phase 3C battleFlow', () => {
     expect(resolved.powerCardHands.P1).toHaveLength(2);
     expect(resolved.powerCardDeck).toHaveLength(initialDeckCount - 2);
     expect(resolved.eventLog.filter(event => event.action === 'Ant Victory Draw')).toHaveLength(2);
+  });
+
+  it('used pile window for a battle includes dropped attachments from defeated characters', () => {
+    const baseline = initializeGameState([
+      createChar('skar', 'P1', 9, 9, false, 'P1_3', 'SKAR PRODUCTIONS'),
+      {
+        ...createChar('target', 'P2', 2, 2, false, 'P1_4', 'TARGET'),
+        attachments: [
+          {
+            instanceId: 'ray-gun-drop',
+            definitionId: 'power-alpha-011',
+            displayName: 'RAY GUN',
+            category: 'weapon',
+            ATK: 3,
+            DEF: 3,
+            specialUsed: false,
+          },
+        ],
+      } as Character,
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const withExistingUsedCard = {
+      ...baseline,
+      usedPowerCardPile: [
+        {
+          instanceId: 'old-used',
+          definitionId: 'power-alpha-002',
+          controller: 'P1' as const,
+          displayName: 'OLD',
+          selectedChoice: null,
+          effectSummary: 'Earlier turn card',
+        },
+      ],
+    };
+
+    const started = startBattle(withExistingUsedCard, 'attack', 'skar');
+    const startCount = started.pendingBattle?.usedPowerPileStartCount ?? -1;
+    expect(startCount).toBe(1);
+
+    const ready = passBattlePriority(passBattlePriority(started, 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    const thisBattleUsedCards = resolved.usedPowerCardPile.slice(startCount);
+    expect(thisBattleUsedCards.some(card => card.instanceId === 'ray-gun-drop')).toBe(true);
+  });
+
+  it('final king duel uses Riddler bottom-deck source for ATK comparison', () => {
+    const state = initializeGameState([
+      createChar('riddler-king', 'P1', 0, 0, true, 'P1_3', 'RIDDLER'),
+      createChar('other-king', 'P2', 8, 8, true, 'P2_3', 'OTHER KING'),
+    ]);
+
+    const withDeck = {
+      ...state,
+      characterDeck: [
+        {
+          instanceId: 'deck-top',
+          definitionId: 'alpha-top',
+          displayName: 'Top Card',
+          ATK: 2,
+          DEF: 2,
+          ability: null,
+          statRule: null,
+          imageKey: 'top',
+        },
+        {
+          instanceId: 'deck-bottom',
+          definitionId: 'alpha-bottom',
+          displayName: 'Bottom Card',
+          ATK: 13,
+          DEF: 12,
+          ability: null,
+          statRule: null,
+          imageKey: 'bottom',
+        },
+      ],
+    };
+
+    const started = startFinalKingDuel(withDeck);
+    const view = getBattlePublicView(started);
+
+    expect(view.initiatorRiddlerSource?.instanceId).toBe('deck-bottom');
+    expect(view.initiatorBaseComparison).toBe(13);
+    expect(started.characterDeck.map(card => card.instanceId)).toEqual(['deck-top']);
+  });
+
+  it('final king duel refills from backup character pile for Riddler source when deck is empty', () => {
+    const state = initializeGameState([
+      createChar('riddler-king', 'P1', 0, 0, true, 'P1_3', 'RIDDLER'),
+      createChar('other-king', 'P2', 9, 9, true, 'P2_3', 'OTHER KING'),
+    ]);
+
+    const withBackupOnly = {
+      ...state,
+      characterDeck: [],
+      sessionUsedCharacterPile: [
+        {
+          instanceId: 'backup-bottom',
+          definitionId: 'alpha-backup',
+          displayName: 'Backup Bottom',
+          ATK: 11,
+          DEF: 7,
+          ability: null,
+          statRule: null,
+          imageKey: 'backup-bottom',
+        },
+      ],
+    };
+
+    const started = startFinalKingDuel(withBackupOnly);
+    const view = getBattlePublicView(started);
+
+    expect(view.initiatorRiddlerSource?.instanceId).toBe('backup-bottom');
+    expect(view.initiatorBaseComparison).toBe(11);
+    expect(started.characterDeck).toHaveLength(0);
+    expect(started.sessionUsedCharacterPile).toHaveLength(0);
+    expect(started.sessionRunoutOccurred).toBe(true);
   });
 });

@@ -146,6 +146,7 @@ function isWeaponDefinitionId(definitionId: string): boolean {
     'power-alpha-013',
     'power-alpha-014',
     'power-alpha-015',
+    'power-alpha-023',
   ].includes(definitionId);
 }
 
@@ -323,6 +324,34 @@ type PendingBattleWeaponEquipPlay = {
   selectedCharacterId: string | null;
 };
 
+type PendingBattleSoulStonePlay = {
+  actor: Controller;
+  cardInstanceId: string;
+  selectedCharacterId: string | null;
+  selectedChoice: 'ATK' | 'DEF';
+};
+
+type PendingRealityStonePlay = {
+  phase: 'board' | 'battle';
+  actor: Controller;
+  cardInstanceId: string;
+  selectedTargetRef: string | null;
+  expandedSection: 'graveyard' | 'usedpower' | 'decktops' | null;
+};
+
+type RealityStoneTarget = {
+  targetRef: string;
+  zoneLabel: string;
+  cardType: 'character' | 'power';
+  displayName: string;
+  subtitle: string;
+  visualMode?: 'layered-art' | 'full-card-face';
+  artImageUrl?: string;
+  fullCardFaceImageUrl?: string;
+  ATK?: number;
+  DEF?: number;
+};
+
 type ExpandedAttachmentCardView = {
   sourceCharacterId: string;
   attachmentInstanceId: string;
@@ -447,7 +476,16 @@ interface PendingBoardSpecialMotion {
   visualMode?: 'layered-art' | 'full-card-face';
   artImageUrl?: string;
   fullCardFaceImageUrl?: string;
-  style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'back-it-up';
+  style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up';
+}
+
+type InfinityAnimationKind = 'thanos' | 'gauntlet' | 'space' | 'mind' | 'soul' | 'time' | 'reality' | 'power';
+
+interface InfinityAnimationState {
+  kind: InfinityAnimationKind;
+  title: string;
+  subtitle: string;
+  durationMs: number;
 }
 
 interface PendingRapunzelHairTrail {
@@ -569,6 +607,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBotBoardAction, setPendingBotBoardAction] = useState<PendingBotBoardAction | null>(null);
   const [pendingBotBattleReveal, setPendingBotBattleReveal] = useState<PendingBotBattleReveal | null>(null);
   const [queuedBotBattleReveal, setQueuedBotBattleReveal] = useState<PendingBotBattleReveal | null>(null);
+  const [battleRealityReplayCardInstanceId, setBattleRealityReplayCardInstanceId] = useState<string | null>(null);
   const [pendingBattleReactionWindow, setPendingBattleReactionWindow] = useState<PendingBattleReactionWindow | null>(null);
   const [battleNoSprayCardViewOpen, setBattleNoSprayCardViewOpen] = useState(false);
   const [pendingBoardReactionWindow, setPendingBoardReactionWindow] = useState<PendingBoardReactionWindow | null>(null);
@@ -580,6 +619,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBoardSpecialMotion, setPendingBoardSpecialMotion] = useState<PendingBoardSpecialMotion | null>(null);
   const [pendingMrsPuffPuffUp, setPendingMrsPuffPuffUp] = useState<PendingMrsPuffPuffUp | null>(null);
   const [pendingRapunzelHairTrail, setPendingRapunzelHairTrail] = useState<PendingRapunzelHairTrail | null>(null);
+  const [infinityAnimation, setInfinityAnimation] = useState<InfinityAnimationState | null>(null);
   const [postBattleBoardAnimation, setPostBattleBoardAnimation] = useState<PostBattleBoardAnimation | null>(null);
   const [kingDrawAnimationFor, setKingDrawAnimationFor] = useState<'P1' | 'P2' | null>(null);
   const [kingDrawBoardPosition, setKingDrawBoardPosition] = useState<RingPosition | null>(null);
@@ -594,10 +634,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   } | null>(null);
   const kingDrawFxTimerRef = useRef<number | null>(null);
   const antVictoryFxDelayTimerRef = useRef<number | null>(null);
+  const soulStoneReturnTimerRef = useRef<number | null>(null);
   const processedDrawFxEventIndexRef = useRef<number>(-1);
   const processedBoardFxEventIndexRef = useRef<number>(-1);
   const processedBattlePowerRevealEventIndexRef = useRef<number>(-1);
   const processedBattlePowerRevealUsedPileIndexRef = useRef<number>(-1);
+  const previousCommittedStateRef = useRef<GameState | null>(null);
+  const rewindHistoryRef = useRef<Array<{ preState: GameState; action: string; cardDefinitionId: string | null }>>([]);
   const recentLocalBoardAnimationSignatureRef = useRef<string | null>(null);
   const lastPendingBattleSnapshotRef = useRef<{
     battleType: 'attack' | 'defend';
@@ -625,6 +668,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBoardCharacterSpecial, setPendingBoardCharacterSpecial] = useState<PendingBoardCharacterSpecial | null>(null);
   const [pendingBattlePhoneFriendPlay, setPendingBattlePhoneFriendPlay] = useState<PendingBattlePhoneFriendPlay | null>(null);
   const [pendingBattleWeaponEquipPlay, setPendingBattleWeaponEquipPlay] = useState<PendingBattleWeaponEquipPlay | null>(null);
+  const [pendingBattleSoulStonePlay, setPendingBattleSoulStonePlay] = useState<PendingBattleSoulStonePlay | null>(null);
+  const [pendingRealityStonePlay, setPendingRealityStonePlay] = useState<PendingRealityStonePlay | null>(null);
   const [pendingBattleSwapPlay, setPendingBattleSwapPlay] = useState<PendingBattleSwapPlay | null>(null);
   const [phoneFriendAnimation, setPhoneFriendAnimation] = useState<PhoneFriendAnimationState | null>(null);
   const [multiplayerBattlePowerReveal, setMultiplayerBattlePowerReveal] = useState<MultiplayerBattlePowerRevealState | null>(null);
@@ -633,6 +678,421 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const multiplayerRpsStartTimerRef = useRef<number | null>(null);
   const [pendingJeremySpecial, setPendingJeremySpecial] = useState<PendingJeremySpecial | null>(null);
   const [showJeremySelectionModal, setShowJeremySelectionModal] = useState<boolean>(true);
+
+  const triggerInfinityAnimation = (kind: InfinityAnimationKind): void => {
+    const config: Record<InfinityAnimationKind, { title: string; subtitle: string; durationMs: number }> = {
+      thanos: {
+        title: 'THANOS INFINITY COLLECTION',
+        subtitle: 'Stones spiral through the cosmos and surge into hand.',
+        durationMs: 7000,
+      },
+      gauntlet: {
+        title: 'INFINITY GAUNTLET EQUIPPED',
+        subtitle: 'Wielder electrified by cosmic colors.',
+        durationMs: 5000,
+      },
+      space: {
+        title: 'SPACE STONE',
+        subtitle: 'Dark-blue portal tears open across the board.',
+        durationMs: 5000,
+      },
+      mind: {
+        title: 'MIND STONE',
+        subtitle: 'A yellow wave reveals hidden knowledge.',
+        durationMs: 5000,
+      },
+      soul: {
+        title: 'SOUL STONE',
+        subtitle: 'Soul energy siphons and transfers to the battler.',
+        durationMs: 7000,
+      },
+      time: {
+        title: 'TIME STONE',
+        subtitle: 'Green chrono-energy rewinds fate.',
+        durationMs: 7000,
+      },
+      reality: {
+        title: 'REALITY STONE',
+        subtitle: 'Reality bends in a red warp ripple.',
+        durationMs: 7000,
+      },
+      power: {
+        title: 'POWER STONE',
+        subtitle: 'A purple surge erupts through the clash.',
+        durationMs: 5000,
+      },
+    };
+
+    const next = config[kind];
+    setInfinityAnimation({
+      kind,
+      title: next.title,
+      subtitle: next.subtitle,
+      durationMs: next.durationMs,
+    });
+  };
+
+  useEffect(() => {
+    if (!infinityAnimation) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setInfinityAnimation(current => (current === infinityAnimation ? null : current));
+    }, infinityAnimation.durationMs);
+
+    return () => window.clearTimeout(timer);
+  }, [infinityAnimation]);
+
+  useEffect(() => {
+    if (!infinityAnimation || infinityAnimation.kind !== 'mind' || !state?.pendingBattle) {
+      return;
+    }
+
+    const wasFullBoard = showBattleFullBoard;
+    if (!wasFullBoard) {
+      setShowBattleFullBoard(true);
+    }
+
+    const timer = window.setTimeout(() => {
+      if (!wasFullBoard) {
+        setShowBattleFullBoard(false);
+      }
+    }, infinityAnimation.durationMs);
+
+    return () => window.clearTimeout(timer);
+  }, [infinityAnimation, showBattleFullBoard, state?.pendingBattle]);
+
+  const renderInfinityAnimationOverlay = (): React.ReactNode => {
+    if (!infinityAnimation) {
+      return null;
+    }
+
+    return React.createElement(
+      'section',
+      {
+        className: `infinity-cinematic-overlay infinity-cinematic-${infinityAnimation.kind}`,
+        'data-testid': `infinity-cinematic-${infinityAnimation.kind}`,
+      },
+      React.createElement('div', { className: 'infinity-cinematic-stars', 'aria-hidden': 'true' }),
+      React.createElement('div', { className: 'infinity-cinematic-glow', 'aria-hidden': 'true' }),
+      (infinityAnimation.kind === 'thanos' || infinityAnimation.kind === 'gauntlet')
+        ? React.createElement(
+            'div',
+            { className: 'infinity-stone-trails', 'aria-hidden': 'true' },
+            React.createElement('span', { className: 'infinity-stone-trail stone-power' }),
+            React.createElement('span', { className: 'infinity-stone-trail stone-mind' }),
+            React.createElement('span', { className: 'infinity-stone-trail stone-time' }),
+            React.createElement('span', { className: 'infinity-stone-trail stone-reality' }),
+            React.createElement('span', { className: 'infinity-stone-trail stone-space' }),
+            React.createElement('span', { className: 'infinity-stone-trail stone-soul' }),
+          )
+        : null,
+      infinityAnimation.kind === 'thanos'
+        ? React.createElement(
+            'div',
+            { className: 'infinity-hand-entry-trails', 'aria-hidden': 'true' },
+            React.createElement('span', { className: 'infinity-hand-entry stone-power' }),
+            React.createElement('span', { className: 'infinity-hand-entry stone-mind' }),
+            React.createElement('span', { className: 'infinity-hand-entry stone-time' }),
+            React.createElement('span', { className: 'infinity-hand-entry stone-reality' }),
+            React.createElement('span', { className: 'infinity-hand-entry stone-space' }),
+            React.createElement('span', { className: 'infinity-hand-entry stone-soul' }),
+          )
+        : null,
+      infinityAnimation.kind === 'space'
+        ? React.createElement('div', { className: 'infinity-space-vortex', 'aria-hidden': 'true' })
+        : null,
+      infinityAnimation.kind === 'mind'
+        ? React.createElement('div', { className: 'infinity-mind-flash', 'aria-hidden': 'true' })
+        : null,
+      infinityAnimation.kind === 'soul'
+        ? React.createElement(
+            'div',
+            { className: 'infinity-soul-stream', 'aria-hidden': 'true' },
+            React.createElement('span', { className: 'soul-source' }),
+            React.createElement('span', { className: 'soul-current' }),
+            React.createElement('span', { className: 'soul-target' }),
+          )
+        : null,
+      infinityAnimation.kind === 'time'
+        ? React.createElement(
+            'div',
+            { className: 'infinity-time-rings', 'aria-hidden': 'true' },
+            React.createElement('span', { className: 'time-ring time-ring-a' }),
+            React.createElement('span', { className: 'time-ring time-ring-b' }),
+            React.createElement('span', { className: 'time-ring time-ring-c' }),
+          )
+        : null,
+      infinityAnimation.kind === 'reality'
+        ? React.createElement(
+            'div',
+            { className: 'infinity-reality-ripple', 'aria-hidden': 'true' },
+            React.createElement('span', { className: 'reality-wave reality-wave-a' }),
+            React.createElement('span', { className: 'reality-wave reality-wave-b' }),
+            React.createElement('span', { className: 'reality-wave reality-wave-c' }),
+          )
+        : null,
+      infinityAnimation.kind === 'power'
+        ? React.createElement('div', { className: 'infinity-power-burst', 'aria-hidden': 'true' })
+        : null,
+      React.createElement(
+        'div',
+        { className: 'infinity-cinematic-panel' },
+        React.createElement('h3', null, infinityAnimation.title),
+        React.createElement('p', null, infinityAnimation.subtitle),
+      ),
+    );
+  };
+
+  const renderRealityStoneTargetOverlay = (): React.ReactNode => {
+    if (!pendingRealityStonePlay) {
+      return null;
+    }
+
+    const viewingController: Controller = isBotMode
+      ? 'P1'
+      : (multiplayerMode && multiplayerPlayer ? multiplayerPlayer : pendingRealityStonePlay.actor);
+    const opponentForView: Controller = viewingController === 'P1' ? 'P2' : 'P1';
+
+    const directTargets = realityStoneTargets.filter(target => (
+      target.zoneLabel === 'Attachment'
+      || target.zoneLabel === 'Player One Hand'
+      || target.zoneLabel === 'Player Two Hand'
+    ));
+    const graveyardTargets = realityStoneTargets.filter(target => target.zoneLabel === 'Graveyard');
+    const usedPowerTargets = realityStoneTargets.filter(target => target.zoneLabel === 'Used Power Pile');
+    const deckTopTargets = realityStoneTargets.filter(target => target.zoneLabel === 'Character Deck Top' || target.zoneLabel === 'Power Deck Top');
+
+    return React.createElement(
+      'section',
+      { className: 'board-card-modal board-targeting-overlay', 'data-testid': 'reality-stone-targeting-modal' },
+      React.createElement(
+        'div',
+        { className: 'board-card-modal-panel board-power-card-modal-panel board-power-targeting-panel' },
+        React.createElement('h3', null, 'REALITY STONE Targeting'),
+        React.createElement('p', { className: 'status-label' }, 'Select any card target below. This includes board cards, hand cards, graveyard cards, used power cards, attachments, and deck tops.'),
+        React.createElement(
+          'p',
+          { className: 'status-label', 'data-testid': 'reality-selected-target' },
+          selectedRealityStoneTarget
+            ? `Selected: ${selectedRealityStoneTarget.zoneLabel} - ${selectedRealityStoneTarget.displayName}`
+            : 'No target selected yet.',
+        ),
+        React.createElement(
+          'div',
+          { className: 'power-card-row', style: { flexWrap: 'wrap', maxHeight: '52vh', overflowY: 'auto' } },
+          directTargets.map(target => {
+            const selected = pendingRealityStonePlay.selectedTargetRef === target.targetRef;
+            const testSuffix = target.targetRef.replace(/[^a-zA-Z0-9_-]/g, '-');
+            const handOwner = target.targetRef.startsWith('hand:')
+              ? (target.targetRef.split(':')[1] === 'P2' ? 'P2' : 'P1')
+              : null;
+            const shouldHideHandFace = handOwner !== null && handOwner !== viewingController;
+            return React.createElement(
+              'button',
+              {
+                key: target.targetRef,
+                type: 'button',
+                className: `power-card-button ${selected ? 'option-card-selected' : ''}`,
+                onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: target.targetRef } : prev),
+                'aria-pressed': selected,
+                'data-testid': `reality-target-${testSuffix}`,
+              },
+              target.cardType === 'character'
+                ? React.createElement(CharacterCardFrame, {
+                    size: 'compact',
+                    revealed: true,
+                    controllerColorClass: 'player-color-blue',
+                    displayName: target.displayName,
+                    ATK: target.ATK ?? 0,
+                    DEF: target.DEF ?? 0,
+                    ability: target.subtitle,
+                    artSrc: target.artImageUrl ?? null,
+                    fullCardFaceSrc: target.fullCardFaceImageUrl ?? null,
+                    visualMode: target.visualMode ?? 'layered-art',
+                    isKing: false,
+                    isFrozen: false,
+                    testId: `reality-target-card-${testSuffix}`,
+                  })
+                : React.createElement(PowerCardFrame, {
+                    size: 'hand',
+                    displayName: target.displayName,
+                    rulesText: target.subtitle,
+                    artSrc: target.artImageUrl ?? null,
+                    fullCardFaceSrc: target.fullCardFaceImageUrl ?? null,
+                    visualMode: target.visualMode ?? 'layered-art',
+                    state: shouldHideHandFace ? 'back' : (selected ? 'selected' : 'playable'),
+                    selected,
+                    testId: `reality-target-card-${testSuffix}`,
+                  }),
+            );
+          }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'power-popover-controls' },
+          pendingRealityStonePlay.phase === 'board' && graveyardTargets.length > 0
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'graveyard' ? null : 'graveyard' } : prev),
+                  'data-testid': 'reality-open-graveyard',
+                },
+                pendingRealityStonePlay.expandedSection === 'graveyard' ? 'Hide Graveyard' : 'Open Graveyard',
+              )
+            : null,
+          pendingRealityStonePlay.phase === 'board' && usedPowerTargets.length > 0
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'usedpower' ? null : 'usedpower' } : prev),
+                  'data-testid': 'reality-open-used-pile',
+                },
+                pendingRealityStonePlay.expandedSection === 'usedpower' ? 'Hide Used Power Pile' : 'Open Used Power Pile',
+              )
+            : null,
+          pendingRealityStonePlay.phase === 'board' && deckTopTargets.length > 0
+            ? React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'decktops' ? null : 'decktops' } : prev),
+                  'data-testid': 'reality-open-decktops',
+                },
+                pendingRealityStonePlay.expandedSection === 'decktops' ? 'Hide Deck Tops' : 'Open Deck Tops',
+              )
+            : null,
+        ),
+        pendingRealityStonePlay.expandedSection === 'graveyard'
+          ? React.createElement(
+              'div',
+              { className: 'power-card-row', style: { flexWrap: 'wrap' }, 'data-testid': 'reality-graveyard-row' },
+              graveyardTargets.map(target => {
+                const selected = pendingRealityStonePlay.selectedTargetRef === target.targetRef;
+                const testSuffix = target.targetRef.replace(/[^a-zA-Z0-9_-]/g, '-');
+                return React.createElement(
+                  'button',
+                  {
+                    key: target.targetRef,
+                    type: 'button',
+                    className: `power-card-button ${selected ? 'option-card-selected' : ''}`,
+                    onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: target.targetRef } : prev),
+                    'aria-pressed': selected,
+                    'data-testid': `reality-target-${testSuffix}`,
+                  },
+                  React.createElement(CharacterCardFrame, {
+                    size: 'compact',
+                    revealed: true,
+                    controllerColorClass: 'player-color-blue',
+                    displayName: target.displayName,
+                    ATK: target.ATK ?? 0,
+                    DEF: target.DEF ?? 0,
+                    ability: target.subtitle,
+                    artSrc: target.artImageUrl ?? null,
+                    fullCardFaceSrc: target.fullCardFaceImageUrl ?? null,
+                    visualMode: target.visualMode ?? 'layered-art',
+                    isKing: false,
+                    isFrozen: false,
+                    testId: `reality-target-card-${testSuffix}`,
+                  }),
+                );
+              }),
+            )
+          : null,
+        pendingRealityStonePlay.expandedSection === 'usedpower'
+          ? React.createElement(
+              'div',
+              { className: 'power-card-row', style: { flexWrap: 'wrap' }, 'data-testid': 'reality-usedpile-row' },
+              usedPowerTargets.map(target => {
+                const selected = pendingRealityStonePlay.selectedTargetRef === target.targetRef;
+                const testSuffix = target.targetRef.replace(/[^a-zA-Z0-9_-]/g, '-');
+                return React.createElement(
+                  'button',
+                  {
+                    key: target.targetRef,
+                    type: 'button',
+                    className: `power-card-button ${selected ? 'option-card-selected' : ''}`,
+                    onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: target.targetRef } : prev),
+                    'aria-pressed': selected,
+                    'data-testid': `reality-target-${testSuffix}`,
+                  },
+                  React.createElement(PowerCardFrame, {
+                    size: 'hand',
+                    displayName: target.displayName,
+                    rulesText: target.subtitle,
+                    artSrc: target.artImageUrl ?? null,
+                    fullCardFaceSrc: target.fullCardFaceImageUrl ?? null,
+                    visualMode: target.visualMode ?? 'layered-art',
+                    state: selected ? 'selected' : 'playable',
+                    selected,
+                    testId: `reality-target-card-${testSuffix}`,
+                  }),
+                );
+              }),
+            )
+          : null,
+        pendingRealityStonePlay.expandedSection === 'decktops'
+          ? React.createElement(
+              'div',
+              { className: 'power-card-row', style: { flexWrap: 'wrap' }, 'data-testid': 'reality-decktops-row' },
+              deckTopTargets.map(target => {
+                const selected = pendingRealityStonePlay.selectedTargetRef === target.targetRef;
+                const testSuffix = target.targetRef.replace(/[^a-zA-Z0-9_-]/g, '-');
+                return React.createElement(
+                  'button',
+                  {
+                    key: target.targetRef,
+                    type: 'button',
+                    className: `power-card-button ${selected ? 'option-card-selected' : ''}`,
+                    onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: target.targetRef } : prev),
+                    'aria-pressed': selected,
+                    'data-testid': `reality-target-${testSuffix}`,
+                  },
+                  target.cardType === 'character'
+                    ? React.createElement(CharacterCardFrame, {
+                        size: 'compact',
+                        revealed: false,
+                        controllerColorClass: 'player-color-blue',
+                        testId: `reality-target-card-${testSuffix}`,
+                      })
+                    : React.createElement(PowerCardFrame, {
+                        size: 'hand',
+                        state: 'back',
+                        testId: `reality-target-card-${testSuffix}`,
+                      }),
+                );
+              }),
+            )
+          : null,
+        React.createElement(
+          'div',
+          { className: 'power-popover-controls' },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              onClick: confirmRealityStonePlay,
+              disabled: !pendingRealityStonePlay.selectedTargetRef,
+              'data-testid': 'reality-stone-confirm',
+            },
+            pendingRealityStonePlay.selectedTargetRef ? 'Transform Selected Card' : 'Pick Target First',
+          ),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              onClick: cancelRealityStonePlay,
+              'data-testid': 'reality-stone-cancel',
+            },
+            'Cancel',
+          ),
+        ),
+      ),
+    );
+  };
   const [pendingAangEscape, setPendingAangEscape] = useState<PendingAangEscape | null>(null);
   const [pendingSkarReclaim, setPendingSkarReclaim] = useState<PendingSkarReclaim | null>(null);
   const [pendingIrohCounter, setPendingIrohCounter] = useState<PendingIrohCounter | null>(null);
@@ -1449,7 +1909,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [state, isBotMode, multiplayerMode, multiplayerPlayer, powerCatalogById]);
 
   const manualBattleHandsByController = useMemo<{ P1: PrivateBattleHandView; P2: PrivateBattleHandView } | null>(() => {
-    if (!state?.pendingBattle || isBotMode || multiplayerMode) {
+    if (!state?.pendingBattle) {
       return null;
     }
 
@@ -1487,7 +1947,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       : buildReadOnlyHand('P2');
 
     return { P1: p1, P2: p2 };
-  }, [battlePrivateHand, isBotMode, multiplayerMode, powerCatalogById, state]);
+  }, [battlePrivateHand, isBotMode, powerCatalogById, state]);
 
   useEffect(() => {
     if (!state?.pendingBattle) {
@@ -1692,15 +2152,654 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     const card = safeView.boardCards.find(boardCard => boardCard.instanceId === expandedBoardCharacterId) ?? null;
     const allowUnrevealedRead = !!pendingBattleWeaponEquipPlay
+      || !!pendingBattleSoulStonePlay
       || !!pendingBattlePhoneFriendPlay
       || !!pendingBattleSwapPlay
       || showBattleFullBoard
       || !!pendingBoardWeaponEquipPlay
-      || (pendingBoardPowerPlay?.definitionId === 'power-alpha-018' && !!pendingBoardPowerPlay.pendingCharacterId);
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018';
     return card && (card.revealed || allowUnrevealedRead) ? card : null;
-  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
+  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
 
   const publicEventLog = useMemo(() => (safeView ? toPublicEventText(safeView.eventLog) : []), [safeView]);
+
+  const gauntletEnergizedCharacterIds = useMemo(() => {
+    if (!state || !infinityAnimation || infinityAnimation.kind !== 'gauntlet') {
+      return [] as string[];
+    }
+
+    return state.characters
+      .filter(character => (character.attachments ?? []).some(attachment => attachment.definitionId === 'power-alpha-023'))
+      .map(character => character.id);
+  }, [infinityAnimation, state]);
+
+  const isPowerCardRevealedThisGame = (controller: Controller, instanceId: string): boolean => {
+    if (!state) {
+      return false;
+    }
+    const revealed = state.revealedPowerCardInstanceIds ?? { P1: [], P2: [] };
+    return revealed[controller].includes(instanceId);
+  };
+
+  const buildRealityStoneTargets = (currentState: GameState, sourceCardInstanceId: string): RealityStoneTarget[] => {
+    const targets: RealityStoneTarget[] = [];
+
+    for (const character of currentState.characters.filter(entry => entry.alive && !!entry.boardPosition)) {
+      targets.push({
+        targetRef: `boardchar:${character.id}`,
+        zoneLabel: 'Board Character',
+        cardType: 'character',
+        displayName: character.displayName ?? character.id,
+        subtitle: `${character.controller} ${character.boardPosition}`,
+        visualMode: character.visualMode,
+        artImageUrl: character.artImageUrl,
+        fullCardFaceImageUrl: character.fullCardFaceImageUrl,
+        ATK: character.ATK,
+        DEF: character.DEF,
+      });
+
+      for (const attachment of character.attachments ?? []) {
+        targets.push({
+          targetRef: `attach:${character.id}:${attachment.instanceId}`,
+          zoneLabel: 'Attachment',
+          cardType: 'power',
+          displayName: attachment.displayName,
+          subtitle: `Attached to ${character.displayName ?? character.id}`,
+          visualMode: powerCatalogById.get(attachment.definitionId)?.visualMode,
+          artImageUrl: powerCatalogById.get(attachment.definitionId)?.artImageUrl,
+          fullCardFaceImageUrl: powerCatalogById.get(attachment.definitionId)?.fullCardFaceImageUrl,
+        });
+      }
+    }
+
+    for (const character of [...currentState.graveyard].reverse()) {
+      targets.push({
+        targetRef: `gravechar:${character.id}`,
+        zoneLabel: 'Graveyard',
+        cardType: 'character',
+        displayName: character.displayName ?? character.id,
+        subtitle: `${character.controller} Graveyard`,
+        visualMode: character.visualMode,
+        artImageUrl: character.artImageUrl,
+        fullCardFaceImageUrl: character.fullCardFaceImageUrl,
+        ATK: character.ATK,
+        DEF: character.DEF,
+      });
+    }
+
+    for (const controller of ['P1', 'P2'] as const) {
+      for (const card of currentState.powerCardHands[controller]) {
+        if (card.instanceId === sourceCardInstanceId) {
+          continue;
+        }
+        const definition = getPowerCardDefinition(card.definitionId);
+        const visual = powerCatalogById.get(card.definitionId);
+        targets.push({
+          targetRef: `hand:${controller}:${card.instanceId}`,
+          zoneLabel: controller === 'P1' ? 'Player One Hand' : 'Player Two Hand',
+          cardType: 'power',
+          displayName: definition.displayName,
+          subtitle: card.instanceId,
+          visualMode: visual?.visualMode,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        });
+      }
+    }
+
+    for (const used of [...currentState.usedPowerCardPile].reverse()) {
+      targets.push({
+        targetRef: `usedpower:${used.instanceId}`,
+        zoneLabel: 'Used Power Pile',
+        cardType: 'power',
+        displayName: used.displayName,
+        subtitle: used.effectSummary,
+        visualMode: used.visualMode,
+        artImageUrl: used.artImageUrl,
+        fullCardFaceImageUrl: used.fullCardFaceImageUrl,
+      });
+    }
+
+    if (currentState.characterDeck.length > 0) {
+      const topCharacter = currentState.characterDeck[0];
+      targets.push({
+        targetRef: 'decktop:character',
+        zoneLabel: 'Character Deck Top',
+        cardType: 'character',
+        displayName: topCharacter.displayName,
+        subtitle: 'Top Character Card',
+        visualMode: topCharacter.visualMode,
+        artImageUrl: topCharacter.artImageUrl,
+        fullCardFaceImageUrl: topCharacter.fullCardFaceImageUrl,
+        ATK: topCharacter.ATK,
+        DEF: topCharacter.DEF,
+      });
+    }
+
+    if (currentState.powerCardDeck.length > 0) {
+      const topPower = currentState.powerCardDeck[0];
+      const definition = getPowerCardDefinition(topPower.definitionId);
+      const visual = powerCatalogById.get(topPower.definitionId);
+      targets.push({
+        targetRef: 'decktop:power',
+        zoneLabel: 'Power Deck Top',
+        cardType: 'power',
+        displayName: definition.displayName,
+        subtitle: 'Top Power Card',
+        visualMode: visual?.visualMode,
+        artImageUrl: visual?.artImageUrl,
+        fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+      });
+    }
+
+    return targets;
+  };
+
+  const refillCharacterDeckForReality = (currentState: GameState): GameState => {
+    if (currentState.characterDeck.length > 0 || currentState.sessionUsedCharacterPile.length === 0) {
+      return currentState;
+    }
+
+    return {
+      ...currentState,
+      characterDeck: shuffleCharacterInstances(currentState.sessionUsedCharacterPile, Math.random),
+      sessionUsedCharacterPile: [],
+      sessionRunoutOccurred: true,
+    };
+  };
+
+  const refillPowerDeckForReality = (currentState: GameState): GameState => {
+    if (currentState.powerCardDeck.length > 0 || currentState.sessionUsedPowerCardPile.length === 0) {
+      return currentState;
+    }
+
+    return {
+      ...currentState,
+      powerCardDeck: shufflePowerCardInstances(currentState.sessionUsedPowerCardPile, Math.random),
+      sessionUsedPowerCardPile: [],
+      sessionRunoutOccurred: true,
+    };
+  };
+
+  const realityAttachmentStats = (definitionId: string): { ATK: number; DEF: number } => {
+    if (definitionId === 'power-alpha-011') return { ATK: 3, DEF: 3 };
+    if (definitionId === 'power-alpha-012') return { ATK: 5, DEF: 1 };
+    if (definitionId === 'power-alpha-013') return { ATK: 3, DEF: 1 };
+    if (definitionId === 'power-alpha-014') return { ATK: 4, DEF: 2 };
+    if (definitionId === 'power-alpha-015') return { ATK: 2, DEF: 4 };
+    if (definitionId === 'power-alpha-023') return { ATK: state?.infinityGauntletEmpowered ? 7 : 4, DEF: state?.infinityGauntletEmpowered ? 5 : 2 };
+    if (definitionId === 'power-alpha-010') return { ATK: 5, DEF: 0 };
+    if (definitionId === 'power-alpha-027') return { ATK: 2, DEF: 2 };
+    return { ATK: 0, DEF: 0 };
+  };
+
+  const applyRealityStoneEffect = (
+    currentState: GameState,
+    actingPlayer: Controller,
+    cardInstanceId: string,
+    targetRef: string,
+    phase: 'board' | 'battle',
+  ): GameState => {
+    const handCard = currentState.powerCardHands[actingPlayer].find(card => card.instanceId === cardInstanceId);
+    if (!handCard) {
+      return currentState;
+    }
+
+    let nextState = currentState;
+    let effectSummary = 'REALITY STONE warped a card';
+    let boardReplayWindow: { owner: Controller; card: { instanceId: string; definitionId: string } } | null = null;
+
+    const removeBattleSourceEffects = (workingState: GameState, sourceInstanceId: string, sourceDefinitionId: string | null, sourceController: Controller): GameState => {
+      if (!workingState.pendingBattle) {
+        return workingState;
+      }
+
+      let nextBattle = {
+        ...workingState.pendingBattle,
+        temporaryModifiers: workingState.pendingBattle.temporaryModifiers.filter(modifier => modifier.sourceInstanceId !== sourceInstanceId),
+      };
+
+      if (sourceDefinitionId === 'power-alpha-007') {
+        nextBattle = {
+          ...nextBattle,
+          statsSwapped: !nextBattle.statsSwapped,
+        };
+      }
+
+      if (sourceDefinitionId === 'power-alpha-003') {
+        const overrides = { ...nextBattle.comparisonStatOverrides };
+        delete overrides[sourceController];
+        nextBattle = {
+          ...nextBattle,
+          comparisonStatOverrides: overrides,
+        };
+      }
+
+      return {
+        ...workingState,
+        pendingBattle: nextBattle,
+      };
+    };
+
+    const maybeEnableBattleReplayWindow = (
+      workingState: GameState,
+      owner: Controller,
+      replacement: { instanceId: string; definitionId: string },
+      summary: string,
+    ): GameState => {
+      if (!workingState.pendingBattle) {
+        return workingState;
+      }
+
+      const timing = getPowerCardAiMetadata(replacement.definitionId).timing;
+      if (timing === 'turn-only') {
+        const definition = getPowerCardDefinition(replacement.definitionId);
+        const visual = powerCatalogById.get(replacement.definitionId);
+        return {
+          ...workingState,
+          usedPowerCardPile: [
+            ...workingState.usedPowerCardPile,
+            {
+              instanceId: replacement.instanceId,
+              definitionId: replacement.definitionId,
+              controller: owner,
+              displayName: definition.displayName,
+              selectedChoice: null,
+              effectSummary: `${summary}; replacement not playable now`,
+              visualMode: visual?.visualMode,
+              artImageUrl: visual?.artImageUrl,
+              fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+            },
+          ],
+        };
+      }
+
+      const provisional: GameState = {
+        ...workingState,
+        powerCardHands: {
+          ...workingState.powerCardHands,
+          [owner]: [...workingState.powerCardHands[owner], replacement],
+        },
+        pendingBattle: {
+          ...workingState.pendingBattle,
+          currentPriorityPlayer: owner,
+          consecutivePassCount: 0,
+          readyPlayers: { P1: false, P2: false },
+          handoffRequiredFor: owner,
+        },
+      };
+
+      const acknowledged = {
+        ...provisional,
+        pendingBattle: provisional.pendingBattle
+          ? { ...provisional.pendingBattle, handoffRequiredFor: null }
+          : null,
+      };
+
+      try {
+        const handView = getBattlePrivateHandView(acknowledged, owner);
+        const replacementView = handView.cards.find(card => card.instanceId === replacement.instanceId);
+        if (replacementView?.isPlayable) {
+          return logEvent(provisional, 'Reality Stone Battle Replay Window', {
+            owner,
+            instanceId: replacement.instanceId,
+            definitionId: replacement.definitionId,
+          });
+        }
+      } catch {
+        // Fall through to used pile if playability cannot be established.
+      }
+
+      const definition = getPowerCardDefinition(replacement.definitionId);
+      const visual = powerCatalogById.get(replacement.definitionId);
+      return {
+        ...workingState,
+        usedPowerCardPile: [
+          ...workingState.usedPowerCardPile,
+          {
+            instanceId: replacement.instanceId,
+            definitionId: replacement.definitionId,
+            controller: owner,
+            displayName: definition.displayName,
+            selectedChoice: null,
+            effectSummary: `${summary}; replacement not playable now`,
+            visualMode: visual?.visualMode,
+            artImageUrl: visual?.artImageUrl,
+            fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+          },
+        ],
+      };
+    };
+
+    const replaceCharacterFields = (character: GameState['characters'][number], topCard: GameState['characterDeck'][number]) => ({
+      ...character,
+      definitionId: topCard.definitionId,
+      displayName: topCard.displayName,
+      ATK: topCard.ATK,
+      DEF: topCard.DEF,
+      ability: topCard.ability,
+      statRule: topCard.statRule,
+      imageKey: topCard.imageKey,
+      visualMode: topCard.visualMode,
+      artImageUrl: topCard.artImageUrl,
+      fullCardFaceImageUrl: topCard.fullCardFaceImageUrl,
+      abilityUsed: false,
+    });
+
+    if (targetRef.startsWith('boardchar:') || targetRef.startsWith('gravechar:')) {
+      nextState = refillCharacterDeckForReality(nextState);
+      if (nextState.characterDeck.length === 0) {
+        return currentState;
+      }
+      const topCard = nextState.characterDeck[0];
+      nextState = { ...nextState, characterDeck: nextState.characterDeck.slice(1) };
+      const characterId = targetRef.split(':')[1];
+
+      if (targetRef.startsWith('boardchar:')) {
+        const target = nextState.characters.find(character => character.id === characterId);
+        if (!target) {
+          return currentState;
+        }
+        nextState = {
+          ...nextState,
+          characters: nextState.characters.map(character => (
+            character.id === characterId ? replaceCharacterFields(character, topCard) : character
+          )),
+        };
+        effectSummary = `REALITY STONE transformed ${target.displayName ?? target.id} into ${topCard.displayName}`;
+      } else {
+        const target = nextState.graveyard.find(character => character.id === characterId);
+        if (!target) {
+          return currentState;
+        }
+        nextState = {
+          ...nextState,
+          graveyard: nextState.graveyard.map(character => (
+            character.id === characterId ? replaceCharacterFields(character, topCard) : character
+          )),
+        };
+        effectSummary = `REALITY STONE transformed graveyard ${target.displayName ?? target.id} into ${topCard.displayName}`;
+      }
+    } else if (targetRef === 'decktop:character') {
+      nextState = refillCharacterDeckForReality(nextState);
+      if (nextState.characterDeck.length > 1) {
+        nextState = {
+          ...nextState,
+          characterDeck: [nextState.characterDeck[1], ...nextState.characterDeck.slice(2)],
+        };
+      }
+      effectSummary = 'REALITY STONE transformed the top Character Deck card into the next top Character Deck card';
+    } else {
+      nextState = refillPowerDeckForReality(nextState);
+      if (nextState.powerCardDeck.length === 0) {
+        return currentState;
+      }
+      const topPower = nextState.powerCardDeck[0];
+      const topDefinition = getPowerCardDefinition(topPower.definitionId);
+      const topVisual = powerCatalogById.get(topPower.definitionId);
+      nextState = { ...nextState, powerCardDeck: nextState.powerCardDeck.slice(1) };
+
+      if (targetRef.startsWith('hand:')) {
+        const [, controller, instanceId] = targetRef.split(':');
+        const revealedPowerIds = nextState.revealedPowerCardInstanceIds ?? { P1: [], P2: [] };
+        const wasRevealed = revealedPowerIds[controller as Controller].includes(instanceId);
+        nextState = {
+          ...nextState,
+          powerCardHands: {
+            ...nextState.powerCardHands,
+            [controller]: nextState.powerCardHands[controller as Controller].map(card => (
+              card.instanceId === instanceId ? topPower : card
+            )),
+          },
+          revealedPowerCardInstanceIds: wasRevealed
+            ? {
+                ...revealedPowerIds,
+                [controller]: revealedPowerIds[controller as Controller].map(id => (id === instanceId ? topPower.instanceId : id)),
+              }
+            : revealedPowerIds,
+        };
+        effectSummary = `REALITY STONE transformed a hand card into ${topDefinition.displayName}`;
+      } else if (targetRef.startsWith('usedpower:')) {
+        const instanceId = targetRef.split(':')[1];
+        const original = nextState.usedPowerCardPile.find(card => card.instanceId === instanceId) ?? null;
+        nextState = removeBattleSourceEffects(nextState, instanceId, original?.definitionId ?? null, original?.controller ?? actingPlayer);
+        nextState = {
+          ...nextState,
+          usedPowerCardPile: nextState.usedPowerCardPile.filter(card => card.instanceId !== instanceId),
+        };
+        effectSummary = `REALITY STONE transformed a used power card into ${topDefinition.displayName}`;
+        if (phase === 'battle' && original) {
+          nextState = maybeEnableBattleReplayWindow(nextState, original.controller, topPower, effectSummary);
+        } else {
+          nextState = {
+            ...nextState,
+            usedPowerCardPile: [
+              ...nextState.usedPowerCardPile,
+              {
+                instanceId: topPower.instanceId,
+                definitionId: topPower.definitionId,
+                controller: original?.controller ?? actingPlayer,
+                displayName: topDefinition.displayName,
+                selectedChoice: null,
+                effectSummary,
+                visualMode: topVisual?.visualMode,
+                artImageUrl: topVisual?.artImageUrl,
+                fullCardFaceImageUrl: topVisual?.fullCardFaceImageUrl,
+              },
+            ],
+          };
+        }
+      } else if (targetRef.startsWith('attach:')) {
+        const [, characterId, instanceId] = targetRef.split(':');
+        const attachmentOwner = nextState.characters.find(character => character.id === characterId)?.controller ?? actingPlayer;
+        const stats = realityAttachmentStats(topPower.definitionId);
+        const isReplacementAttachment = [
+          'power-alpha-010',
+          'power-alpha-011',
+          'power-alpha-012',
+          'power-alpha-013',
+          'power-alpha-014',
+          'power-alpha-015',
+          'power-alpha-023',
+          'power-alpha-027',
+        ].includes(topPower.definitionId);
+        if (isReplacementAttachment) {
+          nextState = {
+            ...nextState,
+            characters: nextState.characters.map(character => (
+              character.id === characterId
+                ? {
+                    ...character,
+                    attachments: (character.attachments ?? []).map(attachment => (
+                      attachment.instanceId === instanceId
+                        ? {
+                            ...attachment,
+                            instanceId: topPower.instanceId,
+                            definitionId: topPower.definitionId,
+                            displayName: topDefinition.displayName,
+                            ATK: stats.ATK,
+                            DEF: stats.DEF,
+                            infinityEmpowered: undefined,
+                          }
+                        : attachment
+                    )),
+                  }
+                : character
+            )),
+          };
+          effectSummary = `REALITY STONE transformed an attachment into ${topDefinition.displayName}`;
+        } else {
+          nextState = {
+            ...nextState,
+            characters: nextState.characters.map(character => (
+              character.id === characterId
+                ? {
+                    ...character,
+                    attachments: (character.attachments ?? []).filter(attachment => attachment.instanceId !== instanceId),
+                  }
+                : character
+            )),
+          };
+          effectSummary = `REALITY STONE transformed an attachment into ${topDefinition.displayName}`;
+          if (phase === 'battle') {
+            nextState = maybeEnableBattleReplayWindow(nextState, attachmentOwner, topPower, effectSummary);
+          } else {
+            const timing = getPowerCardAiMetadata(topPower.definitionId).timing;
+            const boardPlayableNow = timing === 'anytime' || (timing === 'turn-only' && attachmentOwner === currentState.activePlayer);
+            if (boardPlayableNow) {
+              nextState = {
+                ...nextState,
+                powerCardHands: {
+                  ...nextState.powerCardHands,
+                  [attachmentOwner]: [...nextState.powerCardHands[attachmentOwner], topPower],
+                },
+              };
+              boardReplayWindow = { owner: attachmentOwner, card: topPower };
+            } else {
+              nextState = {
+                ...nextState,
+                usedPowerCardPile: [
+                  ...nextState.usedPowerCardPile,
+                  {
+                    instanceId: topPower.instanceId,
+                    definitionId: topPower.definitionId,
+                    controller: attachmentOwner,
+                    displayName: topDefinition.displayName,
+                    selectedChoice: null,
+                    effectSummary,
+                    visualMode: topVisual?.visualMode,
+                    artImageUrl: topVisual?.artImageUrl,
+                    fullCardFaceImageUrl: topVisual?.fullCardFaceImageUrl,
+                  },
+                ],
+              };
+            }
+          }
+        }
+      } else if (targetRef === 'decktop:power') {
+        nextState = refillPowerDeckForReality(nextState);
+        if (nextState.powerCardDeck.length > 1) {
+          nextState = {
+            ...nextState,
+            powerCardDeck: [nextState.powerCardDeck[1], ...nextState.powerCardDeck.slice(2)],
+          };
+        } else {
+          nextState = {
+            ...nextState,
+            powerCardDeck: [topPower, ...nextState.powerCardDeck],
+          };
+        }
+        effectSummary = `REALITY STONE transformed the top Power Deck card into the next top Power Deck card`;
+      }
+    }
+
+    if (phase === 'board') {
+      let boardNext = consumeBoardPowerCard(nextState, actingPlayer, cardInstanceId, effectSummary);
+      if (boardReplayWindow) {
+        boardNext = logEvent(boardNext, 'Reality Stone Replay Window', {
+          owner: boardReplayWindow.owner,
+          instanceId: boardReplayWindow.card.instanceId,
+          definitionId: boardReplayWindow.card.definitionId,
+        });
+      }
+      return boardNext;
+    }
+
+    const definition = getPowerCardDefinition(handCard.definitionId);
+    const visual = powerCatalogById.get(handCard.definitionId);
+    const nextPriority: Controller = actingPlayer === 'P1' ? 'P2' : 'P1';
+    let battleNext: GameState = {
+      ...nextState,
+      powerCardHands: {
+        ...nextState.powerCardHands,
+        [actingPlayer]: nextState.powerCardHands[actingPlayer].filter(card => card.instanceId !== cardInstanceId),
+      },
+      usedPowerCardPile: [
+        ...nextState.usedPowerCardPile,
+        {
+          instanceId: handCard.instanceId,
+          definitionId: handCard.definitionId,
+          controller: actingPlayer,
+          displayName: definition.displayName,
+          selectedChoice: null,
+          effectSummary,
+          visualMode: visual?.visualMode,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        },
+      ],
+      pendingBattle: nextState.pendingBattle
+        ? {
+            ...nextState.pendingBattle,
+            currentPriorityPlayer: nextPriority,
+            consecutivePassCount: 0,
+            readyPlayers: { P1: false, P2: false },
+            handoffRequiredFor: nextPriority,
+            eventHistory: [
+              ...nextState.pendingBattle.eventHistory,
+              `${actingPlayer === 'P1' ? 'Human' : 'Bot'} played REALITY STONE`,
+              effectSummary,
+              'Ready flags reset',
+              `Priority: ${nextPriority === 'P1' ? 'Human' : 'Bot'}`,
+            ],
+          }
+        : null,
+    };
+
+    battleNext = logEvent(battleNext, 'Battle Card Played', {
+      actingPlayer,
+      cardInstanceId,
+      cardDefinitionId: 'power-alpha-025',
+      effectSummary,
+      nextPriority,
+      consecutivePassCount: 0,
+    });
+
+    return battleNext;
+  };
+
+  const realityStoneTargets = useMemo(() => {
+    if (!state || !pendingRealityStonePlay) {
+      return [] as RealityStoneTarget[];
+    }
+    return buildRealityStoneTargets(state, pendingRealityStonePlay.cardInstanceId);
+  }, [pendingRealityStonePlay, state]);
+
+  const selectedRealityStoneTarget = useMemo(() => {
+    if (!pendingRealityStonePlay?.selectedTargetRef) {
+      return null;
+    }
+    return realityStoneTargets.find(target => target.targetRef === pendingRealityStonePlay.selectedTargetRef) ?? null;
+  }, [pendingRealityStonePlay, realityStoneTargets]);
+
+  const confirmRealityStonePlay = (): void => {
+    if (!state || !pendingRealityStonePlay?.selectedTargetRef) {
+      return;
+    }
+
+    const next = applyRealityStoneEffect(
+      state,
+      pendingRealityStonePlay.actor,
+      pendingRealityStonePlay.cardInstanceId,
+      pendingRealityStonePlay.selectedTargetRef,
+      pendingRealityStonePlay.phase,
+    );
+    setState(next);
+    setPendingRealityStonePlay(null);
+    setExpandedBoardCharacterId(null);
+    if (pendingRealityStonePlay.phase === 'battle') {
+      setShowBattleFullBoard(false);
+    }
+  };
+
+  const cancelRealityStonePlay = (): void => {
+    const phase = pendingRealityStonePlay?.phase;
+    setPendingRealityStonePlay(null);
+    setExpandedBoardCharacterId(null);
+    if (phase === 'battle') {
+      setShowBattleFullBoard(false);
+    }
+  };
 
   const endgameBoardView = useMemo(() => {
     if (!safeView || !state) {
@@ -1812,6 +2911,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
   const handleAttachmentCardClick = (characterId: string, attachmentInstanceId: string): void => {
     if (!state) {
+      return;
+    }
+
+    if (pendingRealityStonePlay) {
+      setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: `attach:${characterId}:${attachmentInstanceId}` } : prev);
       return;
     }
 
@@ -2256,6 +3360,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const clearPendingBattleCardPlayUi = (): void => {
     setPendingBattlePhoneFriendPlay(null);
     setPendingBattleWeaponEquipPlay(null);
+    setPendingBattleSoulStonePlay(null);
+    setPendingRealityStonePlay(null);
     setPendingBattleSwapPlay(null);
     setPendingCurtainsPlay(null);
     setShowBattleFullBoard(false);
@@ -2430,11 +3536,61 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       ) ?? responderHand.find(card => card.definitionId === 'power-alpha-020');
       if (noSprayCard) {
         const noSprayInput: PlayBattlePowerCardInput = { instanceId: noSprayCard.instanceId };
+        const nextResponder: Controller = reaction.sourceController;
+        const nextResponderHand = state.powerCardHands[nextResponder];
+        const noSprayOptions = nextResponderHand
+          .filter(card => card.definitionId === 'power-alpha-020')
+          .map(card => ({
+            instanceId: card.instanceId,
+            label: `NO SPRAY (${card.instanceId})`,
+          }));
+        const irohCounterCharacter = state.characters.find(character => (
+          character.alive
+          && character.revealed
+          && character.controller === nextResponder
+          && !character.abilityUsed
+          && isUncleIrohName(character.displayName)
+        ));
+        const noSprayDefinition = getPowerCardDefinition('power-alpha-020');
+        const noSprayVisual = powerCatalogById.get('power-alpha-020');
+        const noSprayReaction: PendingBattleReactionWindow = {
+          sourceController: reaction.responder,
+          responder: nextResponder,
+          input: noSprayInput,
+          cardInstanceId: noSprayCard.instanceId,
+          definitionId: 'power-alpha-020',
+          displayName: noSprayDefinition.displayName,
+          rulesText: noSprayDefinition.rulesText,
+          visualMode: noSprayVisual?.visualMode,
+          artImageUrl: noSprayVisual?.artImageUrl,
+          fullCardFaceImageUrl: noSprayVisual?.fullCardFaceImageUrl,
+          noSprayOptions,
+          selectedNoSprayInstanceId: noSprayOptions[0]?.instanceId ?? '',
+          irohCounterCharacterId: irohCounterCharacter?.id ?? null,
+          parent: reaction,
+        };
 
-        if (startBattleReactionWindow(state, reaction.responder, noSprayInput, 'power-alpha-020', reaction)) {
+        if (noSprayOptions.length > 0 || irohCounterCharacter) {
+          setPendingBattleReactionWindow(noSprayReaction);
           setBattleReactionSecondsLeft(20);
+          if (isBotMode && state.pendingBattle && state.pendingBattle.handoffRequiredFor !== nextResponder) {
+            setState({
+              ...state,
+              pendingBattle: {
+                ...state.pendingBattle,
+                handoffRequiredFor: nextResponder,
+              },
+            });
+          }
           return;
         }
+
+        const resolvedAfterNoSpray = resolveBattleReactionChain(state, noSprayReaction);
+        setState(resolvedAfterNoSpray);
+        setPendingBattleReactionWindow(null);
+        setBattleReactionSecondsLeft(null);
+        setBattleNoSprayCardViewOpen(false);
+        return;
       }
 
       if (reaction.irohCounterCharacterId) {
@@ -2494,6 +3650,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     return state.characters.find(character => character.id === pendingBattleWeaponEquipPlay.selectedCharacterId) ?? null;
   }, [pendingBattleWeaponEquipPlay, state]);
+
+  const selectedBattleSoulStoneTarget = useMemo(() => {
+    if (!state || !pendingBattleSoulStonePlay?.selectedCharacterId) {
+      return null;
+    }
+    return state.characters.find(character => character.id === pendingBattleSoulStonePlay.selectedCharacterId) ?? null;
+  }, [pendingBattleSoulStonePlay, state]);
 
   const selectedBattleSwapTarget = useMemo(() => {
     if (!state || !pendingBattleSwapPlay?.pendingCharacterId) {
@@ -2598,6 +3761,49 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setShowBattleFullBoard(false);
   };
 
+  const confirmBattleSoulStoneSacrifice = (): void => {
+    if (!state?.pendingBattle || !pendingBattleSoulStonePlay?.selectedCharacterId) {
+      return;
+    }
+
+    const actor = pendingBattleSoulStonePlay.actor;
+    const input: PlayBattlePowerCardInput = {
+      instanceId: pendingBattleSoulStonePlay.cardInstanceId,
+      targetCharacterId: pendingBattleSoulStonePlay.selectedCharacterId,
+      selectedChoice: pendingBattleSoulStonePlay.selectedChoice,
+    };
+    const sourceCard = state.powerCardHands[actor].find(card => card.instanceId === input.instanceId);
+    if (!sourceCard) {
+      setPendingBattleSoulStonePlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    if (startBattleReactionWindow(state, actor, input, sourceCard.definitionId)) {
+      setPendingBattleSoulStonePlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    const nextState = playBattlePowerCard(state, actor, input);
+    setState(nextState);
+    setPendingBattleSoulStonePlay(null);
+    setExpandedBoardCharacterId(null);
+    if (showBattleFullBoard) {
+      if (soulStoneReturnTimerRef.current !== null) {
+        window.clearTimeout(soulStoneReturnTimerRef.current);
+      }
+      soulStoneReturnTimerRef.current = window.setTimeout(() => {
+        setShowBattleFullBoard(false);
+        soulStoneReturnTimerRef.current = null;
+      }, 1700);
+    } else {
+      setShowBattleFullBoard(false);
+    }
+  };
+
   const confirmBoardWeaponEquip = (): void => {
     if (!state || !pendingBoardWeaponEquipPlay?.selectedCharacterId) {
       return;
@@ -2627,6 +3833,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       'power-alpha-013': { ATK: 3, DEF: 1 },
       'power-alpha-014': { ATK: 4, DEF: 2 },
       'power-alpha-015': { ATK: 2, DEF: 4 },
+      'power-alpha-023': { ATK: state.infinityGauntletEmpowered ? 7 : 4, DEF: state.infinityGauntletEmpowered ? 5 : 2 },
     };
 
     const baseBonus = statsByDefinitionId[sourceCard.definitionId];
@@ -2653,6 +3860,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   ATK: bonusATK,
                   DEF: bonusDEF,
                   specialUsed: false,
+                  infinityEmpowered: sourceCard.definitionId === 'power-alpha-023' ? !!state.infinityGauntletEmpowered : undefined,
                 },
               ],
             }
@@ -4192,9 +5400,26 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     : null;
 
   const selectedBattleNoSprayCard = pendingBattleReactionWindow && state
-    ? state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.instanceId === pendingBattleReactionWindow.selectedNoSprayInstanceId)
-      ?? state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.definitionId === 'power-alpha-020')
-      ?? null
+    ? (() => {
+        const rawCard = state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.instanceId === pendingBattleReactionWindow.selectedNoSprayInstanceId)
+          ?? state.powerCardHands[pendingBattleReactionWindow.responder].find(card => card.definitionId === 'power-alpha-020')
+          ?? null;
+        if (!rawCard) {
+          return null;
+        }
+
+        const definition = getPowerCardDefinition(rawCard.definitionId);
+        const visual = powerCatalogById.get(rawCard.definitionId);
+        return {
+          instanceId: rawCard.instanceId,
+          definitionId: rawCard.definitionId,
+          displayName: definition.displayName,
+          rulesText: definition.rulesText,
+          artImageUrl: visual?.artImageUrl,
+          fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+          visualMode: visual?.visualMode,
+        };
+      })()
     : null;
 
   const legalActionsForSelection = useMemo<LegalActionType[]>(() => {
@@ -4299,6 +5524,36 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     });
   };
 
+  const applyTimeStoneRewind = (
+    currentState: GameState,
+    actingPlayer: Controller,
+    cardInstanceId: string,
+    phase: 'board' | 'battle',
+  ): GameState | null => {
+    if (currentState.gameStatus !== 'active') {
+      return null;
+    }
+
+    const latestSnapshot = [...rewindHistoryRef.current].reverse().find(entry => (
+      entry.cardDefinitionId !== 'power-alpha-028' && entry.action !== 'Time Stone Rewind'
+    ));
+    if (!latestSnapshot) {
+      return null;
+    }
+
+    const summary = `TIME STONE rewound: ${latestSnapshot.action}`;
+    const rewound = phase === 'battle'
+      ? consumeBattlePowerCard(latestSnapshot.preState, actingPlayer, cardInstanceId, summary)
+      : consumeBoardPowerCard(latestSnapshot.preState, actingPlayer, cardInstanceId, summary);
+
+    return logEvent(rewound, 'Time Stone Rewind', {
+      actingPlayer,
+      cardInstanceId,
+      rewoundAction: latestSnapshot.action,
+      phase,
+    });
+  };
+
   const applyIrohCounterCancellation = (
     currentState: GameState,
     options: {
@@ -4386,6 +5641,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       }
     }
 
+    if (pendingRealityStonePlay?.phase === 'board' && state) {
+      const targets: Partial<Record<RingPosition, LegalActionType>> = {};
+      for (const character of state.characters) {
+        if (character.alive && character.boardPosition) {
+          targets[character.boardPosition as RingPosition] = 'move';
+        }
+      }
+      return targets;
+    }
+
     if (pendingBoardPowerPlay && state) {
       if (pendingBoardPowerPlay.step === 'back-pick-character') {
         const targets: Partial<Record<RingPosition, LegalActionType>> = {};
@@ -4461,7 +5726,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [freezeSpecialSourceId, legalActionsForSelection, pendingAangEscape, pendingBoardCharacterSpecial, pendingBoardPowerPlay, selectedSafeCard?.boardPosition, state]);
 
   const boardActionTargetFx = pendingBoardPowerPlay?.step === 'portal-pick-destination'
-    ? 'power-portal'
+    ? (pendingBoardPowerPlay.definitionId === 'power-alpha-027' ? 'space-stone-portal' : 'power-portal')
     : pendingBoardPowerPlay?.step === 'back-pick-destination'
       ? 'back-it-up'
       : null;
@@ -4684,6 +5949,51 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     for (let index = startIndex; index < state.eventLog.length; index += 1) {
       const event = state.eventLog[index];
 
+      if (event.action === 'Reality Stone Replay Window') {
+        const owner = event.details.owner === 'P2' ? 'P2' : 'P1';
+        const instanceId = typeof event.details.instanceId === 'string' ? event.details.instanceId : null;
+        if (instanceId && (!isBotMode || owner === 'P1')) {
+          setBoardHandVisibleFor(owner);
+          setExpandedBoardPowerCardId(instanceId);
+        }
+      }
+
+      if (event.action === 'Reality Stone Battle Replay Window') {
+        const owner = event.details.owner === 'P2' ? 'P2' : 'P1';
+        const instanceId = typeof event.details.instanceId === 'string' ? event.details.instanceId : null;
+        if (instanceId && (!isBotMode || owner === 'P1')) {
+          setBattleRealityReplayCardInstanceId(instanceId);
+        }
+      }
+
+      if (event.action === 'Thanos Infinity Collection') {
+        triggerInfinityAnimation('thanos');
+      }
+
+      if (event.action === 'Board Power Card Played' || event.action === 'Battle Card Played') {
+        const definitionId = typeof event.details.cardDefinitionId === 'string'
+          ? event.details.cardDefinitionId
+          : typeof event.details.definitionId === 'string'
+            ? event.details.definitionId
+            : null;
+
+        if (definitionId === 'power-alpha-006') {
+          triggerInfinityAnimation('power');
+        } else if (definitionId === 'power-alpha-023') {
+          triggerInfinityAnimation('gauntlet');
+        } else if (definitionId === 'power-alpha-024') {
+          triggerInfinityAnimation('mind');
+        } else if (definitionId === 'power-alpha-025') {
+          triggerInfinityAnimation('reality');
+        } else if (definitionId === 'power-alpha-026' && typeof event.details.effectSummary === 'string' && event.details.effectSummary.includes('SOUL STONE sacrificed')) {
+          triggerInfinityAnimation('soul');
+        } else if (definitionId === 'power-alpha-027') {
+          triggerInfinityAnimation('space');
+        } else if (definitionId === 'power-alpha-028') {
+          triggerInfinityAnimation('time');
+        }
+      }
+
       if (event.action === 'Roomba Move Draw') {
         const detailCharacterId = typeof event.details.characterId === 'string'
           ? event.details.characterId
@@ -4733,6 +6043,25 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     processedDrawFxEventIndexRef.current = state.eventLog.length - 1;
   }, [state]);
+
+  useEffect(() => {
+    if (!state?.pendingBattle) {
+      if (battleRealityReplayCardInstanceId) {
+        setBattleRealityReplayCardInstanceId(null);
+      }
+      return;
+    }
+
+    if (!battleRealityReplayCardInstanceId) {
+      return;
+    }
+
+    const stillInSomeHand = state.powerCardHands.P1.some(card => card.instanceId === battleRealityReplayCardInstanceId)
+      || state.powerCardHands.P2.some(card => card.instanceId === battleRealityReplayCardInstanceId);
+    if (!stillInSomeHand) {
+      setBattleRealityReplayCardInstanceId(null);
+    }
+  }, [battleRealityReplayCardInstanceId, state]);
 
   useEffect(() => {
     if (state?.pendingBattle) {
@@ -5140,6 +6469,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
+    if (pendingRealityStonePlay && state) {
+      if (clicked.alive && clicked.boardPosition) {
+        setPendingRealityStonePlay({
+          ...pendingRealityStonePlay,
+          selectedTargetRef: `boardchar:${clicked.instanceId}`,
+        });
+        setExpandedBoardCharacterId(clicked.instanceId);
+      }
+      return;
+    }
+
     if (pendingBoardPowerPlay && state) {
       if (pendingBoardPowerPlay.step === 'portal-pick-character') {
         if (clicked.alive && clicked.controller === state.activePlayer) {
@@ -5164,6 +6504,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
       if (pendingBoardPowerPlay.step === 'back-pick-character') {
         if (!clicked.alive) {
+          return;
+        }
+
+        if (pendingBoardPowerPlay.definitionId === 'power-alpha-025') {
+          setPendingBoardPowerPlay({
+            ...pendingBoardPowerPlay,
+            sourceCharacterId: clicked.instanceId,
+          });
           return;
         }
 
@@ -5312,12 +6660,87 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (pendingBoardPowerPlay && state) {
+      if ((pendingBoardPowerPlay.step === 'swap-pick-own' || pendingBoardPowerPlay.step === 'swap-pick-opponent') && targetPosition) {
+        const selected = state.characters.find(character => (
+          character.alive
+          && character.boardPosition === targetPosition
+        ));
+        if (!selected) {
+          return;
+        }
+
+        if (pendingBoardPowerPlay.step === 'swap-pick-own' && selected.controller !== state.activePlayer) {
+          return;
+        }
+
+        if (pendingBoardPowerPlay.step === 'swap-pick-opponent' && selected.controller === state.activePlayer) {
+          return;
+        }
+
+        setPendingBoardPowerPlay({
+          ...pendingBoardPowerPlay,
+          pendingCharacterId: selected.id,
+        });
+        setExpandedBoardCharacterId(selected.id);
+        return;
+      }
+
       if (pendingBoardPowerPlay.step === 'back-pick-character' && targetPosition) {
         const sourceCharacter = state.characters.find(character => (
           character.alive
           && character.boardPosition === targetPosition
         ));
         if (!sourceCharacter) {
+          return;
+        }
+
+        if (pendingBoardPowerPlay.definitionId === 'power-alpha-025') {
+          const actingPlayer = state.activePlayer;
+          let realityState = state;
+          if (realityState.characterDeck.length === 0 && realityState.sessionUsedCharacterPile.length > 0) {
+            realityState = {
+              ...realityState,
+              characterDeck: shuffleCharacterInstances(realityState.sessionUsedCharacterPile, Math.random),
+              sessionUsedCharacterPile: [],
+              sessionRunoutOccurred: true,
+            };
+          }
+          if (realityState.characterDeck.length === 0) {
+            setPendingBoardPowerPlay(null);
+            return;
+          }
+
+          const topDeck = realityState.characterDeck[0];
+          let nextState: GameState = {
+            ...realityState,
+            characterDeck: realityState.characterDeck.slice(1),
+            characters: realityState.characters.map(character => (
+              character.id === sourceCharacter.id
+                ? {
+                    ...character,
+                    definitionId: topDeck.definitionId,
+                    displayName: topDeck.displayName,
+                    ATK: topDeck.ATK,
+                    DEF: topDeck.DEF,
+                    ability: topDeck.ability,
+                    statRule: topDeck.statRule,
+                    imageKey: topDeck.imageKey,
+                    visualMode: topDeck.visualMode,
+                    artImageUrl: topDeck.artImageUrl,
+                    fullCardFaceImageUrl: topDeck.fullCardFaceImageUrl,
+                  }
+                : character
+            )),
+          };
+          nextState = consumeBoardPowerCard(
+            nextState,
+            actingPlayer,
+            pendingBoardPowerPlay.cardInstanceId,
+            `REALITY STONE transformed ${sourceCharacter.displayName ?? sourceCharacter.id} into ${topDeck.displayName}`,
+          );
+          setState(nextState);
+          setPendingBoardPowerPlay(null);
+          setSelectedCardId(null);
           return;
         }
 
@@ -5366,7 +6789,45 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         let nextState: GameState;
         if (pendingBoardPowerPlay.step === 'portal-pick-destination') {
           nextState = executePortalMove(state, actingPlayer, pendingBoardPowerPlay.sourceCharacterId, targetPosition, { preserveTurn: true });
-          nextState = consumeBoardPowerCard(nextState, actingPlayer, pendingBoardPowerPlay.cardInstanceId, 'PORTAL relocation');
+          if (pendingBoardPowerPlay.definitionId === 'power-alpha-027') {
+            const movedCharacter = getCharacter(nextState, pendingBoardPowerPlay.sourceCharacterId);
+            if (movedCharacter) {
+              nextState = {
+                ...nextState,
+                characters: nextState.characters.map(character => (
+                  character.id === movedCharacter.id
+                    ? {
+                        ...character,
+                        attachments: [
+                          ...(character.attachments ?? []),
+                          {
+                            instanceId: pendingBoardPowerPlay.cardInstanceId,
+                            definitionId: 'power-alpha-027',
+                            displayName: 'SPACE STONE',
+                            category: 'weapon',
+                            ATK: 2,
+                            DEF: 2,
+                            specialUsed: false,
+                          },
+                        ],
+                      }
+                    : character
+                )),
+                powerCardHands: {
+                  ...nextState.powerCardHands,
+                  [actingPlayer]: nextState.powerCardHands[actingPlayer].filter(card => card.instanceId !== pendingBoardPowerPlay.cardInstanceId),
+                },
+              };
+            }
+            nextState = logEvent(nextState, 'Board Power Card Played', {
+              actingPlayer,
+              cardInstanceId: pendingBoardPowerPlay.cardInstanceId,
+              cardDefinitionId: 'power-alpha-027',
+              effectSummary: 'SPACE STONE relocation and +2 ATK / +2 DEF attachment',
+            });
+          } else {
+            nextState = consumeBoardPowerCard(nextState, actingPlayer, pendingBoardPowerPlay.cardInstanceId, 'PORTAL relocation');
+          }
         } else {
           nextState = executeBackItUpMove(state, actingPlayer, pendingBoardPowerPlay.sourceCharacterId, targetPosition, { preserveTurn: true });
           nextState = consumeBoardPowerCard(nextState, actingPlayer, pendingBoardPowerPlay.cardInstanceId, 'BACK IT UP relocation');
@@ -5393,7 +6854,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             visualMode: sourceCharacter.visualMode,
             artImageUrl: sourceCharacter.artImageUrl,
             fullCardFaceImageUrl: sourceCharacter.fullCardFaceImageUrl,
-            style: 'power-portal',
+            style: pendingBoardPowerPlay.definitionId === 'power-alpha-027' ? 'space-stone-portal' : 'power-portal',
           });
         } else if (pendingBoardPowerPlay.step === 'back-pick-destination' && sourceCharacter.revealed) {
           setPendingBoardSpecialMotion({
@@ -6394,6 +7855,20 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     const revealSnapshot = pendingBotBattleReveal;
 
+    if (revealSnapshot.definitionId === 'power-alpha-006') {
+      triggerInfinityAnimation('power');
+    } else if (revealSnapshot.definitionId === 'power-alpha-023') {
+      triggerInfinityAnimation('gauntlet');
+    } else if (revealSnapshot.definitionId === 'power-alpha-024') {
+      triggerInfinityAnimation('mind');
+    } else if (revealSnapshot.definitionId === 'power-alpha-025') {
+      triggerInfinityAnimation('reality');
+    } else if (revealSnapshot.definitionId === 'power-alpha-027') {
+      triggerInfinityAnimation('space');
+    } else if (revealSnapshot.definitionId === 'power-alpha-028') {
+      triggerInfinityAnimation('time');
+    }
+
     if (state?.pendingBattle) {
       const startedReaction = startBattleReactionWindow(
         state,
@@ -6480,10 +7955,6 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const winnerIsAdvancingAttacker = !!winnerId
       && battleSnapshot.battleType === 'attack'
       && winnerId === battleSnapshot.initiatorId;
-
-    const thisBattleUsedCards = battleUsedPileStartCount === null
-      ? []
-      : state.usedPowerCardPile.slice(battleUsedPileStartCount);
 
     let next = resolvePendingBattle(state);
 
@@ -6614,6 +8085,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       getCharacter(state, battleSnapshot.opponentId),
     ].find(character => !!character && isSkarProductionsName(character.displayName));
 
+    const thisBattleUsedCards = battleUsedPileStartCount === null
+      ? []
+      : next.usedPowerCardPile.slice(battleUsedPileStartCount);
+
     if (skarInvolvedCharacter && thisBattleUsedCards.length > 0) {
       setPendingSkarReclaim({
         controller: skarInvolvedCharacter.controller,
@@ -6685,13 +8160,51 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     const revealDefinition = getPowerCardDefinition(card.definitionId);
     const revealVisual = powerCatalogById.get(card.definitionId);
+    const activeBattle = currentState.pendingBattle;
+    let resolvedInput: PlayBattlePowerCardInput = input;
+
+    if (card.definitionId === 'power-alpha-026' && activeBattle) {
+      const ownBattlerId = activeBattle.initiatorController === actor ? activeBattle.initiatorId : activeBattle.opponentId;
+      const opponentBattlerId = activeBattle.initiatorController === actor ? activeBattle.opponentId : activeBattle.initiatorId;
+      const legalSacrifice = currentState.characters.find(character => (
+        character.alive
+        && character.controller === actor
+        && character.id !== ownBattlerId
+        && character.id !== opponentBattlerId
+      ));
+      resolvedInput = {
+        ...resolvedInput,
+        targetCharacterId: resolvedInput.targetCharacterId ?? legalSacrifice?.id,
+        selectedChoice: resolvedInput.selectedChoice ?? 'ATK',
+      };
+    }
+
+    if (card.definitionId === 'power-alpha-025' && activeBattle) {
+      const defaultTargetId = activeBattle.initiatorController === actor ? activeBattle.opponentId : activeBattle.initiatorId;
+      resolvedInput = {
+        ...resolvedInput,
+        targetCharacterId: resolvedInput.targetCharacterId ?? defaultTargetId,
+      };
+    }
+
+    if (card.definitionId === 'power-alpha-028') {
+      const rewound = applyTimeStoneRewind(currentState, actor, card.instanceId, 'battle');
+      if (rewound) {
+        setState(rewound);
+        triggerInfinityAnimation('time');
+      } else if (persistCurrentStateOnEarlyExit) {
+        setState(currentState);
+      }
+      return;
+    }
+
     const promptedState = multiplayerMode
       ? logEvent(currentState, 'Battle Card Play Began', {
           actingPlayer: actor,
           cardInstanceId: card.instanceId,
           cardDefinitionId: card.definitionId,
-          selectedChoice: input.selectedChoice ?? null,
-          targetCharacterId: input.targetCharacterId ?? null,
+          selectedChoice: resolvedInput.selectedChoice ?? null,
+          targetCharacterId: resolvedInput.targetCharacterId ?? null,
         })
       : currentState;
 
@@ -6709,7 +8222,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const reactionPrimed = multiplayerMode
-      ? startBattleReactionWindow(promptedState, actor, input, card.definitionId)
+      ? startBattleReactionWindow(promptedState, actor, resolvedInput, card.definitionId)
       : false;
 
     if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-017') {
@@ -6718,7 +8231,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       }
       setPendingBattlePhoneFriendPlay({
         actor,
-        cardInstanceId: input.instanceId,
+        cardInstanceId: resolvedInput.instanceId,
         selectedCharacterId: null,
       });
       setShowBattleFullBoard(true);
@@ -6730,8 +8243,37 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         setState(promptedState);
       }
       setPendingBattleWeaponEquipPlay({
-        cardInstanceId: input.instanceId,
+        cardInstanceId: resolvedInput.instanceId,
         selectedCharacterId: null,
+      });
+      setShowBattleFullBoard(true);
+      return;
+    }
+
+    if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-026') {
+      if (persistCurrentStateOnEarlyExit) {
+        setState(promptedState);
+      }
+      setPendingBattleSoulStonePlay({
+        actor,
+        cardInstanceId: resolvedInput.instanceId,
+        selectedCharacterId: null,
+        selectedChoice: resolvedInput.selectedChoice ?? 'ATK',
+      });
+      setShowBattleFullBoard(true);
+      return;
+    }
+
+    if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-025') {
+      if (persistCurrentStateOnEarlyExit) {
+        setState(promptedState);
+      }
+      setPendingRealityStonePlay({
+        phase: 'battle',
+        actor,
+        cardInstanceId: resolvedInput.instanceId,
+        selectedTargetRef: null,
+        expandedSection: null,
       });
       setShowBattleFullBoard(true);
       return;
@@ -6742,7 +8284,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         setState(promptedState);
       }
       setPendingBattleSwapPlay({
-        cardInstanceId: input.instanceId,
+        cardInstanceId: resolvedInput.instanceId,
         actor,
         step: 'swap-pick-own',
         sourceCharacterId: null,
@@ -6757,16 +8299,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         setState(promptedState);
       }
       setPendingCurtainsPlay({
-        cardInstanceId: input.instanceId,
+        cardInstanceId: resolvedInput.instanceId,
         sourceController: actor,
         ownSwapCardInstanceId: null,
         opponentSwapCardInstanceId: null,
         ownHandCards: currentState.powerCardHands[actor]
-          .filter(card => card.instanceId !== input.instanceId)
+          .filter(card => card.instanceId !== resolvedInput.instanceId)
           .map(toCurtainsCardSnapshot),
         opponentHandCards: currentState.powerCardHands[actor === 'P1' ? 'P2' : 'P1'].map(toCurtainsCardSnapshot),
       });
-      hydrateCurtainsHandsFromServer(input.instanceId, actor);
+      hydrateCurtainsHandsFromServer(resolvedInput.instanceId, actor);
       setShowBattleFullBoard(true);
       return;
     }
@@ -6799,7 +8341,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     try {
-      const next = playBattlePowerCard(promptedState, actor, input);
+      const next = playBattlePowerCard(promptedState, actor, resolvedInput);
       setState(next);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown battle card play error';
@@ -6897,6 +8439,38 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setState(next);
     setPendingSkarReclaim(null);
   };
+
+  useEffect(() => {
+    if (!state) {
+      previousCommittedStateRef.current = null;
+      rewindHistoryRef.current = [];
+      return;
+    }
+
+    const previous = previousCommittedStateRef.current;
+    if (!previous) {
+      previousCommittedStateRef.current = state;
+      return;
+    }
+
+    if (previous === state) {
+      return;
+    }
+
+    if (state.eventLog.length > previous.eventLog.length) {
+      const latestEvent = state.eventLog[state.eventLog.length - 1];
+      const action = latestEvent?.action ?? 'Action';
+      const cardDefinitionId = typeof latestEvent?.details?.cardDefinitionId === 'string'
+        ? latestEvent.details.cardDefinitionId
+        : typeof latestEvent?.details?.definitionId === 'string'
+          ? latestEvent.details.definitionId
+          : null;
+      const history = [...rewindHistoryRef.current, { preState: previous, action, cardDefinitionId }];
+      rewindHistoryRef.current = history.slice(-20);
+    }
+
+    previousCommittedStateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (!isBotMode || !pendingSkarReclaim || pendingSkarReclaim.controller !== 'P2') {
@@ -7060,6 +8634,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [
     isBotBattleTurn,
     botDifficulty,
+    state?.powerCardHands?.P2.length,
     state?.pendingBattle?.handoffRequiredFor,
     state?.pendingBattle?.consecutivePassCount,
     state?.pendingBattle?.currentPriorityPlayer,
@@ -7087,6 +8662,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }, pendingBoardSpecialMotion.style === 'rapunzel-fling'
       ? 1400
       : pendingBoardSpecialMotion.style === 'power-portal'
+        ? 1700
+      : pendingBoardSpecialMotion.style === 'space-stone-portal'
         ? 1700
       : pendingBoardSpecialMotion.style === 'back-it-up'
         ? 1780
@@ -7153,11 +8730,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     const allowUnrevealedBattleTargetRead = !!pendingBattleWeaponEquipPlay
+      || !!pendingBattleSoulStonePlay
       || !!pendingBattlePhoneFriendPlay
       || !!pendingBattleSwapPlay
       || showBattleFullBoard
       || !!pendingBoardWeaponEquipPlay
-      || (pendingBoardPowerPlay?.definitionId === 'power-alpha-018' && !!pendingBoardPowerPlay.pendingCharacterId);
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018';
     const cardStillVisible = !!safeView.boardCards.some(card => (
       card.instanceId === expandedBoardCharacterId
       && (allowUnrevealedBattleTargetRead ? card.alive : card.revealed)
@@ -7165,7 +8743,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (!cardStillVisible) {
       setExpandedBoardCharacterId(null);
     }
-  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
+  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
 
   useEffect(() => () => {
     if (kingDrawFxTimerRef.current !== null) {
@@ -7173,6 +8751,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     if (antVictoryFxDelayTimerRef.current !== null) {
       window.clearTimeout(antVictoryFxDelayTimerRef.current);
+    }
+    if (soulStoneReturnTimerRef.current !== null) {
+      window.clearTimeout(soulStoneReturnTimerRef.current);
+      soulStoneReturnTimerRef.current = null;
     }
     clearRapunzelTimers();
   }, []);
@@ -7194,10 +8776,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (pendingBattleWeaponEquipPlay) {
       setPendingBattleWeaponEquipPlay(null);
     }
+    if (pendingBattleSoulStonePlay) {
+      setPendingBattleSoulStonePlay(null);
+    }
     if (phoneFriendAnimation) {
       setPhoneFriendAnimation(null);
     }
-  }, [pendingBattlePhoneFriendPlay, pendingBattleWeaponEquipPlay, phoneFriendAnimation, state?.pendingBattle]);
+  }, [pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleWeaponEquipPlay, phoneFriendAnimation, state?.pendingBattle]);
 
   useEffect(() => {
     if (state?.pendingBattle) {
@@ -7408,6 +8993,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             onCardClick: () => undefined,
             readOnly: true,
             inspectAllCards: true,
+            gauntletEnergizedCharacterIds,
             playerColors,
             cardMotion: pendingBoardCardMotion,
             characterStatusById: irohStatusByCharacterId,
@@ -7429,6 +9015,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           React.createElement('div', { className: 'battle-banner', 'data-testid': 'multiplayer-attack-windup' }, 'Attack Forward wind-up in progress...'),
         ),
       ),
+      renderInfinityAnimationOverlay(),
+      renderRealityStoneTargetOverlay(),
     ));
   }
 
@@ -7450,6 +9038,28 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       }
       if (pendingBattleWeaponEquipPlay) {
         for (const target of state.characters.filter(character => character.alive && !!character.boardPosition)) {
+          battleTargetMap[target.boardPosition as RingPosition] = 'move';
+        }
+      }
+      if (pendingRealityStonePlay?.phase === 'battle') {
+        for (const target of state.characters.filter(character => character.alive && !!character.boardPosition)) {
+          battleTargetMap[target.boardPosition as RingPosition] = 'move';
+        }
+      }
+      if (pendingBattleSoulStonePlay) {
+        const ownBattlerId = state.pendingBattle.initiatorController === pendingBattleSoulStonePlay.actor
+          ? state.pendingBattle.initiatorId
+          : state.pendingBattle.opponentId;
+        const opponentBattlerId = state.pendingBattle.initiatorController === pendingBattleSoulStonePlay.actor
+          ? state.pendingBattle.opponentId
+          : state.pendingBattle.initiatorId;
+        for (const target of state.characters.filter(character => (
+          character.alive
+          && !!character.boardPosition
+          && character.controller === pendingBattleSoulStonePlay.actor
+          && character.id !== ownBattlerId
+          && character.id !== opponentBattlerId
+        ))) {
           battleTargetMap[target.boardPosition as RingPosition] = 'move';
         }
       }
@@ -7504,6 +9114,37 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           return;
         }
 
+        if (pendingRealityStonePlay?.phase === 'battle') {
+          setPendingRealityStonePlay({
+            ...pendingRealityStonePlay,
+            selectedTargetRef: `boardchar:${selected.id}`,
+          });
+          setExpandedBoardCharacterId(selected.id);
+          return;
+        }
+
+        if (pendingBattleSoulStonePlay) {
+          const ownBattlerId = state.pendingBattle.initiatorController === pendingBattleSoulStonePlay.actor
+            ? state.pendingBattle.initiatorId
+            : state.pendingBattle.opponentId;
+          const opponentBattlerId = state.pendingBattle.initiatorController === pendingBattleSoulStonePlay.actor
+            ? state.pendingBattle.opponentId
+            : state.pendingBattle.initiatorId;
+          if (
+            selected.controller !== pendingBattleSoulStonePlay.actor
+            || selected.id === ownBattlerId
+            || selected.id === opponentBattlerId
+          ) {
+            return;
+          }
+          setPendingBattleSoulStonePlay({
+            ...pendingBattleSoulStonePlay,
+            selectedCharacterId: selected.id,
+          });
+          setExpandedBoardCharacterId(selected.id);
+          return;
+        }
+
         if (pendingBattleSwapPlay) {
           if (pendingBattleSwapPlay.step === 'swap-pick-own' && selected.controller !== pendingBattleSwapPlay.actor) {
             return;
@@ -7536,6 +9177,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   setShowBattleFullBoard(false);
                   setPendingBattlePhoneFriendPlay(null);
                   setPendingBattleWeaponEquipPlay(null);
+                  setPendingBattleSoulStonePlay(null);
+                  setPendingRealityStonePlay(null);
                   setPendingBattleSwapPlay(null);
                   closeFreezeSpecialPicker();
                   setPhoneFriendAnimation(null);
@@ -7585,6 +9228,44 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ),
               )
             : null,
+          pendingRealityStonePlay?.phase === 'battle'
+            ? React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(
+                  'section',
+                  { className: 'power-card-row', 'data-testid': 'reality-battle-top-hand', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+                  state.powerCardHands[opponentForView].map((card, index) => {
+                    const controller = opponentForView;
+                    const selected = pendingRealityStonePlay.selectedTargetRef === `hand:${controller}:${card.instanceId}`;
+                    const definition = getPowerCardDefinition(card.definitionId);
+                    const visual = powerCatalogById.get(card.definitionId);
+                    return React.createElement(
+                      'button',
+                      {
+                        key: `reality-battle-top-${card.instanceId}`,
+                        type: 'button',
+                        className: 'power-card-button',
+                        onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: `hand:${controller}:${card.instanceId}` } : prev),
+                        'aria-pressed': selected,
+                        'data-testid': `reality-battle-top-${card.instanceId}`,
+                      },
+                      React.createElement(PowerCardFrame, {
+                        size: 'compact',
+                        displayName: definition.displayName,
+                        rulesText: definition.rulesText,
+                        artSrc: visual?.artImageUrl ?? null,
+                        fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                        visualMode: visual?.visualMode ?? 'layered-art',
+                        state: 'back',
+                        selected,
+                        testId: `reality-battle-top-card-${index}`,
+                      }),
+                    );
+                  }),
+                ),
+              )
+            : null,
           freezeSpecialSourceId
             ? React.createElement(
                 'p',
@@ -7603,6 +9284,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   { className: 'status-label', 'data-testid': 'battle-weapon-targeting-hint' },
                   'WEAPON: select any living character on the board to equip this weapon.',
                 )
+              : pendingBattleSoulStonePlay
+                ? React.createElement(
+                    'p',
+                    { className: 'status-label', 'data-testid': 'battle-soulstone-targeting-hint' },
+                    'SOUL STONE: select one of your other living characters (glowing), then confirm the sacrifice.',
+                  )
               : pendingBattleSwapPlay
                 ? React.createElement(
                     'p',
@@ -7616,6 +9303,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             view: battleView.boardView,
             selectedCardId: pendingBattlePhoneFriendPlay?.selectedCharacterId
               ?? pendingBattleWeaponEquipPlay?.selectedCharacterId
+              ?? pendingBattleSoulStonePlay?.selectedCharacterId
               ?? pendingBattleSwapPlay?.pendingCharacterId
               ?? freezeSpecialTargetId
               ?? null,
@@ -7633,15 +9321,116 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 handleBattleTargetSelection(target.id);
               }
             },
-            allowCardClickOnActionTargets: !!pendingBattleWeaponEquipPlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay || !!freezeSpecialSourceId,
-            readOnly: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
-            inspectAllCards: !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            allowCardClickOnActionTargets: !!pendingRealityStonePlay || !!pendingBattleWeaponEquipPlay || !!pendingBattleSoulStonePlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay || !!freezeSpecialSourceId,
+            readOnly: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            inspectAllCards: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
             characterStatusById: irohStatusByCharacterId,
             playerColors,
             swapCharacterMotion: pendingSwapCharactersMotion,
+            gauntletEnergizedCharacterIds,
             thawingCharacterIds,
             freezingCharacterIds,
           }),
+          pendingRealityStonePlay?.phase === 'battle' && state.pendingBattle
+            ? React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(
+                  'section',
+                  { className: 'power-card-row', 'data-testid': 'reality-battle-live-effects', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+                  Array.from(new Map(state.pendingBattle.temporaryModifiers.map(modifier => [modifier.sourceInstanceId, modifier])).values()).map(modifier => {
+                    const selected = pendingRealityStonePlay.selectedTargetRef === `usedpower:${modifier.sourceInstanceId}`;
+                    const visual = powerCatalogById.get(modifier.sourceDefinitionId);
+                    return React.createElement(
+                      'button',
+                      {
+                        key: `reality-battle-effect-${modifier.sourceInstanceId}`,
+                        type: 'button',
+                        className: 'power-card-button',
+                        onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: `usedpower:${modifier.sourceInstanceId}` } : prev),
+                        'aria-pressed': selected,
+                        'data-testid': `reality-battle-effect-${modifier.sourceInstanceId}`,
+                      },
+                      React.createElement(PowerCardFrame, {
+                        size: 'compact',
+                        displayName: modifier.sourceDisplayName,
+                        rulesText: modifier.effectSummary,
+                        artSrc: visual?.artImageUrl ?? null,
+                        fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                        visualMode: visual?.visualMode ?? 'layered-art',
+                        state: selected ? 'selected' : 'playable',
+                        selected,
+                        testId: `reality-battle-effect-card-${modifier.sourceInstanceId}`,
+                      }),
+                    );
+                  }),
+                ),
+                React.createElement(
+                  'div',
+                  { className: 'power-popover-controls', style: { justifyContent: 'center' } },
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'graveyard' ? null : 'graveyard' } : prev),
+                      'data-testid': 'reality-battle-open-graveyard',
+                    },
+                    'Open Graveyard',
+                  ),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'usedpower' ? null : 'usedpower' } : prev),
+                      'data-testid': 'reality-battle-open-used-pile',
+                    },
+                    'Open Used Power Pile',
+                  ),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, expandedSection: prev.expandedSection === 'decktops' ? null : 'decktops' } : prev),
+                      'data-testid': 'reality-battle-open-decktops',
+                    },
+                    'Open Deck Tops',
+                  ),
+                ),
+                React.createElement(
+                  'section',
+                  { className: 'power-card-row', 'data-testid': 'reality-battle-bottom-hand', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+                  state.powerCardHands[viewingController]
+                    .filter(card => !(viewingController === pendingRealityStonePlay.actor && card.instanceId === pendingRealityStonePlay.cardInstanceId))
+                    .map(card => {
+                      const selected = pendingRealityStonePlay.selectedTargetRef === `hand:${viewingController}:${card.instanceId}`;
+                      const definition = getPowerCardDefinition(card.definitionId);
+                      const visual = powerCatalogById.get(card.definitionId);
+                      return React.createElement(
+                        'button',
+                        {
+                          key: `reality-battle-bottom-${card.instanceId}`,
+                          type: 'button',
+                          className: 'power-card-button',
+                          onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: `hand:${viewingController}:${card.instanceId}` } : prev),
+                          'aria-pressed': selected,
+                          'data-testid': `reality-battle-bottom-${card.instanceId}`,
+                        },
+                        React.createElement(PowerCardFrame, {
+                          size: 'compact',
+                          displayName: definition.displayName,
+                          rulesText: definition.rulesText,
+                          artSrc: visual?.artImageUrl ?? null,
+                          fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                          visualMode: visual?.visualMode ?? 'layered-art',
+                          state: selected ? 'selected' : 'playable',
+                          selected,
+                          testId: `reality-battle-bottom-card-${card.instanceId}`,
+                        }),
+                      );
+                    }),
+                ),
+              )
+            : null,
           React.createElement(
             'button',
             {
@@ -7744,6 +9533,70 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         type: 'button',
                         onClick: () => setExpandedBoardCharacterId(null),
                         'data-testid': 'battle-weapon-close',
+                      },
+                      'Close',
+                    ),
+                  ),
+                ),
+              )
+            : null,
+          pendingBattleSoulStonePlay && selectedBattleSoulStoneTarget && expandedBoardCharacterId === selectedBattleSoulStoneTarget.id
+            ? React.createElement(
+                'section',
+                {
+                  className: 'board-card-modal',
+                  'data-testid': 'battle-soulstone-character-read',
+                  onClick: () => setExpandedBoardCharacterId(null),
+                },
+                React.createElement(
+                  'div',
+                  {
+                    className: 'board-card-modal-panel board-character-card-modal-panel',
+                    onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
+                  },
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(selectedBattleSoulStoneTarget.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: selectedBattleSoulStoneTarget.revealed,
+                      controllerColorClass: selectedBattleSoulStoneTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: selectedBattleSoulStoneTarget.displayName,
+                      ATK: selectedBattleSoulStoneTarget.ATK,
+                      DEF: selectedBattleSoulStoneTarget.DEF,
+                      ability: selectedBattleSoulStoneTarget.ability ?? null,
+                      statRule: selectedBattleSoulStoneTarget.statRule ?? null,
+                      artSrc: selectedBattleSoulStoneTarget.artImageUrl ?? null,
+                      fullCardFaceSrc: selectedBattleSoulStoneTarget.fullCardFaceImageUrl ?? null,
+                      visualMode: selectedBattleSoulStoneTarget.visualMode,
+                      isKing: selectedBattleSoulStoneTarget.isKing,
+                      isFrozen: selectedBattleSoulStoneTarget.isFrozen,
+                      statusTag: irohStatusByCharacterId[selectedBattleSoulStoneTarget.id] ?? null,
+                      testId: 'battle-soulstone-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: selectedBattleSoulStoneTarget.id,
+                      attachments: selectedBattleSoulStoneTarget.attachments,
+                    }, 'battle-soulstone-read'),
+                  ),
+                  React.createElement(
+                    'div',
+                    { className: 'power-popover-controls board-modal-actions', 'data-testid': 'battle-soulstone-actions' },
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: confirmBattleSoulStoneSacrifice,
+                        'data-testid': 'battle-soulstone-confirm',
+                      },
+                      `Sacrifice for +5 ${pendingBattleSoulStonePlay.selectedChoice}`,
+                    ),
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: () => setExpandedBoardCharacterId(null),
+                        'data-testid': 'battle-soulstone-close',
                       },
                       'Close',
                     ),
@@ -8092,7 +9945,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ),
               )
             : null,
-          !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
+          !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
             ? React.createElement(
                 'section',
                 {
@@ -8167,6 +10020,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               )
             : null,
           jeremySpecialModal,
+          renderInfinityAnimationOverlay(),
+          renderRealityStoneTargetOverlay(),
         ),
       ));
     }
@@ -8180,6 +10035,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         privateHand: battlePrivateHand,
         handoffRequiredFor: isBotMode ? null : state.pendingBattle.handoffRequiredFor,
         manualHandsByController: manualBattleHandsByController,
+        revealedPowerCardInstanceIds: state.revealedPowerCardInstanceIds ?? null,
+        autoExpandCardInstanceId: battleRealityReplayCardInstanceId,
         revealedHandFor: battleHandVisibleFor,
         onRevealHand: (controller: Controller) => setBattleHandVisibleFor(current => (current === controller ? null : controller)),
         battleIntroKey,
@@ -8215,6 +10072,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         postBattleMotion: postBattleBoardAnimation,
         onOpenFullBoard: () => setShowBattleFullBoard(true),
         characterStatusById: irohStatusByCharacterId,
+        gauntletEnergizedCharacterIds,
         playerColors,
         onAcknowledgeHandoff: handleAcknowledgeHandoff,
         onAcknowledgeBotPowerReveal: handleAcknowledgeBotBattleReveal,
@@ -8226,7 +10084,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         onPlayCard: handlePlayBattleCard,
         onResolveBattle: handleResolveBattle,
       }),
-      !showBattleFullBoard && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
+      !showBattleFullBoard && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
         ? React.createElement(
             'section',
             {
@@ -8784,6 +10642,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           )
         : null,
       jeremySpecialModal,
+      renderInfinityAnimationOverlay(),
+      renderRealityStoneTargetOverlay(),
     ));
   }
 
@@ -8883,14 +10743,32 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   )),
               )
             : React.createElement('div', { className: 'power-card-row power-card-row-face-down' },
-                Array.from({ length: safeView.powerCardHandCount[isBotMode ? topHandController : 'P2'] }).map((_, index) =>
-                  React.createElement(PowerCardFrame, {
-                    key: `top-power-${index}`,
+                state.powerCardHands[isBotMode ? topHandController : 'P2'].map((card, index) => {
+                  const controller = isBotMode ? topHandController : 'P2';
+                  const revealed = isPowerCardRevealedThisGame(controller, card.instanceId);
+                  if (!revealed) {
+                    return React.createElement(PowerCardFrame, {
+                      key: `top-power-${index}`,
+                      size: 'compact',
+                      state: 'back',
+                      testId: `top-power-back-${index}`,
+                    });
+                  }
+
+                  const definition = getPowerCardDefinition(card.definitionId);
+                  const visual = powerCatalogById.get(card.definitionId);
+                  return React.createElement(PowerCardFrame, {
+                    key: `top-power-revealed-${card.instanceId}`,
                     size: 'compact',
-                    state: 'back',
-                    testId: `top-power-back-${index}`,
-                  }),
-                ),
+                    displayName: definition.displayName,
+                    rulesText: definition.rulesText,
+                    artSrc: visual?.artImageUrl ?? null,
+                    fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                    visualMode: visual?.visualMode ?? 'layered-art',
+                    state: 'playable',
+                    testId: `top-power-revealed-${card.instanceId}`,
+                  });
+                }),
               ),
       ),
     ),
@@ -8903,7 +10781,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           onAttachmentClick: handleAttachmentCardClick,
           actionTargets: boardActionTargets,
           onActionTargetClick: handleExecuteAction,
-          allowCardClickOnActionTargets: !!freezeSpecialSourceId || pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
+          allowCardClickOnActionTargets: !!freezeSpecialSourceId || !!pendingRealityStonePlay || pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
           allowWeaponTargetClicks: !!pendingBoardWeaponEquipPlay,
           portalRetargetEnabled: pendingBoardPowerPlay?.step === 'portal-pick-destination',
           portalSourceCharacterId: pendingBoardPowerPlay?.step === 'portal-pick-destination'
@@ -8923,6 +10801,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           kingDuelRumbleIds: finalKingDuelTransitionPhase === 'idle' ? [] : finalKingDuelRumbleIds,
           thawingCharacterIds,
           freezingCharacterIds,
+          gauntletEnergizedCharacterIds,
           boardImploding: finalKingDuelTransitionPhase === 'implode',
           characterStatusById: irohStatusByCharacterId,
         }),
@@ -9352,12 +11231,31 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     }),
                   ))
                 : multiplayerMode && multiplayerPlayer === 'P2'
-                  ? Array.from({ length: safeView.powerCardHandCount.P1 }).map((_, index) => React.createElement(PowerCardFrame, {
-                      key: `bottom-power-back-${index}`,
-                      size: 'hand',
-                      state: 'back',
-                      testId: `bottom-power-back-${index}`,
-                    }))
+                  ? state.powerCardHands.P1.map((card, index) => {
+                      const revealed = isPowerCardRevealedThisGame('P1', card.instanceId);
+                      if (!revealed) {
+                        return React.createElement(PowerCardFrame, {
+                          key: `bottom-power-back-${index}`,
+                          size: 'hand',
+                          state: 'back',
+                          testId: `bottom-power-back-${index}`,
+                        });
+                      }
+
+                      const definition = getPowerCardDefinition(card.definitionId);
+                      const visual = powerCatalogById.get(card.definitionId);
+                      return React.createElement(PowerCardFrame, {
+                        key: `bottom-power-revealed-${card.instanceId}`,
+                        size: 'hand',
+                        displayName: definition.displayName,
+                        rulesText: definition.rulesText,
+                        artSrc: visual?.artImageUrl ?? null,
+                        fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                        visualMode: visual?.visualMode ?? 'layered-art',
+                        state: 'playable',
+                        testId: `bottom-power-revealed-${card.instanceId}`,
+                      });
+                    })
                   : null,
             ),
       ),
@@ -9497,10 +11395,18 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ? 'WEAPON: equip this card to one of your living board characters.'
                 : expandedBoardPowerCard.definitionId === 'power-alpha-022'
                 ? 'PORTAL: select one of your alive characters, then select any open destination spot.'
+                : expandedBoardPowerCard.definitionId === 'power-alpha-027'
+                  ? 'SPACE STONE: select one of your alive characters, then select any open destination spot. It grants +2 ATK / +2 DEF attachment.'
                 : expandedBoardPowerCard.definitionId === 'power-alpha-021'
                   ? 'BACK IT UP: select any alive character, then select a legal backward open spot.'
                   : expandedBoardPowerCard.definitionId === 'power-alpha-018'
                     ? 'SWAP CHARACTERS: select your living card, then select an opponent living card.'
+                    : expandedBoardPowerCard.definitionId === 'power-alpha-025'
+                      ? 'REALITY STONE: select any alive board character to transform into the top Character Deck card.'
+                      : expandedBoardPowerCard.definitionId === 'power-alpha-024'
+                        ? 'MIND STONE: reveal all current board characters immediately.'
+                        : expandedBoardPowerCard.definitionId === 'power-alpha-028'
+                          ? 'TIME STONE: rewind the most recently completed action.'
                     : expandedBoardPowerCard.definitionId === 'power-alpha-019'
                       ? 'BEHIND THE CURTAINS: inspect opponent hand and optionally swap one card each.'
                       : expandedBoardPowerCardTiming === 'anytime'
@@ -9514,8 +11420,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 isWeaponDefinitionId(expandedBoardPowerCard.definitionId)
                 || (
                 expandedBoardPowerCard.definitionId === 'power-alpha-022'
+                || expandedBoardPowerCard.definitionId === 'power-alpha-027'
                 || expandedBoardPowerCard.definitionId === 'power-alpha-021'
                 || expandedBoardPowerCard.definitionId === 'power-alpha-018'
+                || expandedBoardPowerCard.definitionId === 'power-alpha-025'
+                || expandedBoardPowerCard.definitionId === 'power-alpha-024'
+                || expandedBoardPowerCard.definitionId === 'power-alpha-028'
                 || expandedBoardPowerCard.definitionId === 'power-alpha-019'
                 )
               )
@@ -9553,11 +11463,46 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                             expandedBoardPowerCard.instanceId,
                             expandedBoardPowerCard.controller ?? state.activePlayer,
                           );
+                        } else if (expandedBoardPowerCard.definitionId === 'power-alpha-024') {
+                          const actingPlayer = expandedBoardPowerCard.controller ?? state.activePlayer;
+                          const currentRevealed = state.revealedPowerCardInstanceIds ?? { P1: [], P2: [] };
+                          const p1Current = state.powerCardHands.P1.map(card => card.instanceId);
+                          const p2Current = state.powerCardHands.P2.map(card => card.instanceId);
+                          let nextState: GameState = {
+                            ...state,
+                            characters: state.characters.map(character => (
+                              character.alive && !character.revealed
+                                ? { ...character, revealed: true }
+                                : character
+                            )),
+                            revealedPowerCardInstanceIds: {
+                              P1: [...new Set([...currentRevealed.P1, ...p1Current])],
+                              P2: [...new Set([...currentRevealed.P2, ...p2Current])],
+                            },
+                          };
+                          nextState = consumeBoardPowerCard(nextState, actingPlayer, expandedBoardPowerCard.instanceId, 'MIND STONE revealed all current board characters');
+                          setState(nextState);
+                        } else if (expandedBoardPowerCard.definitionId === 'power-alpha-028') {
+                          const actingPlayer = expandedBoardPowerCard.controller ?? state.activePlayer;
+                          const rewound = applyTimeStoneRewind(state, actingPlayer, expandedBoardPowerCard.instanceId, 'board');
+                          if (rewound) {
+                            setState(rewound);
+                            triggerInfinityAnimation('time');
+                          }
+                        } else if (expandedBoardPowerCard.definitionId === 'power-alpha-025') {
+                          setPendingRealityStonePlay({
+                            phase: 'board',
+                            actor: expandedBoardPowerCard.controller ?? state.activePlayer,
+                            cardInstanceId: expandedBoardPowerCard.instanceId,
+                            selectedTargetRef: null,
+                            expandedSection: null,
+                          });
                         } else {
                           setPendingBoardPowerPlay({
                             cardInstanceId: expandedBoardPowerCard.instanceId,
                             definitionId: expandedBoardPowerCard.definitionId,
                             step: expandedBoardPowerCard.definitionId === 'power-alpha-022'
+                              || expandedBoardPowerCard.definitionId === 'power-alpha-027'
                               ? 'portal-pick-character'
                               : expandedBoardPowerCard.definitionId === 'power-alpha-021'
                                 ? 'back-pick-character'
@@ -10054,8 +11999,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               null,
               pendingBoardPowerPlay.definitionId === 'power-alpha-022'
                 ? 'PORTAL Targeting'
+                : pendingBoardPowerPlay.definitionId === 'power-alpha-027'
+                  ? 'SPACE STONE Targeting'
                 : pendingBoardPowerPlay.definitionId === 'power-alpha-021'
                   ? 'BACK IT UP Targeting'
+                  : pendingBoardPowerPlay.definitionId === 'power-alpha-025'
+                    ? 'REALITY STONE Targeting'
                   : 'SWAP CHARACTERS Targeting',
             ),
             React.createElement(
@@ -10066,7 +12015,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 : pendingBoardPowerPlay.step === 'portal-pick-destination'
                   ? 'Select any glowing open destination space.'
                   : pendingBoardPowerPlay.step === 'back-pick-character'
-                    ? 'Select any alive character on the board.'
+                    ? pendingBoardPowerPlay.definitionId === 'power-alpha-025'
+                      ? 'Select any alive character on the board to transform.'
+                      : 'Select any alive character on the board.'
                     : pendingBoardPowerPlay.step === 'back-pick-destination'
                       ? 'Select one glowing backward destination space.'
                       : pendingBoardPowerPlay.step === 'swap-pick-own'
@@ -10280,6 +12231,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           ),
         )
       : null,
-    null,
+    renderInfinityAnimationOverlay(),
+    renderRealityStoneTargetOverlay(),
   ));
 }

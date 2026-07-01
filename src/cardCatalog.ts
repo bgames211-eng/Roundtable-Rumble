@@ -72,6 +72,7 @@ const CHARACTER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'alpha-036': publicCardsPath('characters', 'skar productions.JPG'),
   'alpha-037': publicCardsPath('characters', 'bird.JPG'),
   'alpha-038': publicCardsPath('characters', 'avatar aang.JPG'),
+  'alpha-039': publicCardsPath('characters', 'thanos.JPG'),
 };
 
 const POWER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
@@ -97,7 +98,17 @@ const POWER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'power-alpha-020': publicCardsPath('power cards', 'no spray power card.JPG'),
   'power-alpha-021': publicCardsPath('power cards', 'back it up power card.JPG'),
   'power-alpha-022': publicCardsPath('power cards', 'portal power card.JPG'),
+  'power-alpha-023': publicCardsPath('power cards', 'weapons', 'infinity gauntlet weapon power card.JPG'),
+  'power-alpha-024': publicCardsPath('power cards', 'mind stone power card.JPG'),
+  'power-alpha-025': publicCardsPath('power cards', 'reality stone power card.JPG'),
+  'power-alpha-026': publicCardsPath('power cards', 'soul stone power card 1.JPG'),
+  'power-alpha-027': publicCardsPath('power cards', 'space stone power card.JPG'),
+  'power-alpha-028': publicCardsPath('power cards', 'time stone power card.JPG'),
 };
+
+function isLegacySoulStoneArtPath(path: string): boolean {
+  return path.includes('soul%20stone%20power%20card.JPG') || path.includes('soul stone power card.JPG');
+}
 
 function hasWindow(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -233,8 +244,18 @@ function normalizePowerEntry(
   raw: Partial<PowerCatalogEntry> & { imageUrl?: string },
 ): PowerCatalogEntry {
   const supportsBuiltInFullFace = !!POWER_FULL_FACE_BY_DEFINITION_ID[fallback.definitionId];
-  const rawArtImageUrl = (raw.artImageUrl ?? raw.imageUrl ?? '').trim();
-  const rawFullCardFaceImageUrl = (raw.fullCardFaceImageUrl ?? '').trim();
+  let rawArtImageUrl = (raw.artImageUrl ?? raw.imageUrl ?? '').trim();
+  let rawFullCardFaceImageUrl = (raw.fullCardFaceImageUrl ?? '').trim();
+
+  if (fallback.definitionId === 'power-alpha-026') {
+    if (isLegacySoulStoneArtPath(rawArtImageUrl)) {
+      rawArtImageUrl = '';
+    }
+    if (isLegacySoulStoneArtPath(rawFullCardFaceImageUrl)) {
+      rawFullCardFaceImageUrl = '';
+    }
+  }
+
   const artImageUrl = supportsBuiltInFullFace
     ? (rawArtImageUrl.length > 0 ? rawArtImageUrl : (fallback.artImageUrl ?? '').trim())
     : '';

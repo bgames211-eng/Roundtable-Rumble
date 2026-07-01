@@ -216,7 +216,10 @@ describe('Phase 4A Step 3 battle power cards', () => {
       'P1',
     );
     const resolvedGenghis = resolvePendingBattle(readyGenghis);
-    expect(resolvedGenghis.persistentCharacterModifiers['y-att']?.ATK).toBe(5);
+    expect(resolvedGenghis.persistentCharacterModifiers['y-att']).toBeUndefined();
+    expect(resolvedGenghis.characters.find(character => character.id === 'y-att')?.attachments?.some(attachment => (
+      attachment.definitionId === 'power-alpha-010' && attachment.ATK === 5 && attachment.DEF === 0
+    ))).toBe(true);
   });
 
   it('CHAMPION\'S ADVANTAGE changes only its controller selected comparison stat', () => {
@@ -923,6 +926,30 @@ describe('Phase 4A Step 3 battle power cards', () => {
     expect(afterCurtains.usedPowerCardPile.some(card => card.instanceId === 'power-y-curtains')).toBe(true);
   });
 
+  it('MIND STONE marks currently-held power cards as revealed for the rest of the game', () => {
+    const state = {
+      ...createBattleState(),
+      powerCardHands: {
+        P1: [
+          { instanceId: 'power-y-mind', definitionId: 'power-alpha-024' },
+          { instanceId: 'power-y-other', definitionId: 'power-alpha-002' },
+        ],
+        P2: [
+          { instanceId: 'power-a-other', definitionId: 'power-alpha-003' },
+        ],
+      },
+    };
+
+    const battle = openBattleAndAcknowledge(state);
+    const afterMind = playBattlePowerCard(battle, 'P1', {
+      instanceId: 'power-y-mind',
+    });
+
+    expect(afterMind.revealedPowerCardInstanceIds?.P1).toContain('power-y-mind');
+    expect(afterMind.revealedPowerCardInstanceIds?.P1).toContain('power-y-other');
+    expect(afterMind.revealedPowerCardInstanceIds?.P2).toContain('power-a-other');
+  });
+
   it('all First Alpha deck definitions are playable when legal conditions are met', () => {
     const inDeckDefinitions = FIRST_ALPHA_POWER_CARD_DEFINITIONS.filter(definition => definition.alphaDeckCount > 0);
     const allDefinitionsInHand = inDeckDefinitions.map((definition, index) => ({
@@ -956,6 +983,10 @@ describe('Phase 4A Step 3 battle power cards', () => {
       'power-alpha-020',
       'power-alpha-021',
       'power-alpha-022',
+      'power-alpha-025',
+      'power-alpha-026',
+      'power-alpha-027',
+      'power-alpha-028',
     ]);
     for (const card of hand.cards) {
       if (conditionallyLegalInWindow.has(card.definitionId)) {
