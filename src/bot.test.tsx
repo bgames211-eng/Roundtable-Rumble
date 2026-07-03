@@ -239,6 +239,36 @@ describe('Phase 5 Bot', () => {
     }
   });
 
+  it('hard mode still blocks opponent king-cross line even when risky move gives immediate draw upside', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 11,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('move', 'hold-line-now', null, {
+          actorIsKing: false,
+          allowsOpponentKingCrossDrawReply: false,
+          mayGainPowerCardDraw: false,
+        }),
+        action('move', 'tempting-draw', null, {
+          actorIsKing: true,
+          allowsOpponentKingCrossDrawReply: true,
+          mayGainPowerCardDraw: true,
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.characterId).toBe('hold-line-now');
+    }
+  });
+
   it('hard mode prefers winning attack on high-value revealed ability target over low-value target', () => {
     const decision = chooseBotBoardDecision({
       botController: 'P2',
@@ -266,6 +296,53 @@ describe('Phase 5 Bot', () => {
     expect(decision.kind).toBe('action');
     if (decision.kind === 'action') {
       expect(decision.action.characterId).toBe('atk-high');
+    }
+  });
+
+  it('hard mode prioritizes front-line strong attacker pushing toward enemy king', () => {
+    const decision = chooseBotBoardDecision({
+      botController: 'P2',
+      activePlayer: 'P2',
+      turnNumber: 16,
+      gameStatus: 'active',
+      publicView: {} as never,
+      pendingBattle: null,
+      hasLegalAction: true,
+      ownPowerCardHand: [],
+      legalActions: [
+        action('move', 'front-strong', null, {
+          actorIsKing: false,
+          actorBoardPosition: 'P2_1',
+          actorKnownATK: 9,
+          actorKnownDEF: 7,
+        }),
+        action('attack', 'front-strong', null, {
+          actorIsKing: false,
+          actorBoardPosition: 'P2_1',
+          actorKnownATK: 9,
+          actorKnownDEF: 7,
+          targetCharacterId: 'p1-king',
+          targetIsKing: true,
+          targetRevealed: true,
+          targetBoardPosition: 'P1_1',
+        }),
+        action('attack', 'rear-unit', 'win', {
+          actorIsKing: false,
+          actorBoardPosition: 'P2_4',
+          actorKnownATK: 6,
+          actorKnownDEF: 5,
+          targetCharacterId: 'p1-mid',
+          targetIsKing: false,
+          targetRevealed: true,
+          targetBoardPosition: 'P1_4',
+        }),
+      ],
+    }, 'Hard');
+
+    expect(decision.kind).toBe('action');
+    if (decision.kind === 'action') {
+      expect(decision.action.type).toBe('attack');
+      expect(decision.action.characterId).toBe('front-strong');
     }
   });
 
@@ -573,6 +650,71 @@ describe('Phase 5 Bot', () => {
     );
 
     expect(decision.kind).toBe('pass');
+  });
+
+  it('hard battle mode usually saves last stat-mod card on non-king thin-win line', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 9,
+        opponentComparisonValue: 7,
+        winningMargin: 2,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'power-stone-last', selectedChoice: 'ATK' },
+          displayName: 'POWER STONE',
+          definitionId: 'power-alpha-006',
+          projectedResult: {
+            winner: 'P2',
+            initiatorComparisonValue: 9,
+            opponentComparisonValue: 10,
+            winningMargin: 1,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      imminentKingLoss: false,
+      botBattlerIsKing: false,
+      remainingBattleHandCount: 1,
+    });
+
+    expect(decision.kind).toBe('pass');
+  });
+
+  it('hard battle mode can spend last stat-mod card on non-king decisive win line', () => {
+    const decision = chooseBotBattleDecision({
+      botController: 'P2',
+      currentResult: {
+        winner: 'P1',
+        initiatorComparisonValue: 11,
+        opponentComparisonValue: 7,
+        winningMargin: 4,
+      },
+      candidates: [
+        {
+          input: { instanceId: 'superkick-last', selectedChoice: 'ATK' },
+          displayName: 'SUPERKICK!',
+          definitionId: 'power-alpha-004',
+          projectedResult: {
+            winner: 'P2',
+            initiatorComparisonValue: 11,
+            opponentComparisonValue: 14,
+            winningMargin: 3,
+          },
+        },
+      ],
+      difficulty: 'Hard',
+      imminentKingLoss: false,
+      botBattlerIsKing: false,
+      remainingBattleHandCount: 1,
+    });
+
+    expect(decision.kind).toBe('play');
+    if (decision.kind === 'play') {
+      expect(decision.definitionId).toBe('power-alpha-004');
+    }
   });
 
   it('hard battle mode can spend on still-losing improvement when bot battler is king', () => {

@@ -1,6 +1,7 @@
 import type { PlayBattlePowerCardInput, ProjectedBattleResult } from './battleFlow';
 import type { BotGameView, BotLegalActionDescriptor } from './botView';
 import { getPowerCardAiMetadata, type PowerCardInstance } from './powerCards';
+import { BOARD_PATH } from './board';
 
 export type BotDifficulty = 'Easy' | 'Standard' | 'Hard';
 
@@ -282,6 +283,16 @@ function outcomeTierForMargin(projectedMarginForBot: number): number {
   return 0;
 }
 
+function isStatModifyingBattleCard(definitionId: string): boolean {
+  const effectType = getPowerCardAiMetadata(definitionId).effectType;
+  return (
+    effectType === 'stat-buff'
+    || effectType === 'stat-debuff'
+    || effectType === 'stat-swap'
+    || effectType === 'conditional-clutch'
+  );
+}
+
 function battleCandidateScore(
   candidate: BattlePlayCandidate,
   projectedMarginForBot: number,
@@ -378,6 +389,21 @@ function battleCandidateScore(
     }
   }
 
+  // Preserve the final stat-mod card for king battles most of the time.
+  // Non-king battlers should avoid spending this final lifeline on thin lines.
+  if (!imminentKingLoss && !botBattlerIsKing && remainingBattleHandCount === 1 && isStatModifyingBattleCard(candidate.definitionId)) {
+    if (projectedMarginForBot <= 0) {
+      score -= difficulty === 'Hard' ? 160 : difficulty === 'Standard' ? 200 : 120;
+    } else if (projectedMarginForBot <= 1) {
+      score -= difficulty === 'Hard' ? 95 : difficulty === 'Standard' ? 125 : 70;
+    }
+
+    // Allow clear closes despite conservation bias.
+    if (projectedMarginForBot >= 3) {
+      score += difficulty === 'Hard' ? 40 : difficulty === 'Standard' ? 30 : 18;
+    }
+  }
+
   if (imminentKingLoss) {
     if (projectedMarginForBot > 0) {
       score += 240;
@@ -467,6 +493,62 @@ function describeBattleCandidateChoice(
   return `${entry.candidate.displayName} (projected ${entry.projectedMargin}, score ${entry.score})`;
 }
 
+function forwardStepsOnRing(from: string, to: string): number {
+  const fromIndex = BOARD_PATH.indexOf(from as (typeof BOARD_PATH)[number]);
+  const toIndex = BOARD_PATH.indexOf(to as (typeof BOARD_PATH)[number]);
+  if (fromIndex < 0 || toIndex < 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return (toIndex - fromIndex + BOARD_PATH.length) % BOARD_PATH.length;
+}
+
+function getOpponentKingAnchor(controller: 'P1' | 'P2'): 'P1_1' | 'P2_1' {
+  return controller === 'P1' ? 'P2_1' : 'P1_1';
+}
+
+function isFrontlineStrongAttacker(view: BotBoardDecisionContext, action: BotLegalActionDescriptor): boolean {
+  if (action.type !== 'attack' || action.actorIsKing || !action.actorBoardPosition) {
+    return false;
+  }
+
+  const enemyKingAnchor = getOpponentKingAnchor(view.botController);
+  const actorPower = Math.max(action.actorKnownATK ?? 0, action.actorKnownDEF ?? 0);
+  if (actorPower < 8) {
+    return false;
+  }
+
+  const actorHasAttackOption = view.legalActions.some(candidate => (
+    candidate.characterId === action.characterId
+    && candidate.type === 'attack'
+  ));
+  if (!actorHasAttackOption) {
+    return false;
+  }
+
+  const ownActorDistances = new Map<string, number>();
+  for (const candidate of view.legalActions) {
+    if (!candidate.actorBoardPosition || candidate.actorIsKing) {
+      continue;
+    }
+    if (ownActorDistances.has(candidate.characterId)) {
+      continue;
+    }
+    ownActorDistances.set(candidate.characterId, forwardStepsOnRing(candidate.actorBoardPosition, enemyKingAnchor));
+  }
+
+  if (ownActorDistances.size === 0) {
+    return false;
+  }
+
+  const thisDistance = ownActorDistances.get(action.characterId);
+  if (thisDistance === undefined) {
+    return false;
+  }
+
+  const bestDistance = Math.min(...ownActorDistances.values());
+  return thisDistance === bestDistance;
+}
+
 function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionDescriptor, difficulty: BotDifficulty): ScoredBoardAction {
   const isKingActor = action.actorIsKing;
   const isActorRevealed = action.actorRevealed;
@@ -497,8 +579,11 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
     }
 
     if (action.allowsOpponentKingCrossDrawReply) {
-      score -= difficulty === 'Hard' ? 180 : difficulty === 'Standard' ? 135 : 80;
+      score -= difficulty === 'Hard' ? 320 : difficulty === 'Standard' ? 240 : 150;
       reasons.push('avoid allowing opponent king to cross for a free power-card draw');
+    } else {
+      score += difficulty === 'Hard' ? 20 : difficulty === 'Standard' ? 14 : 8;
+      reasons.push('holds king-cross draw line against opponent');
     }
 
     if (action.crossesIntoEnemyTerritory && !action.mayGainPowerCardDraw) {
@@ -527,6 +612,16 @@ function scoreBoardAction(view: BotBoardDecisionContext, action: BotLegalActionD
   if (action.type === 'attack') {
     score += difficulty === 'Hard' ? 26 : 18;
     reasons.push('creates immediate pressure');
+
+    if (isFrontlineStrongAttacker(view, action) && action.knownBattleOutcomeForBot !== 'loss') {
+      score += difficulty === 'Hard' ? 96 : difficulty === 'Standard' ? 78 : 44;
+      reasons.push('front-line strong unit should pressure forward toward enemy king');
+
+      if (isTargetKing) {
+        score += difficulty === 'Hard' ? 80 : difficulty === 'Standard' ? 58 : 32;
+        reasons.push('front-line pressure directly targets enemy king');
+      }
+    }
 
     if (actorKnownATK !== null && targetKnownDEF !== null) {
       const attackMargin = actorKnownATK - targetKnownDEF;
@@ -907,8 +1002,33 @@ export function chooseBotBattleDecision(
   const candidatePool = filteredEvaluated.length > 0 ? filteredEvaluated : baseEvaluated;
 
   const winning = candidatePool.filter(entry => entry.projectedMargin > 0);
+  if (
+    winning.length > 0
+    && difficulty !== 'Easy'
+    && !imminentKingLoss
+    && !botBattlerIsKing
+    && remainingBattleHandCount === 1
+    && winning.every(entry => isStatModifyingBattleCard(entry.candidate.definitionId) && entry.projectedMargin <= 1)
+  ) {
+    return {
+      kind: 'pass',
+      explanation: 'Bot passes: saves last stat-modifying power card for a likely king battle instead of spending on a thin non-king win.',
+      alternativesConsidered: candidatePool.length,
+    };
+  }
+
   if (winning.length > 0) {
     let winningPool = [...winning];
+
+    if (!imminentKingLoss && !botBattlerIsKing && remainingBattleHandCount === 1) {
+      const preserveForKingFiltered = winningPool.filter(entry => (
+        !isStatModifyingBattleCard(entry.candidate.definitionId)
+        || entry.projectedMargin >= 2
+      ));
+      if (preserveForKingFiltered.length > 0) {
+        winningPool = preserveForKingFiltered;
+      }
+    }
 
     if (difficulty !== 'Easy') {
       const resilientWins = winningPool.filter(entry => {

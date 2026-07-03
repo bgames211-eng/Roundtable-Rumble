@@ -152,6 +152,83 @@
   font-size: 0.74rem;
 }
 
+.battle-mirror-fx-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(196, 236, 255, 0.2), rgba(196, 236, 255, 0) 44%),
+    radial-gradient(circle at 78% 74%, rgba(158, 223, 255, 0.22), rgba(158, 223, 255, 0) 42%);
+}
+
+.battle-mirror-fx-shards {
+  position: absolute;
+  inset: 0;
+}
+
+.battle-mirror-fx-shard {
+  position: absolute;
+  left: var(--mirror-shard-left);
+  top: var(--mirror-shard-top);
+  width: 10px;
+  height: 16px;
+  border: 1px solid rgba(226, 249, 255, 0.75);
+  border-radius: 2px;
+  background: linear-gradient(160deg, rgba(221, 249, 255, 0.8), rgba(126, 212, 255, 0.2));
+  box-shadow: 0 0 12px rgba(184, 238, 255, 0.55);
+  transform: rotate(var(--mirror-shard-rot));
+  opacity: 0;
+  animation: mirror-shard-spark 2.1s ease-in-out var(--mirror-shard-delay) both;
+}
+
+.battle-mirror-fx-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: center;
+  align-items: flex-start;
+  max-width: min(92vw, 980px);
+}
+
+.battle-mirror-fx-card {
+  min-width: 176px;
+  border: 1px solid rgba(201, 241, 255, 0.65);
+  border-radius: 12px;
+  padding: 0.45rem 0.55rem;
+  background: linear-gradient(180deg, rgba(11, 25, 44, 0.84), rgba(10, 15, 25, 0.72));
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38), 0 0 20px rgba(170, 234, 255, 0.16);
+  animation: mirror-card-rise 760ms cubic-bezier(0.22, 0.86, 0.25, 1) both;
+  display: grid;
+  justify-items: center;
+}
+
+.battle-mirror-fx-label,
+.battle-mirror-fx-stats,
+.battle-mirror-fx-source {
+  margin: 0;
+  text-align: center;
+}
+
+.battle-mirror-fx-label {
+  font-size: 0.74rem;
+  color: #def6ff;
+}
+
+.battle-mirror-fx-stats {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ecfcff;
+}
+
+.battle-mirror-fx-source {
+  font-size: 0.67rem;
+  color: rgba(221, 246, 255, 0.85);
+  margin-bottom: 0.22rem;
+}
+
 .battle-top-board .board-wrap {
   transform: scale(0.64);
   transform-origin: top center;
@@ -1102,6 +1179,36 @@
   100% {
     transform: translateY(0) scale(1) rotate(0deg);
     opacity: 1;
+  }
+}
+
+@keyframes mirror-shard-spark {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--mirror-shard-rot)) translateY(14px) scale(0.72);
+  }
+  30% {
+    opacity: 1;
+    transform: rotate(calc(var(--mirror-shard-rot) * -1)) translateY(-2px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--mirror-shard-rot)) translateY(-26px) scale(0.88);
+  }
+}
+
+@keyframes mirror-card-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.92);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

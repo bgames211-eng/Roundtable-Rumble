@@ -33,8 +33,10 @@ import {
   executeBackItUpMove,
   executeBehindTheCurtainsSwap,
   executeFreezeGunSpecial,
+  executeIndyWhipSpecial,
   executePortalMove,
   executeSwapCharactersMove,
+  getIndyWhipSpecialOptions,
   getBackItUpDestinations,
   skipTurn,
 } from '../src/gameEngine';
@@ -246,6 +248,65 @@ describe('Frozen Status Rules', () => {
 
     const state = initializeGameState(chars);
     expect(() => executeFreezeGunSpecial(state, 'freeze', 'target')).toThrow();
+  });
+
+  it('Indy Whip special pulls nearest front target to chosen open space and consumes whip special use', () => {
+    const chars: Character[] = [
+      {
+        ...createChar('indy', 'P1', 6, 6, false, true, 'P1_1'),
+        displayName: 'Indiana Jones',
+        attachments: [
+          {
+            instanceId: 'whip-1',
+            definitionId: 'power-alpha-031',
+            displayName: 'INDY\'S WHIP',
+            category: 'weapon',
+            ATK: 3,
+            DEF: 2,
+            specialUsed: false,
+          },
+        ],
+      },
+      { ...createChar('target-near', 'P2', 6, 6, false, false, 'P1_4'), isFrozen: true },
+      createChar('p2-king', 'P2', 8, 8, true, false, 'P2_3'),
+    ];
+
+    const state = initializeGameState(chars);
+    const options = getIndyWhipSpecialOptions(state, 'indy');
+    expect(options?.targetCharacterId).toBe('target-near');
+    expect(options?.destinationOptions).toEqual(['P1_2', 'P1_3']);
+
+    const next = executeIndyWhipSpecial(state, 'indy', 'P1_2');
+
+    expect(getCharacter(next, 'target-near')?.boardPosition).toBe('P1_2');
+    expect(getCharacter(next, 'indy')?.attachments?.[0].specialUsed).toBe(true);
+    expect(next.activePlayer).toBe('P1');
+    expect(next.turnNumber).toBe(state.turnNumber);
+  });
+
+  it('Indy Whip special has no legal options when nearest target is directly in front with no open stop space', () => {
+    const chars: Character[] = [
+      {
+        ...createChar('indy', 'P1', 6, 6, false, true, 'P1_1'),
+        displayName: 'Indiana Jones',
+        attachments: [
+          {
+            instanceId: 'whip-1',
+            definitionId: 'power-alpha-031',
+            displayName: 'INDY\'S WHIP',
+            category: 'weapon',
+            ATK: 3,
+            DEF: 2,
+            specialUsed: false,
+          },
+        ],
+      },
+      createChar('target-near', 'P2', 6, 6, false, false, 'P1_2'),
+      createChar('p2-king', 'P2', 8, 8, true, false, 'P2_3'),
+    ];
+
+    const state = initializeGameState(chars);
+    expect(getIndyWhipSpecialOptions(state, 'indy')).toBeNull();
   });
 });
 
@@ -1381,7 +1442,7 @@ describe('[P2-55] Graveyard: Order Preserved', () => {
 });
 
 describe('[P2-56] Graveyard: Tie Death Order', () => {
-  it('in a tie, attacker enters graveyard first, then defender', () => {
+  it('in a tie, defender enters graveyard first, then attacker', () => {
     const chars: Character[] = [
       createChar('y1', 'P1', 5, 5, false, false, 'P1_3'),
       createChar('a1', 'P2', 5, 5, false, false, 'P1_4'),
@@ -1390,8 +1451,8 @@ describe('[P2-56] Graveyard: Tie Death Order', () => {
     const newState = executeAttackForward(state, 'y1');
 
     expect(newState.graveyard.length).toBe(2);
-    expect(newState.graveyard[0].id).toBe('y1');
-    expect(newState.graveyard[1].id).toBe('a1');
+    expect(newState.graveyard[0].id).toBe('a1');
+    expect(newState.graveyard[1].id).toBe('y1');
   });
 });
 

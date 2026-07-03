@@ -84,6 +84,15 @@ export interface PendingBattle {
   usedPowerPileStartCount: number;
   riddlerStatSourceByCharacterId: Record<string, CharacterDeckCard>;
   riddlerConsumedCards: CharacterDeckCard[];
+  boomerangLockedByController?: { P1: boolean; P2: boolean };
+  activeBoomerangFlight?: {
+    sourceController: Controller;
+    sourceInstanceId: string;
+    sourceCharacterId?: string;
+    targetCharacterId: string;
+    origin: 'hand' | 'sokka';
+    returnToHandAfterBattle: boolean;
+  } | null;
   eventHistory: string[];
 }
 
@@ -103,7 +112,7 @@ export interface CharacterAttachment {
   instanceId: string;
   definitionId: string;
   displayName: string;
-  category: 'weapon';
+  category: 'weapon' | 'follower';
   ATK: number;
   DEF: number;
   specialUsed?: boolean;
@@ -113,6 +122,12 @@ export interface CharacterAttachment {
 export interface PersistentCharacterModifier {
   ATK: number;
   DEF: number;
+}
+
+export interface ActiveForgeLocation {
+  position: BoardSpace;
+  cardInstanceId: string;
+  sourceController: Controller;
 }
 
 export interface GameState {
@@ -139,6 +154,7 @@ export interface GameState {
   thanosFirstCrossTriggered?: boolean;
   infinityStoneSeenByController?: { P1: string[]; P2: string[] };
   infinityGauntletEmpowered?: boolean;
+  activeForgeLocation?: ActiveForgeLocation | null;
 }
 
 /**
@@ -173,6 +189,7 @@ export function initializeGameState(initialCharacters: Character[]): GameState {
     thanosFirstCrossTriggered: false,
     infinityStoneSeenByController: { P1: [], P2: [] },
     infinityGauntletEmpowered: false,
+    activeForgeLocation: null,
     eventLog: [
       {
         turn: 1,

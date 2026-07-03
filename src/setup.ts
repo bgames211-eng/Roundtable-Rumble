@@ -14,10 +14,15 @@ import {
   getPrivateHandForPlayer,
   shufflePowerCardInstances,
 } from './powerCards';
-import { loadCharacterCatalog } from './cardCatalog';
+import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from './powerCards';
+import { loadCharacterCatalog, loadPowerCatalog } from './cardCatalog';
 
 const CHARACTER_CATALOG_BY_DEFINITION_ID = new Map(
   loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS).map(entry => [entry.definitionId, entry]),
+);
+
+const POWER_CATALOG_BY_DEFINITION_ID = new Map(
+  loadPowerCatalog(FIRST_ALPHA_POWER_CARD_DEFINITIONS).map(entry => [entry.definitionId, entry]),
 );
 
 function getCharacterVisualFallback(definitionId: string | undefined): {
@@ -61,9 +66,13 @@ export interface PlayerSafeCardView {
     instanceId: string;
     definitionId: string;
     displayName: string;
+      category: 'weapon' | 'follower';
     ATK: number;
     DEF: number;
     specialUsed?: boolean;
+      artImageUrl?: string;
+      fullCardFaceImageUrl?: string;
+      visualMode?: 'layered-art' | 'full-card-face';
   }>;
   displayName?: string;
   ATK?: number;
@@ -474,29 +483,25 @@ export function advanceSessionDeckPools(
   pools: SessionDeckPools,
   gameState: GameState,
 ): SessionDeckPools {
-  const used = collectSessionUsedCardIds(gameState);
-  const usedCharacterSet = new Set(used.usedCharacterInstanceIds);
-  const usedPowerSet = new Set(used.usedPowerInstanceIds);
+  const remainingCharacterDeckIds = new Set(gameState.characterDeck.map(card => card.instanceId));
+  const remainingPowerDeckIds = new Set(gameState.powerCardDeck.map(card => card.instanceId));
 
-  const allCharacters = buildAlphaInstances(ALPHA_1_CHARACTER_DEFINITIONS);
-  const allPowers = buildFirstAlphaPowerCardDeck();
-  const characterById = new Map(allCharacters.map(card => [card.instanceId, card]));
-  const powerById = new Map(allPowers.map(card => [card.instanceId, card]));
+  const nextUnusedCharacterDeck = pools.unusedCharacterDeck.filter(card => remainingCharacterDeckIds.has(card.instanceId));
+  const nextUnusedPowerDeck = pools.unusedPowerDeck.filter(card => remainingPowerDeckIds.has(card.instanceId));
+
+  const newlyUsedCharacterCards = pools.unusedCharacterDeck.filter(card => !remainingCharacterDeckIds.has(card.instanceId));
+  const newlyUsedPowerCards = pools.unusedPowerDeck.filter(card => !remainingPowerDeckIds.has(card.instanceId));
 
   return {
-    unusedCharacterDeck: pools.unusedCharacterDeck.filter(card => !usedCharacterSet.has(card.instanceId)),
+    unusedCharacterDeck: nextUnusedCharacterDeck,
     usedCharacterPile: uniqueCharacterCards([
       ...pools.usedCharacterPile,
-      ...used.usedCharacterInstanceIds
-        .map(id => characterById.get(id))
-        .filter((card): card is CharacterDeckCard => !!card),
+      ...newlyUsedCharacterCards,
     ]),
-    unusedPowerDeck: pools.unusedPowerDeck.filter(card => !usedPowerSet.has(card.instanceId)),
+    unusedPowerDeck: nextUnusedPowerDeck,
     usedPowerCardPile: uniquePowerCards([
       ...pools.usedPowerCardPile,
-      ...used.usedPowerInstanceIds
-        .map(id => powerById.get(id))
-        .filter((card): card is PowerCardInstance => !!card),
+      ...newlyUsedPowerCards,
     ]),
   };
 }
@@ -533,9 +538,19 @@ export function getPlayerGameView(state: GameState): PlayerSafeGameView {
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,
         displayName: attachment.displayName,
+        category: attachment.category,
         ATK: getAttachmentStatValue(attachment, 'ATK'),
         DEF: getAttachmentStatValue(attachment, 'DEF'),
         specialUsed: attachment.specialUsed,
+        artImageUrl: attachment.category === 'follower'
+          ? CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl
+          : POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl,
+        fullCardFaceImageUrl: attachment.category === 'follower'
+          ? CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl
+          : POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl,
+        visualMode: attachment.category === 'follower'
+          ? CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode
+          : POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode,
       })),
     };
 

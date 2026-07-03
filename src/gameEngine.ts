@@ -302,6 +302,11 @@ function isRapunzel(name: string | undefined): boolean {
   return normalizeName(name) === 'RAPUNZEL';
 }
 
+function isIndianaJones(name: string | undefined): boolean {
+  const normalized = normalizeName(name);
+  return normalized === 'INDIANAJONES' || normalized === 'INDY';
+}
+
 function isCarlGrimes(name: string | undefined): boolean {
   return normalizeName(name) === 'CARLGRIMES';
 }
@@ -850,8 +855,8 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
   // Step 6: Send defeated to Graveyard
   // If attacker won, defender dies
   // If defender won or tie, attacker dies
-  // If both die (double loss), attacker first, then defender
-  const toDefeatInOrder: string[] = bothDie ? [attacker.id, defender.id] : [loserId];
+  // If both die (double loss), opponent stack enters first, then initiator stack.
+  const toDefeatInOrder: string[] = bothDie ? [defender.id, attacker.id] : [loserId];
 
   for (const defeatId of toDefeatInOrder) {
     const defeated = getCharacter(newState, defeatId)!;
@@ -892,17 +897,18 @@ export function executeAttackForward(state: GameState, characterId: string): Gam
   }
 
   // Check if a King died
-  const defeated = toDefeatInOrder[0];
-  const defeatedChar = state.characters.find(ch => ch.id === defeated)!;
-  if (defeatedChar.isKing) {
-    const winnerController = defeatedChar.controller === 'P1' ? 'P2' : 'P1';
+  const defeatedKing = toDefeatInOrder
+    .map(id => state.characters.find(ch => ch.id === id) ?? null)
+    .find((character): character is Character => !!character && character.isKing);
+  if (defeatedKing) {
+    const winnerController = defeatedKing.controller === 'P1' ? 'P2' : 'P1';
     const newStatus: GameStatus = winnerController === 'P1' ? 'P1 wins' : 'P2 wins';
     newState = {
       ...newState,
       gameStatus: newStatus,
     };
     newState = logEvent(newState, 'King Death', {
-      defeatedKingId: defeated,
+      defeatedKingId: defeatedKing.id,
       winner: winnerController,
     });
     return newState; // END, no step 8 or 9
@@ -960,7 +966,7 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
   // Steps 4-5: NO movement, NO King Territory Draw
 
   // Step 6: Send defeated to Graveyard
-  const toDefeatInOrder: string[] = bothDie ? [selfDefender.id, enemy.id] : [loserId];
+  const toDefeatInOrder: string[] = bothDie ? [enemy.id, selfDefender.id] : [loserId];
 
   for (const defeatId of toDefeatInOrder) {
     const defeated = getCharacter(newState, defeatId)!;
@@ -1001,17 +1007,18 @@ export function executeSelfDefend(state: GameState, characterId: string): GameSt
   }
 
   // Check if a King died
-  const defeated = toDefeatInOrder[0];
-  const defeatedChar = state.characters.find(ch => ch.id === defeated)!;
-  if (defeatedChar.isKing) {
-    const winnerController = defeatedChar.controller === 'P1' ? 'P2' : 'P1';
+  const defeatedKing = toDefeatInOrder
+    .map(id => state.characters.find(ch => ch.id === id) ?? null)
+    .find((character): character is Character => !!character && character.isKing);
+  if (defeatedKing) {
+    const winnerController = defeatedKing.controller === 'P1' ? 'P2' : 'P1';
     const newStatus: GameStatus = winnerController === 'P1' ? 'P1 wins' : 'P2 wins';
     newState = {
       ...newState,
       gameStatus: newStatus,
     };
     newState = logEvent(newState, 'King Death', {
-      defeatedKingId: defeated,
+      defeatedKingId: defeatedKing.id,
       winner: winnerController,
     });
     return newState; // END, no step 8 or 9
@@ -1605,6 +1612,177 @@ export function executeBehindTheCurtainsSwap(
     ownHandCardInstanceId,
     opponentHandCardInstanceId,
   });
+}
+
+export interface IndyWhipSpecialOptions {
+  targetCharacterId: string;
+  targetPosition: BoardSpace;
+  destinationOptions: BoardSpace[];
+}
+
+export function getIndyWhipSpecialOptions(
+  state: GameState,
+  sourceCharacterId: string,
+): IndyWhipSpecialOptions | null {
+  if (state.gameStatus !== 'active' || state.pendingBattle) {
+    return null;
+  }
+
+  const source = getCharacter(state, sourceCharacterId);
+  if (!source || !source.alive || !source.revealed || !source.boardPosition) {
+    return null;
+  }
+
+  if (source.controller !== state.activePlayer || !isIndianaJones(source.displayName)) {
+    return null;
+  }
+
+  const sourceAttachments = source.attachments ?? [];
+  const whipAttachment = sourceAttachments.find(
+    attachment => attachment.definitionId === 'power-alpha-031' && !attachment.specialUsed,
+  );
+  if (!whipAttachment) {
+    return null;
+  }
+
+  let cursor = getForwardSpace(source.boardPosition);
+  let nearestTarget: Character | null = null;
+  while (cursor !== source.boardPosition) {
+    const occupant = getCharacterAtPosition(state, cursor);
+    if (occupant && occupant.alive) {
+      nearestTarget = occupant;
+      break;
+    }
+    cursor = getForwardSpace(cursor);
+  }
+
+  if (!nearestTarget?.boardPosition) {
+    return null;
+  }
+
+  const destinationOptions: BoardSpace[] = [];
+  cursor = getForwardSpace(source.boardPosition);
+  while (cursor !== nearestTarget.boardPosition) {
+    if (isPositionEmpty(state, cursor)) {
+      destinationOptions.push(cursor);
+    }
+    cursor = getForwardSpace(cursor);
+  }
+
+  if (destinationOptions.length === 0) {
+    return null;
+  }
+
+  return {
+    targetCharacterId: nearestTarget.id,
+    targetPosition: nearestTarget.boardPosition,
+    destinationOptions,
+  };
+}
+
+export function executeIndyWhipSpecial(
+  state: GameState,
+  sourceCharacterId: string,
+  destination: BoardSpace,
+): GameState {
+  if (state.gameStatus !== 'active') {
+    throw new Error('Cannot use Indy\'s Whip special: game is not active');
+  }
+
+  if (state.pendingBattle) {
+    throw new Error('Cannot use Indy\'s Whip special: battle is currently active');
+  }
+
+  const options = getIndyWhipSpecialOptions(state, sourceCharacterId);
+  if (!options) {
+    throw new Error('Cannot use Indy\'s Whip special: no legal target or destination available');
+  }
+
+  if (!options.destinationOptions.includes(destination)) {
+    throw new Error('Cannot use Indy\'s Whip special: destination is not legal');
+  }
+
+  const source = getCharacter(state, sourceCharacterId);
+  const target = getCharacter(state, options.targetCharacterId);
+  if (!source || !source.alive || !source.boardPosition) {
+    throw new Error('Cannot use Indy\'s Whip special: source character is invalid');
+  }
+  if (!target || !target.alive || !target.boardPosition) {
+    throw new Error('Cannot use Indy\'s Whip special: target character is invalid');
+  }
+
+  const actingController = state.activePlayer;
+  if (source.controller !== actingController) {
+    throw new Error('Cannot use Indy\'s Whip special: source character is not controlled by acting player');
+  }
+
+  const sourceAttachments = [...(source.attachments ?? [])];
+  const whipIndex = sourceAttachments.findIndex(
+    attachment => attachment.definitionId === 'power-alpha-031' && !attachment.specialUsed,
+  );
+  if (whipIndex === -1) {
+    throw new Error('Cannot use Indy\'s Whip special: no unused Whip attachment found');
+  }
+
+  sourceAttachments[whipIndex] = {
+    ...sourceAttachments[whipIndex],
+    specialUsed: true,
+  };
+
+  const fromSpace = target.boardPosition;
+  let nextState: GameState = {
+    ...state,
+    characters: state.characters.map(character => {
+      if (character.id === sourceCharacterId) {
+        return {
+          ...character,
+          attachments: sourceAttachments,
+        };
+      }
+
+      if (character.id === target.id) {
+        return {
+          ...character,
+          boardPosition: destination,
+        };
+      }
+
+      return character;
+    }),
+  };
+
+  nextState = resolveRoombaMoveDraws(nextState, [{
+    characterId: target.id,
+    fromSpace,
+    toSpace: destination,
+  }]);
+
+  nextState = maybeResolveThanosCrossing(nextState, target.id, fromSpace, destination);
+
+  const crossed = target.isKing
+    && getSpaceTerritory(fromSpace) !== getSpaceTerritory(destination);
+
+  if (crossed) {
+    nextState = resolveKingTerritoryDraw(nextState, target.controller, {
+      reason: 'INDY\'S WHIP SPECIAL',
+      characterId: target.id,
+      fromSpace,
+      toSpace: destination,
+      sourceCharacterId,
+    });
+  }
+
+  nextState = logEvent(nextState, 'Indy\'s Whip Special', {
+    sourceCharacterId,
+    sourceController: source.controller,
+    targetCharacterId: target.id,
+    targetController: target.controller,
+    fromSpace,
+    toSpace: destination,
+  });
+
+  validateBoardStateInvariants(nextState);
+  return nextState;
 }
 
 export function executeFreezeGunSpecial(

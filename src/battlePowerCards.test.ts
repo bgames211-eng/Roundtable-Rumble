@@ -987,13 +987,15 @@ describe('Phase 4A Step 3 battle power cards', () => {
       'power-alpha-026',
       'power-alpha-027',
       'power-alpha-028',
+      'power-alpha-029',
+      'power-alpha-030',
     ]);
     for (const card of hand.cards) {
       if (conditionallyLegalInWindow.has(card.definitionId)) {
         continue;
       }
-      expect(card.isPlayable).toBe(true);
-      expect(card.disabledReason).toBeNull();
+      expect(card.isPlayable, card.definitionId).toBe(true);
+      expect(card.disabledReason, card.definitionId).toBeNull();
     }
   });
 

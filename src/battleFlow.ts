@@ -44,14 +44,24 @@ interface BattleParticipantPublic {
     instanceId: string;
     definitionId: string;
     displayName: string;
+    category: 'weapon' | 'follower';
     ATK: number;
     DEF: number;
     specialUsed?: boolean;
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+    visualMode?: 'layered-art' | 'full-card-face';
   }>;
 }
 
+export type FollowerTieBreakOrderByHostId = Record<string, string[]>;
+
 const BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID = new Map(
   loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS).map(entry => [entry.definitionId, entry]),
+);
+
+const BATTLE_POWER_CATALOG_BY_DEFINITION_ID = new Map(
+  loadPowerCatalog(FIRST_ALPHA_POWER_CARD_DEFINITIONS).map(entry => [entry.definitionId, entry]),
 );
 
 function getBattleCharacterVisualFallback(definitionId: string | undefined): {
@@ -139,6 +149,8 @@ export interface PlayBattlePowerCardInput {
   secondTargetCharacterId?: string;
   ownSwapCardInstanceId?: string;
   opponentSwapCardInstanceId?: string;
+  findItMiniGameResolved?: boolean;
+  findItSucceeded?: boolean;
 }
 
 export interface ProjectedBattleResult {
@@ -198,6 +210,130 @@ function isRiddler(name: string | undefined): boolean {
   return normalized === 'RIDDLER';
 }
 
+function isMirror(name: string | undefined): boolean {
+  const normalized = normalizeName(name);
+  return normalized === 'MIRROR';
+}
+
+function isBreadCharacter(name: string | undefined): boolean {
+  const normalized = normalizeName(name);
+  return normalized === 'FRENCHTOAST' || normalized === 'CHICKENSANDWICH' || normalized === 'GRILLEDCHEESE2';
+}
+
+function isBreakingBadCharacter(name: string | undefined): boolean {
+  const normalized = normalizeName(name);
+  return normalized === 'HEISENBERG' || normalized === 'HANKSCHRADER';
+}
+
+function isBreakingBreadEligibleDeckCard(card: CharacterDeckCard): boolean {
+  return isBreadCharacter(card.displayName) || isBreakingBadCharacter(card.displayName);
+}
+
+function collectInUseBreakingBreadDefinitionIds(state: GameState): Set<string> {
+  const inUse = new Set<string>();
+
+  for (const character of state.characters) {
+    if (character.alive) {
+      const definitionId = character.definitionId;
+      if (definitionId && (isBreadCharacter(character.displayName) || isBreakingBadCharacter(character.displayName))) {
+        inUse.add(definitionId);
+      }
+    }
+
+    for (const attachment of character.attachments ?? []) {
+      if (attachment.category !== 'follower') {
+        continue;
+      }
+      if (isBreadCharacter(attachment.displayName) || isBreakingBadCharacter(attachment.displayName)) {
+        inUse.add(attachment.definitionId);
+      }
+    }
+  }
+
+  return inUse;
+}
+
+function getAvailableBreakingBreadCardsFromDeck(cards: CharacterDeckCard[], unavailableDefinitionIds: Set<string>): CharacterDeckCard[] {
+  return cards.filter(card => (
+    isBreakingBreadEligibleDeckCard(card)
+    && !unavailableDefinitionIds.has(card.definitionId)
+  ));
+}
+
+export function applyBreakingBreadAssembly(
+  currentState: GameState,
+  actingPlayer: Controller,
+  targetCharacterId: string,
+): { nextState: GameState; effectSummary: string; assembledCount: number; assembledDefinitionIds: string[] } {
+  const targetCharacter = getCharacter(currentState, targetCharacterId);
+  if (!targetCharacter || !targetCharacter.alive || !targetCharacter.boardPosition || targetCharacter.controller !== actingPlayer) {
+    throw new Error('Cannot play card: BREAKING BREAD target must be one of your living board characters');
+  }
+
+  const unavailableDefinitionIds = collectInUseBreakingBreadDefinitionIds(currentState);
+  const fromDeck = getAvailableBreakingBreadCardsFromDeck(currentState.characterDeck, unavailableDefinitionIds);
+  const fromBackup = fromDeck.length === 0
+    ? getAvailableBreakingBreadCardsFromDeck(currentState.sessionUsedCharacterPile, unavailableDefinitionIds)
+    : [];
+  const assembledCards = fromDeck.length > 0 ? fromDeck : fromBackup;
+
+  if (assembledCards.length === 0) {
+    throw new Error('Cannot play card: BREAKING BREAD has no available eligible characters in deck supply');
+  }
+
+  const assembledIdSet = new Set(assembledCards.map(card => card.instanceId));
+  const nextCharacterDeck = fromDeck.length > 0
+    ? currentState.characterDeck.filter(card => !assembledIdSet.has(card.instanceId))
+    : currentState.characterDeck;
+  const nextBackupDeck = fromDeck.length > 0
+    ? currentState.sessionUsedCharacterPile
+    : currentState.sessionUsedCharacterPile.filter(card => !assembledIdSet.has(card.instanceId));
+
+  const followerAttachments = assembledCards.map(card => ({
+    instanceId: `breaking-bread-${card.instanceId}`,
+    definitionId: card.definitionId,
+    displayName: card.displayName,
+    category: 'follower' as const,
+    ATK: card.ATK,
+    DEF: card.DEF,
+  }));
+
+  const source = fromDeck.length > 0 ? 'character-deck' : 'backup-character-pile';
+  const effectSummary = `BREAKING BREAD assembled ${assembledCards.length} follower${assembledCards.length === 1 ? '' : 's'} from ${source}`;
+
+  let nextState: GameState = {
+    ...currentState,
+    characterDeck: nextCharacterDeck,
+    sessionUsedCharacterPile: nextBackupDeck,
+    sessionRunoutOccurred: currentState.sessionRunoutOccurred || source === 'backup-character-pile',
+    characters: currentState.characters.map(character => (
+      character.id === targetCharacter.id
+        ? {
+            ...character,
+            attachments: [...(character.attachments ?? []), ...followerAttachments],
+          }
+        : character
+    )),
+  };
+
+  nextState = logEvent(nextState, 'Breaking Bread Assembly', {
+    actingPlayer,
+    targetCharacterId: targetCharacter.id,
+    targetDisplayName: targetCharacter.displayName ?? targetCharacter.id,
+    source,
+    assembledDefinitionIds: assembledCards.map(card => card.definitionId),
+    assembledDisplayNames: assembledCards.map(card => card.displayName),
+    assembledCount: assembledCards.length,
+  });
+
+  return {
+    nextState,
+    effectSummary,
+    assembledCount: assembledCards.length,
+    assembledDefinitionIds: assembledCards.map(card => card.definitionId),
+  };
+}
+
 function isWeaponDefinition(definitionId: string): boolean {
   return (
     definitionId === 'power-alpha-011'
@@ -206,6 +342,7 @@ function isWeaponDefinition(definitionId: string): boolean {
     || definitionId === 'power-alpha-014'
     || definitionId === 'power-alpha-015'
     || definitionId === 'power-alpha-023'
+    || definitionId === 'power-alpha-031'
   );
 }
 
@@ -280,10 +417,76 @@ function getPersistentStatModifierTotal(
   return state.persistentCharacterModifiers[characterId]?.[stat] ?? 0;
 }
 
+function getMirrorCopiedBaseStatForBattler(
+  state: GameState,
+  battle: PendingBattle,
+  mirrorCharacterId: string,
+  stat: StatLabel,
+): number {
+  const opposingBattlerId = mirrorCharacterId === battle.initiatorId
+    ? battle.opponentId
+    : mirrorCharacterId === battle.opponentId
+      ? battle.initiatorId
+      : null;
+
+  if (!opposingBattlerId) {
+    return 0;
+  }
+
+  const opposingRiddlerSource = battle.riddlerStatSourceByCharacterId[opposingBattlerId];
+  if (opposingRiddlerSource) {
+    if (isMirror(opposingRiddlerSource.displayName)) {
+      const opposingCharacter = getCharacter(state, opposingBattlerId);
+      return opposingCharacter ? opposingCharacter[stat] : 0;
+    }
+    return opposingRiddlerSource[stat];
+  }
+
+  const opposingCharacter = getCharacter(state, opposingBattlerId);
+  return opposingCharacter ? opposingCharacter[stat] : 0;
+}
+
+function getBattleBaseStat(
+  state: GameState,
+  battle: PendingBattle,
+  characterId: string,
+  stat: StatLabel,
+): number {
+  const character = getCharacter(state, characterId);
+  if (!character) {
+    throw new Error('Battle participant is missing');
+  }
+
+  const riddlerSource = battle.riddlerStatSourceByCharacterId[characterId];
+  if (riddlerSource) {
+    if (isMirror(riddlerSource.displayName)) {
+      return getMirrorCopiedBaseStatForBattler(state, battle, characterId, stat);
+    }
+    return riddlerSource[stat];
+  }
+
+  if (isMirror(character.displayName)) {
+    return getMirrorCopiedBaseStatForBattler(state, battle, characterId, stat);
+  }
+
+  return character[stat];
+}
+
 function getAttachmentStatValue(
+  state: GameState,
+  battle: PendingBattle,
+  hostCharacterId: string,
   attachment: Character['attachments'][number],
   stat: StatLabel,
 ): number {
+  if (
+    attachment.category === 'follower'
+    && isMirror(attachment.displayName)
+    && (hostCharacterId === battle.initiatorId || hostCharacterId === battle.opponentId)
+  ) {
+    return getMirrorCopiedBaseStatForBattler(state, battle, hostCharacterId, stat);
+  }
+
   if (attachment.definitionId === 'power-alpha-027') {
     return 2;
   }
@@ -292,6 +495,7 @@ function getAttachmentStatValue(
 
 function getAttachmentStatModifierTotal(
   state: GameState,
+  battle: PendingBattle,
   characterId: string,
   stat: StatLabel,
 ): number {
@@ -300,7 +504,7 @@ function getAttachmentStatModifierTotal(
     return 0;
   }
 
-  return character.attachments.reduce((total, attachment) => total + getAttachmentStatValue(attachment, stat), 0);
+  return character.attachments.reduce((total, attachment) => total + getAttachmentStatValue(state, battle, characterId, attachment, stat), 0);
 }
 
 function getConditionalBattleStatModifier(
@@ -355,11 +559,10 @@ function getEffectiveBattleStat(
   const baseStat: StatLabel = battle.statsSwapped
     ? (stat === 'ATK' ? 'DEF' : 'ATK')
     : stat;
-  const riddlerSource = battle.riddlerStatSourceByCharacterId[characterId];
-  const base = riddlerSource ? riddlerSource[baseStat] : character[baseStat];
+  const base = getBattleBaseStat(state, battle, characterId, baseStat);
   const temporary = getTemporaryStatModifierTotal(battle, characterId, stat);
   const persistent = getPersistentStatModifierTotal(state, characterId, stat);
-  const attachments = getAttachmentStatModifierTotal(state, characterId, stat);
+  const attachments = getAttachmentStatModifierTotal(state, battle, characterId, stat);
   const conditional = getConditionalBattleStatModifier(state, battle, characterId, stat);
   return base + temporary + persistent + attachments + conditional;
 }
@@ -917,6 +1120,8 @@ function getCardPlayability(
     || definitionId === 'power-alpha-013'
     || definitionId === 'power-alpha-014'
     || definitionId === 'power-alpha-015'
+    || definitionId === 'power-alpha-031'
+    || definitionId === 'power-alpha-040'
   ) {
     return {
       isPlayable: true,
@@ -982,6 +1187,14 @@ function getCardPlayability(
     };
   }
 
+  if (definitionId === 'power-alpha-041') {
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: ['ATK', 'DEF'],
+    };
+  }
+
   if (definitionId === 'power-alpha-019') {
     return {
       isPlayable: true,
@@ -995,6 +1208,50 @@ function getCardPlayability(
       isPlayable: true,
       disabledReason: null,
       allowedChoices: [],
+    };
+  }
+
+  if (definitionId === 'power-alpha-030') {
+    const ownLiving = state.characters.filter(character => (
+      character.alive
+      && character.controller === actingPlayer
+      && !!character.boardPosition
+    ));
+
+    if (ownLiving.length === 0) {
+      return {
+        isPlayable: false,
+        disabledReason: 'Illegal unless you control a living board character',
+        allowedChoices: [],
+      };
+    }
+
+    const unavailableDefinitionIds = collectInUseBreakingBreadDefinitionIds(state);
+    const fromDeck = getAvailableBreakingBreadCardsFromDeck(state.characterDeck, unavailableDefinitionIds);
+    const fromBackup = fromDeck.length === 0
+      ? getAvailableBreakingBreadCardsFromDeck(state.sessionUsedCharacterPile, unavailableDefinitionIds)
+      : [];
+
+    if (fromDeck.length === 0 && fromBackup.length === 0) {
+      return {
+        isPlayable: false,
+        disabledReason: 'Illegal unless Character Deck (or backup deck) has available Breaking Bread characters',
+        allowedChoices: [],
+      };
+    }
+
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: [],
+    };
+  }
+
+  if (definitionId === 'power-alpha-042') {
+    return {
+      isPlayable: true,
+      disabledReason: null,
+      allowedChoices: ['ATK', 'DEF'],
     };
   }
 
@@ -1128,6 +1385,20 @@ export function playBattlePowerCard(
       ownCharacterId,
       input.selectedChoice!,
       2,
+      effectSummary,
+      input.selectedChoice!,
+    );
+  } else if (cardInHand.definitionId === 'power-alpha-041') {
+    effectSummary = `-2 ${input.selectedChoice} to opponent battler this battle`;
+    updatedBattle = applyModifier(
+      updatedBattle,
+      cardInHand.instanceId,
+      cardInHand.definitionId,
+      definition.displayName,
+      actingPlayer,
+      opponentCharacterId,
+      input.selectedChoice!,
+      -2,
       effectSummary,
       input.selectedChoice!,
     );
@@ -1320,6 +1591,7 @@ export function playBattlePowerCard(
       'power-alpha-013': { ATK: 3, DEF: 1 },
       'power-alpha-014': { ATK: 4, DEF: 2 },
       'power-alpha-015': { ATK: 2, DEF: 4 },
+      'power-alpha-031': { ATK: 3, DEF: 2 },
       'power-alpha-023': {
         ATK: (state.infinityGauntletEmpowered ? 7 : 4),
         DEF: (state.infinityGauntletEmpowered ? 5 : 2),
@@ -1448,18 +1720,11 @@ export function playBattlePowerCard(
     }
 
     const selectedStat = input.selectedChoice ?? 'ATK';
-    const sacrificedAttachments = sacrificeTarget.attachments ?? [];
-    extraUsedEntries = [
-      ...extraUsedEntries,
-      ...sacrificedAttachments.map(attachment => ({
-        instanceId: attachment.instanceId,
-        definitionId: attachment.definitionId,
-        controller: sacrificeTarget.controller,
-        displayName: attachment.displayName,
-        selectedChoice: null,
-        effectSummary: `Sent from sacrificed ${sacrificeTarget.displayName ?? sacrificeTarget.id} via SOUL STONE`,
-      })),
-    ];
+    const sacrificedAttachmentDrops = splitAttachmentDropsForDefeatedCharacter(
+      sacrificeTarget,
+      `Sent from sacrificed ${sacrificeTarget.displayName ?? sacrificeTarget.id} via SOUL STONE`,
+    );
+    extraUsedEntries = [...extraUsedEntries, ...sacrificedAttachmentDrops.droppedWeapons];
 
     const nextPersistent = { ...state.persistentCharacterModifiers };
     delete nextPersistent[sacrificeTarget.id];
@@ -1473,8 +1738,10 @@ export function playBattlePowerCard(
       )),
       graveyard: [
         ...state.graveyard,
+        ...sacrificedAttachmentDrops.droppedFollowers,
         {
           ...sacrificeTarget,
+          attachments: [],
           alive: false,
           boardPosition: null,
         },
@@ -1594,15 +1861,11 @@ export function playBattlePowerCard(
       boardPosition: targetBoardPosition,
     };
 
-    const previousAttachments = targetCharacter.attachments ?? [];
-    extraUsedEntries = previousAttachments.map(attachment => ({
-      instanceId: attachment.instanceId,
-      definitionId: attachment.definitionId,
-      controller: targetCharacter.controller,
-      displayName: attachment.displayName,
-      selectedChoice: null,
-      effectSummary: `Discarded from ${targetCharacter.displayName ?? targetCharacter.id} via PHONE A FRIEND`,
-    }));
+    const previousAttachmentDrops = splitAttachmentDropsForDefeatedCharacter(
+      targetCharacter,
+      `Discarded from ${targetCharacter.displayName ?? targetCharacter.id} via PHONE A FRIEND`,
+    );
+    extraUsedEntries = previousAttachmentDrops.droppedWeapons;
 
     const nextPersistent = { ...state.persistentCharacterModifiers };
     delete nextPersistent[targetCharacter.id];
@@ -1619,8 +1882,10 @@ export function playBattlePowerCard(
       }),
       graveyard: [
         ...state.graveyard,
+        ...previousAttachmentDrops.droppedFollowers,
         {
           ...targetCharacter,
+          attachments: [],
           alive: false,
           boardPosition: null,
         },
@@ -1667,6 +1932,42 @@ export function playBattlePowerCard(
         newFullCardFaceImageUrl: drawnTop.fullCardFaceImageUrl,
       },
     };
+  } else if (cardInHand.definitionId === 'power-alpha-030') {
+    const requestedTarget = input.targetCharacterId ? getCharacter(state, input.targetCharacterId) : null;
+    const defaultTarget = getCharacter(state, ownCharacterId);
+    const target = requestedTarget && requestedTarget.alive && requestedTarget.controller === actingPlayer && requestedTarget.boardPosition
+      ? requestedTarget
+      : defaultTarget;
+
+    if (!target || !target.alive || target.controller !== actingPlayer || !target.boardPosition) {
+      throw new Error('Cannot play card: BREAKING BREAD target is invalid');
+    }
+
+    const assembled = applyBreakingBreadAssembly(state, actingPlayer, target.id);
+    state = assembled.nextState;
+    effectSummary = assembled.effectSummary;
+  } else if (cardInHand.definitionId === 'power-alpha-042') {
+    if (!input.findItMiniGameResolved) {
+      throw new Error('Cannot play card: FIND IT mini game result is required');
+    }
+
+    if (input.findItSucceeded) {
+      effectSummary = `+6 ${input.selectedChoice} to own battler this battle`;
+      updatedBattle = applyModifier(
+        updatedBattle,
+        cardInHand.instanceId,
+        cardInHand.definitionId,
+        definition.displayName,
+        actingPlayer,
+        ownCharacterId,
+        input.selectedChoice!,
+        6,
+        effectSummary,
+        input.selectedChoice!,
+      );
+    } else {
+      effectSummary = 'FIND IT failed: no stat bonus applied';
+    }
   } else if (cardInHand.definitionId === 'power-alpha-019') {
     effectSummary = 'BEHIND THE CURTAINS hand inspection';
 
@@ -2077,6 +2378,26 @@ export function getLegalBattleCardPlayOptions(
         continue;
       }
 
+      if (card.definitionId === 'power-alpha-030') {
+        const ownLiving = state.characters.filter(character => (
+          character.alive
+          && character.controller === actingPlayer
+          && !!character.boardPosition
+        ));
+
+        for (const candidate of ownLiving) {
+          options.push({
+            input: {
+              instanceId: card.instanceId,
+              targetCharacterId: candidate.id,
+            },
+            definitionId: card.definitionId,
+            displayName: `${card.displayName} (attach to ${candidate.displayName ?? candidate.id})`,
+          });
+        }
+        continue;
+      }
+
       options.push({
         input: { instanceId: card.instanceId },
         definitionId: card.definitionId,
@@ -2177,9 +2498,19 @@ export function getBattlePublicView(state: GameState): BattlePublicView {
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,
         displayName: attachment.displayName,
+        category: attachment.category,
         ATK: attachment.ATK,
         DEF: attachment.DEF,
         specialUsed: attachment.specialUsed,
+        artImageUrl: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl,
+        fullCardFaceImageUrl: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl,
+        visualMode: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode,
       })),
     },
     opponent: {
@@ -2198,9 +2529,19 @@ export function getBattlePublicView(state: GameState): BattlePublicView {
         instanceId: attachment.instanceId,
         definitionId: attachment.definitionId,
         displayName: attachment.displayName,
+        category: attachment.category,
         ATK: attachment.ATK,
         DEF: attachment.DEF,
         specialUsed: attachment.specialUsed,
+        artImageUrl: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.artImageUrl,
+        fullCardFaceImageUrl: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.fullCardFaceImageUrl,
+        visualMode: attachment.category === 'follower'
+          ? BATTLE_CHARACTER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode
+          : BATTLE_POWER_CATALOG_BY_DEFINITION_ID.get(attachment.definitionId)?.visualMode,
       })),
     },
     initiatorComparisonLabel: comparisons.initiatorLabel,
@@ -2372,7 +2713,12 @@ export function acknowledgeBattleHandoff(state: GameState, receivingPlayer: Cont
   };
 }
 
-function buildRiddlerConsumedGraveyardEntries(state: GameState, battle: PendingBattle): Character[] {
+type RiddlerConsumedGraveyardEntry = {
+  hostCharacterId: string | null;
+  card: Character;
+};
+
+function buildRiddlerConsumedGraveyardEntries(state: GameState, battle: PendingBattle): RiddlerConsumedGraveyardEntry[] {
   if (battle.riddlerConsumedCards.length === 0) {
     return [];
   }
@@ -2386,30 +2732,150 @@ function buildRiddlerConsumedGraveyardEntries(state: GameState, battle: PendingB
     }
   }
 
+  const sourceHostByConsumedInstanceId = new Map<string, string>();
+  for (const [characterId, source] of Object.entries(battle.riddlerStatSourceByCharacterId)) {
+    sourceHostByConsumedInstanceId.set(source.instanceId, characterId);
+  }
+
   return battle.riddlerConsumedCards.map(card => ({
-    id: card.instanceId,
-    controller: ownerByConsumedInstanceId.get(card.instanceId) ?? state.activePlayer,
-    ATK: card.ATK,
-    DEF: card.DEF,
-    attachments: [],
-    isFrozen: false,
-    abilityUsed: false,
-    definitionId: card.definitionId,
-    displayName: card.displayName,
-    ability: card.ability,
-    statRule: card.statRule,
-    imageKey: card.imageKey,
-    visualMode: card.visualMode,
-    artImageUrl: card.artImageUrl,
-    fullCardFaceImageUrl: card.fullCardFaceImageUrl,
-    isKing: false,
-    revealed: true,
-    alive: false,
-    boardPosition: null,
+    hostCharacterId: sourceHostByConsumedInstanceId.get(card.instanceId) ?? null,
+    card: {
+      id: card.instanceId,
+      controller: ownerByConsumedInstanceId.get(card.instanceId) ?? state.activePlayer,
+      ATK: card.ATK,
+      DEF: card.DEF,
+      attachments: [],
+      isFrozen: false,
+      abilityUsed: false,
+      definitionId: card.definitionId,
+      displayName: card.displayName,
+      ability: card.ability,
+      statRule: card.statRule,
+      imageKey: card.imageKey,
+      visualMode: card.visualMode,
+      artImageUrl: card.artImageUrl,
+      fullCardFaceImageUrl: card.fullCardFaceImageUrl,
+      isKing: false,
+      revealed: true,
+      alive: false,
+      boardPosition: null,
+    },
   }));
 }
 
-export function resolvePendingBattle(state: GameState): GameState {
+function mergeRiddlerConsumedIntoGraveyard(
+  graveyard: Character[],
+  riddlerConsumed: RiddlerConsumedGraveyardEntry[],
+): Character[] {
+  if (riddlerConsumed.length === 0) {
+    return graveyard;
+  }
+
+  const queuedByHostId = new Map<string, Character[]>();
+  const unhosted: Character[] = [];
+
+  for (const consumed of riddlerConsumed) {
+    if (!consumed.hostCharacterId) {
+      unhosted.push(consumed.card);
+      continue;
+    }
+
+    const queue = queuedByHostId.get(consumed.hostCharacterId) ?? [];
+    queue.push(consumed.card);
+    queuedByHostId.set(consumed.hostCharacterId, queue);
+  }
+
+  const merged: Character[] = [];
+  for (const entry of graveyard) {
+    const queue = queuedByHostId.get(entry.id);
+    if (queue && queue.length > 0) {
+      merged.push(...queue);
+      queuedByHostId.delete(entry.id);
+    }
+
+    merged.push(entry);
+  }
+
+  for (const queue of queuedByHostId.values()) {
+    merged.push(...queue);
+  }
+
+  if (unhosted.length > 0) {
+    merged.push(...unhosted);
+  }
+
+  return merged;
+}
+
+export function splitAttachmentDropsForDefeatedCharacter(
+  defeated: Character,
+  weaponDropSummary: string,
+  preferredFollowerOrder: string[] = [],
+): { droppedWeapons: UsedPowerCardEntry[]; droppedFollowers: Character[] } {
+  const droppedWeapons: UsedPowerCardEntry[] = [];
+  const preferredIndexById = new Map(preferredFollowerOrder.map((id, index) => [id, index]));
+  const followerAttachments = (defeated.attachments ?? []).filter(attachment => attachment.category === 'follower');
+  followerAttachments.sort((left, right) => {
+    if (left.ATK !== right.ATK) {
+      return left.ATK - right.ATK;
+    }
+    if (left.DEF !== right.DEF) {
+      return left.DEF - right.DEF;
+    }
+    const leftPreferred = preferredIndexById.get(left.instanceId);
+    const rightPreferred = preferredIndexById.get(right.instanceId);
+    if (leftPreferred !== undefined && rightPreferred !== undefined && leftPreferred !== rightPreferred) {
+      return leftPreferred - rightPreferred;
+    }
+    return 0;
+  });
+  const droppedFollowers: Character[] = followerAttachments.map(attachment => {
+    const visual = getBattleCharacterVisualFallback(attachment.definitionId);
+    return {
+      id: attachment.instanceId,
+      controller: defeated.controller,
+      ATK: attachment.ATK,
+      DEF: attachment.DEF,
+      attachments: [],
+      isFrozen: false,
+      abilityUsed: false,
+      definitionId: attachment.definitionId,
+      displayName: attachment.displayName,
+      ability: null,
+      statRule: null,
+      visualMode: visual.visualMode,
+      artImageUrl: visual.artImageUrl,
+      fullCardFaceImageUrl: visual.fullCardFaceImageUrl,
+      isKing: false,
+      revealed: true,
+      alive: false,
+      boardPosition: null,
+    };
+  });
+
+  for (const attachment of defeated.attachments ?? []) {
+    if (attachment.category === 'follower') {
+      continue;
+    }
+
+    droppedWeapons.push({
+      instanceId: attachment.instanceId,
+      definitionId: attachment.definitionId,
+      controller: defeated.controller,
+      displayName: attachment.displayName,
+      selectedChoice: null,
+      effectSummary: weaponDropSummary,
+    });
+  }
+
+  return { droppedWeapons, droppedFollowers };
+}
+
+export function resolvePendingBattle(
+  state: GameState,
+  options?: { followerTieBreakOrderByHostId?: FollowerTieBreakOrderByHostId },
+): GameState {
+  const followerTieBreakOrderByHostId = options?.followerTieBreakOrderByHostId ?? {};
   const battle = requirePendingBattle(state);
 
   if (battle.status !== 'ReadyToResolve' && battle.status !== 'Resolving') {
@@ -2465,7 +2931,7 @@ export function resolvePendingBattle(state: GameState): GameState {
     };
 
     const defeatedIds = duelOutcome.isDoubleLoss
-      ? [projectedInitiator.id, projectedOpponent.id]
+      ? [projectedOpponent.id, projectedInitiator.id]
       : [duelOutcome.loserId];
 
     for (const defeatId of defeatedIds) {
@@ -2474,14 +2940,11 @@ export function resolvePendingBattle(state: GameState): GameState {
         continue;
       }
 
-      const droppedWeapons: UsedPowerCardEntry[] = (defeated.attachments ?? []).map(attachment => ({
-        instanceId: attachment.instanceId,
-        definitionId: attachment.definitionId,
-        controller: defeated.controller,
-        displayName: attachment.displayName,
-        selectedChoice: null,
-        effectSummary: `Weapon dropped as ${defeated.displayName ?? defeated.id} was defeated`,
-      }));
+      const attachmentDrops = splitAttachmentDropsForDefeatedCharacter(
+        defeated,
+        `Weapon dropped as ${defeated.displayName ?? defeated.id} was defeated`,
+        followerTieBreakOrderByHostId[defeatId] ?? [],
+      );
 
       finalState = {
         ...finalState,
@@ -2490,11 +2953,15 @@ export function resolvePendingBattle(state: GameState): GameState {
             ? { ...character, alive: false, boardPosition: null, attachments: [] }
             : character,
         ),
-        usedPowerCardPile: [...finalState.usedPowerCardPile, ...droppedWeapons],
+        usedPowerCardPile: [...finalState.usedPowerCardPile, ...attachmentDrops.droppedWeapons],
       };
       finalState = {
         ...finalState,
-        graveyard: [...finalState.graveyard, { ...defeated, alive: false, boardPosition: null }],
+        graveyard: [
+          ...finalState.graveyard,
+          ...attachmentDrops.droppedFollowers,
+          { ...defeated, attachments: [], alive: false, boardPosition: null },
+        ],
       };
     }
 
@@ -2526,7 +2993,7 @@ export function resolvePendingBattle(state: GameState): GameState {
 
     return {
       ...finalState,
-      graveyard: [...finalState.graveyard, ...riddlerConsumed],
+      graveyard: mergeRiddlerConsumedIntoGraveyard(finalState.graveyard, riddlerConsumed),
     };
   }
 
@@ -2551,21 +3018,28 @@ export function resolvePendingBattle(state: GameState): GameState {
 
   const cleanedPersistent = { ...state.persistentCharacterModifiers };
   const droppedWeapons: UsedPowerCardEntry[] = [];
+  const droppedFollowersByHostId = new Map<string, Character[]>();
+  const newlyDefeatedIds = new Set<string>();
+
+  for (const character of normalizedCharacters) {
+    const original = originalById.get(character.id);
+    if (original?.alive && !character.alive) {
+      newlyDefeatedIds.add(character.id);
+    }
+  }
+
   const cleanedCharacters = normalizedCharacters.map(character => {
-    if (character.alive) {
+    if (character.alive || !newlyDefeatedIds.has(character.id)) {
       return character;
     }
 
-    for (const attachment of character.attachments ?? []) {
-      droppedWeapons.push({
-        instanceId: attachment.instanceId,
-        definitionId: attachment.definitionId,
-        controller: character.controller,
-        displayName: attachment.displayName,
-        selectedChoice: null,
-        effectSummary: `Weapon dropped as ${character.displayName ?? character.id} was defeated`,
-      });
-    }
+    const attachmentDrops = splitAttachmentDropsForDefeatedCharacter(
+      character,
+      `Weapon dropped as ${character.displayName ?? character.id} was defeated`,
+      followerTieBreakOrderByHostId[character.id] ?? [],
+    );
+    droppedWeapons.push(...attachmentDrops.droppedWeapons);
+    droppedFollowersByHostId.set(character.id, attachmentDrops.droppedFollowers);
 
     return {
       ...character,
@@ -2579,9 +3053,22 @@ export function resolvePendingBattle(state: GameState): GameState {
     }
   }
 
+  const cleanedGraveyard: Character[] = [];
+  for (const entry of resolved.graveyard) {
+    if (!newlyDefeatedIds.has(entry.id)) {
+      cleanedGraveyard.push(entry);
+      continue;
+    }
+
+    const followerDrops = droppedFollowersByHostId.get(entry.id) ?? [];
+    cleanedGraveyard.push(...followerDrops);
+    cleanedGraveyard.push({ ...entry, attachments: [] });
+  }
+
   const resolvedWithCleanup: GameState = {
     ...resolved,
     characters: cleanedCharacters,
+    graveyard: cleanedGraveyard,
     persistentCharacterModifiers: cleanedPersistent,
     usedPowerCardPile: [...resolved.usedPowerCardPile, ...droppedWeapons],
     pendingBattle: null,
@@ -2594,6 +3081,6 @@ export function resolvePendingBattle(state: GameState): GameState {
 
   return {
     ...resolvedWithCleanup,
-    graveyard: [...resolvedWithCleanup.graveyard, ...riddlerConsumed],
+    graveyard: mergeRiddlerConsumedIntoGraveyard(resolvedWithCleanup.graveyard, riddlerConsumed),
   };
 }

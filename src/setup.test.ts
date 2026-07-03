@@ -71,9 +71,16 @@ describe('Phase 3A Card Definitions', () => {
       { definitionId: 'alpha-037', displayName: 'BIRD', printedATK: 2, printedDEF: 2 },
       { definitionId: 'alpha-038', displayName: 'AVATAR AANG', printedATK: 8.5, printedDEF: 8.5 },
       { definitionId: 'alpha-039', displayName: 'THANOS', printedATK: 10, printedDEF: 10 },
+      { definitionId: 'alpha-040', displayName: 'HEISENBERG', printedATK: 8, printedDEF: 6 },
+      { definitionId: 'alpha-041', displayName: 'HANK SCHRADER', printedATK: 7, printedDEF: 5 },
+      { definitionId: 'alpha-042', displayName: 'FRENCH TOAST', printedATK: 5, printedDEF: 2 },
+      { definitionId: 'alpha-043', displayName: 'CHICKEN SANDWICH', printedATK: 3, printedDEF: 3 },
+      { definitionId: 'alpha-044', displayName: 'GRILLED CHEESE 2', printedATK: 4, printedDEF: 1 },
+      { definitionId: 'alpha-045', displayName: 'INDIANA JONES', printedATK: 6, printedDEF: 6 },
+      { definitionId: 'alpha-046', displayName: 'MIRROR', printedATK: 0, printedDEF: 0 },
     ];
 
-    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(39);
+    expect(ALPHA_1_CHARACTER_DEFINITIONS).toHaveLength(46);
     expect(
       ALPHA_1_CHARACTER_DEFINITIONS.map(def => ({
         definitionId: def.definitionId,
@@ -86,6 +93,8 @@ describe('Phase 3A Card Definitions', () => {
     for (const def of ALPHA_1_CHARACTER_DEFINITIONS) {
       if (def.definitionId === 'alpha-033') {
         expect(def.statRule).toContain('bottom Character Card');
+      } else if (def.definitionId === 'alpha-046') {
+        expect(def.statRule).toContain('Mirror ATK equals the opponent main battler ATK');
       } else {
         expect(def.statRule).toBeNull();
       }
@@ -543,6 +552,27 @@ describe('Multi-game session setup', () => {
     const totalPowerCards = FIRST_ALPHA_POWER_CARD_DEFINITIONS.reduce((sum, card) => sum + card.alphaDeckCount, 0);
     expect(advanced.unusedPowerDeck).toHaveLength(totalPowerCards - 6);
     expect(advanced.usedPowerCardPile).toHaveLength(6);
+  });
+
+  it('advances pools by exact consumed card IDs, including cards consumed from deck by effects', () => {
+    const pools = createInitialSessionDeckPools(sequenceRandom([0.31, 0.57, 0.79, 0.13, 0.45, 0.67]));
+    const state = createMultiGameSessionSetup('P1', sequenceRandom([0.21, 0.43, 0.65, 0.87]), pools);
+
+    const consumedCharacter = state.characterDeck[0];
+    const consumedPower = state.powerCardDeck[0];
+
+    const stateAfterEffectConsumption = {
+      ...state,
+      characterDeck: state.characterDeck.slice(1),
+      powerCardDeck: state.powerCardDeck.slice(1),
+    };
+
+    const advanced = advanceSessionDeckPools(pools, stateAfterEffectConsumption);
+
+    expect(advanced.unusedCharacterDeck.some(card => card.instanceId === consumedCharacter.instanceId)).toBe(false);
+    expect(advanced.unusedPowerDeck.some(card => card.instanceId === consumedPower.instanceId)).toBe(false);
+    expect(advanced.usedCharacterPile.some(card => card.instanceId === consumedCharacter.instanceId)).toBe(true);
+    expect(advanced.usedPowerCardPile.some(card => card.instanceId === consumedPower.instanceId)).toBe(true);
   });
 
   it('uses remaining session cards first and tops up from used piles when a full setup is not possible from unused alone', () => {

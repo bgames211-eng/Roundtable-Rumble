@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Kitchen comic foreground occlusion">
+  <defs>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0f1b31" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#05080f" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+
+  <g opacity="0.98">
+    <rect x="0" y="0" width="1600" height="900" fill="none"/>
+
+    <path d="M0,666 C160,618 332,608 498,656 C638,694 764,706 910,670 C1040,638 1214,640 1600,720 V900 H0 Z" fill="url(#shade)"/>
+
+    <path d="M26,596 L254,596 L308,866 L0,866 Z" fill="#0a1f3c" opacity="0.92"/>
+    <path d="M214,520 L462,520 L512,854 L170,854 Z" fill="#102849" opacity="0.92"/>
+    <path d="M432,582 L698,582 L742,884 L394,884 Z" fill="#0d2748" opacity="0.93"/>
+    <path d="M646,488 L902,488 L950,834 L610,834 Z" fill="#132d55" opacity="0.92"/>
+    <path d="M842,548 L1118,548 L1166,892 L806,892 Z" fill="#0d2445" opacity="0.92"/>
+    <path d="M1060,492 L1328,492 L1378,854 L1022,854 Z" fill="#13294d" opacity="0.91"/>
+    <path d="M1264,532 L1560,532 L1600,898 L1236,898 Z" fill="#0a1d39" opacity="0.93"/>
+
+    <ellipse cx="124" cy="760" rx="124" ry="46" fill="#091322" opacity="0.88"/>
+    <ellipse cx="342" cy="708" rx="136" ry="54" fill="#0a1628" opacity="0.9"/>
+    <ellipse cx="588" cy="792" rx="144" ry="56" fill="#091627" opacity="0.92"/>
+    <ellipse cx="810" cy="672" rx="128" ry="52" fill="#081524" opacity="0.92"/>
+    <ellipse cx="1036" cy="764" rx="152" ry="56" fill="#091525" opacity="0.92"/>
+    <ellipse cx="1288" cy="728" rx="162" ry="58" fill="#091322" opacity="0.92"/>
+    <ellipse cx="1492" cy="802" rx="108" ry="42" fill="#07101d" opacity="0.93"/>
+  </g>
+</svg>

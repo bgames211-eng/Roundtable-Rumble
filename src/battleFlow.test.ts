@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { type Character, initializeGameState } from './gameState';
 import { executeAttackForward, executeSelfDefend } from './gameEngine';
 import {
+  acknowledgeBattleHandoff,
+  applyBreakingBreadAssembly,
   getBattlePublicView,
   passBattlePriority,
+  playBattlePowerCard,
   recordBattleCardPlay,
   resolvePendingBattle,
   startFinalKingDuel,
@@ -331,6 +334,178 @@ describe('Phase 3C battleFlow', () => {
     expect(resolved.graveyard.some(card => card.id === 'deck-bottom')).toBe(true);
   });
 
+  it('Riddler consumed source is placed immediately before defeated Riddler in graveyard order', () => {
+    const baseline = initializeGameState([
+      createChar('y-riddler', 'P1', 0, 0, false, 'P1_3', 'RIDDLER'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-att', 'P2', 12, 9, false, 'P1_4', 'A-ATT'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const withDeck = {
+      ...baseline,
+      characterDeck: [
+        {
+          instanceId: 'deck-top',
+          definitionId: 'alpha-top',
+          displayName: 'Top Card',
+          ATK: 1,
+          DEF: 1,
+          ability: null,
+          statRule: null,
+          imageKey: 'top',
+        },
+        {
+          instanceId: 'deck-bottom',
+          definitionId: 'alpha-bottom',
+          displayName: 'Bottom Card',
+          ATK: 6,
+          DEF: 4,
+          ability: null,
+          statRule: null,
+          imageKey: 'bottom',
+        },
+      ],
+    };
+
+    const started = startBattle(withDeck, 'attack', 'y-riddler');
+    const ready = passBattlePriority(passBattlePriority(started, 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    const ids = resolved.graveyard.map(card => card.id);
+    const sourceIndex = ids.indexOf('deck-bottom');
+    const riddlerIndex = ids.indexOf('y-riddler');
+    expect(sourceIndex).toBeGreaterThanOrEqual(0);
+    expect(riddlerIndex).toBeGreaterThanOrEqual(0);
+    expect(sourceIndex + 1).toBe(riddlerIndex);
+  });
+
+  it('Mirror main battler copies opponent main battler printed battle stats', () => {
+    const baseline = initializeGameState([
+      createChar('y-mirror', 'P1', 0, 0, false, 'P1_3', 'MIRROR'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-def', 'P2', 9, 4, false, 'P1_4', 'A-DEF'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const started = startBattle(baseline, 'attack', 'y-mirror');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorEffectiveComparison).toBe(9);
+    expect(publicView.opponentEffectiveComparison).toBe(4);
+  });
+
+  it('Mirror follower attachment copies opponent main battler stats as attachment bonus', () => {
+    const baseline = initializeGameState([
+      {
+        ...createChar('y-host', 'P1', 2, 2, false, 'P1_3', 'Y-HOST'),
+        attachments: [
+          {
+            instanceId: 'mirror-attach',
+            definitionId: 'alpha-046',
+            displayName: 'MIRROR',
+            category: 'follower',
+            ATK: 0,
+            DEF: 0,
+          },
+        ],
+      } as Character,
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-def', 'P2', 7, 6, false, 'P1_4', 'A-DEF'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const started = startBattle(baseline, 'attack', 'y-host');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorEffectiveComparison).toBe(9);
+  });
+
+  it('Mirror updates copied stat when opponent main battler changes during battle', () => {
+    const baseline = initializeGameState([
+      createChar('y-mirror', 'P1', 0, 0, false, 'P1_3', 'MIRROR'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-old', 'P2', 6, 4, false, 'P1_4', 'A-OLD'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+      createChar('a-bench', 'P2', 2, 2, false, 'P2_4', 'A-BENCH'),
+    ]);
+
+    const withPhoneFriend = {
+      ...baseline,
+      powerCardHands: {
+        ...baseline.powerCardHands,
+        P2: [{ instanceId: 'power-y-phone', definitionId: 'power-alpha-017' }],
+      },
+      characterDeck: [
+        {
+          instanceId: 'deck-new-ally',
+          definitionId: 'alpha-new-ally',
+          displayName: 'NEW ALLY',
+          ATK: 11,
+          DEF: 1,
+          ability: null,
+          statRule: null,
+          imageKey: 'new-ally',
+        },
+      ],
+    };
+
+    const started = startBattle(withPhoneFriend, 'attack', 'y-mirror');
+    expect(getBattlePublicView(started).initiatorEffectiveComparison).toBe(6);
+
+    const passed = passBattlePriority(started, 'P1');
+    const acknowledged = acknowledgeBattleHandoff(passed, 'P2');
+    const afterPhoneFriend = playBattlePowerCard(acknowledged, 'P2', {
+      instanceId: 'power-y-phone',
+      targetCharacterId: 'a-old',
+    });
+    const publicView = getBattlePublicView(afterPhoneFriend);
+
+    expect(publicView.opponent.id).toBe('deck-new-ally');
+    expect(publicView.initiatorEffectiveComparison).toBe(11);
+  });
+
+  it('Riddler using Mirror source copies opponent main battler stats', () => {
+    const baseline = initializeGameState([
+      createChar('y-riddler', 'P1', 0, 0, false, 'P1_3', 'RIDDLER'),
+      createChar('y-king', 'P1', 8, 8, true, 'P1_1', 'Y-KING'),
+      createChar('a-def', 'P2', 8, 5, false, 'P1_4', 'A-DEF'),
+      createChar('a-king', 'P2', 8, 8, true, 'P2_3', 'A-KING'),
+    ]);
+
+    const withDeck = {
+      ...baseline,
+      characterDeck: [
+        {
+          instanceId: 'deck-top',
+          definitionId: 'alpha-top',
+          displayName: 'Top Card',
+          ATK: 1,
+          DEF: 1,
+          ability: null,
+          statRule: null,
+          imageKey: 'top',
+        },
+        {
+          instanceId: 'deck-mirror',
+          definitionId: 'alpha-046',
+          displayName: 'MIRROR',
+          ATK: 0,
+          DEF: 0,
+          ability: null,
+          statRule: null,
+          imageKey: 'mirror',
+        },
+      ],
+    };
+
+    const started = startBattle(withDeck, 'attack', 'y-riddler');
+    const publicView = getBattlePublicView(started);
+
+    expect(publicView.initiatorRiddlerSource?.instanceId).toBe('deck-mirror');
+    expect(publicView.initiatorEffectiveComparison).toBe(8);
+  });
+
   it('Ant draws 2 power cards after winning a staged pending battle', () => {
     const baseline = initializeGameState([
       createChar('ant', 'P1', 9, 2, false, 'P1_3', 'ANT'),
@@ -393,6 +568,96 @@ describe('Phase 3C battleFlow', () => {
 
     const thisBattleUsedCards = resolved.usedPowerCardPile.slice(startCount);
     expect(thisBattleUsedCards.some(card => card.instanceId === 'ray-gun-drop')).toBe(true);
+  });
+
+  it('defeated follower attachments are sent to graveyard (not used power pile)', () => {
+    const baseline = initializeGameState([
+      {
+        ...createChar('attacker', 'P1', 3, 3, false, 'P1_3', 'ATTACKER'),
+        attachments: [
+          {
+            instanceId: 'follower-drop-1',
+            definitionId: 'char-alpha-frenchtoast',
+            displayName: 'FRENCH TOAST',
+            category: 'follower',
+            ATK: 5,
+            DEF: 3,
+          },
+        ],
+      } as Character,
+      {
+        ...createChar('defender', 'P2', 9, 9, false, 'P1_4', 'DEFENDER'),
+      } as Character,
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const started = startBattle(baseline, 'attack', 'attacker');
+    const ready = passBattlePriority(passBattlePriority(started, 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    expect(resolved.graveyard.some(card => card.id === 'follower-drop-1')).toBe(true);
+    expect(resolved.usedPowerCardPile.some(card => card.instanceId === 'follower-drop-1')).toBe(false);
+    const hostIndex = resolved.graveyard.findIndex(card => card.id === 'attacker');
+    const followerIndex = resolved.graveyard.findIndex(card => card.id === 'follower-drop-1');
+    expect(followerIndex).toBeGreaterThanOrEqual(0);
+    expect(hostIndex).toBeGreaterThan(followerIndex);
+  });
+
+  it('tie battle graveyard order uses opponent stack first and initiator stack second', () => {
+    const baseline = initializeGameState([
+      {
+        ...createChar('initiator', 'P1', 5, 5, false, 'P1_3', 'INITIATOR'),
+        attachments: [
+          {
+            instanceId: 'init-follower-low',
+            definitionId: 'char-alpha-frenchtoast',
+            displayName: 'INIT LOW',
+            category: 'follower',
+            ATK: 2,
+            DEF: 1,
+          },
+          {
+            instanceId: 'init-follower-high',
+            definitionId: 'char-alpha-heisenberg',
+            displayName: 'INIT HIGH',
+            category: 'follower',
+            ATK: 4,
+            DEF: 1,
+          },
+        ],
+      } as Character,
+      {
+        ...createChar('opponent', 'P2', 6, 10, false, 'P1_4', 'OPPONENT'),
+        attachments: [
+          {
+            instanceId: 'opp-follower-mid',
+            definitionId: 'char-alpha-frenchtoast',
+            displayName: 'OPP MID',
+            category: 'follower',
+            ATK: 3,
+            DEF: 1,
+          },
+        ],
+      } as Character,
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const started = startBattle(baseline, 'attack', 'initiator');
+    const ready = passBattlePriority(passBattlePriority(started, 'P1'), 'P2');
+    const resolved = resolvePendingBattle(ready);
+
+    const stackOrder = resolved.graveyard
+      .map(card => card.id)
+      .filter(id => id === 'opp-follower-mid' || id === 'opponent' || id === 'init-follower-low' || id === 'init-follower-high' || id === 'initiator');
+    expect(stackOrder).toEqual([
+      'opp-follower-mid',
+      'opponent',
+      'init-follower-low',
+      'init-follower-high',
+      'initiator',
+    ]);
   });
 
   it('final king duel uses Riddler bottom-deck source for ATK comparison', () => {
@@ -466,5 +731,69 @@ describe('Phase 3C battleFlow', () => {
     expect(started.characterDeck).toHaveLength(0);
     expect(started.sessionUsedCharacterPile).toHaveLength(0);
     expect(started.sessionRunoutOccurred).toBe(true);
+  });
+
+  it('BREAKING BREAD assembles from backup deck when main deck has no eligible cards even outside multi-game', () => {
+    const state = initializeGameState([
+      createChar('p1-target', 'P1', 6, 6, false, 'P1_2', 'P1-TARGET'),
+      createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+      createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+    ]);
+
+    const withBackupSupply = {
+      ...state,
+      sessionMode: 'single-game' as const,
+      characterDeck: [
+        {
+          instanceId: 'deck-non-bb',
+          definitionId: 'char-alpha-batman',
+          displayName: 'BATMAN',
+          ATK: 7,
+          DEF: 7,
+          ability: null,
+          statRule: null,
+          imageKey: 'batman',
+        },
+      ],
+      sessionUsedCharacterPile: [
+        {
+          instanceId: 'backup-bread-1',
+          definitionId: 'char-alpha-frenchtoast',
+          displayName: 'FRENCHTOAST',
+          ATK: 3,
+          DEF: 3,
+          ability: null,
+          statRule: null,
+          imageKey: 'frenchtoast',
+        },
+        {
+          instanceId: 'backup-bread-2',
+          definitionId: 'char-alpha-heisenberg',
+          displayName: 'HEISENBERG',
+          ATK: 4,
+          DEF: 4,
+          ability: null,
+          statRule: null,
+          imageKey: 'heisenberg',
+        },
+      ],
+    };
+
+    const { nextState, assembledCount, assembledDefinitionIds } = applyBreakingBreadAssembly(
+      withBackupSupply,
+      'P1',
+      'p1-target',
+    );
+
+    expect(assembledCount).toBe(2);
+    expect(assembledDefinitionIds).toEqual(['char-alpha-frenchtoast', 'char-alpha-heisenberg']);
+    expect(nextState.characterDeck.map(card => card.instanceId)).toEqual(['deck-non-bb']);
+    expect(nextState.sessionUsedCharacterPile).toHaveLength(0);
+
+    const target = nextState.characters.find(character => character.id === 'p1-target');
+    expect(target?.attachments?.map(attachment => attachment.definitionId)).toEqual([
+      'char-alpha-frenchtoast',
+      'char-alpha-heisenberg',
+    ]);
   });
 });

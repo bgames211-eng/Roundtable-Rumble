@@ -66,7 +66,7 @@ export function CharacterCardFrame({
   const shouldRenderFullCardFace = revealed && visualMode === 'full-card-face' && !!fullCardFaceSrc && !fullFaceImageFailed;
   const shouldRenderCharacterBackImage = !revealed && !backImageFailed;
   const normalizedName = (displayName ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const displayQuestionStats = normalizedName === 'RIDDLER';
+  const displayQuestionStats = normalizedName === 'RIDDLER' || normalizedName === 'MIRROR';
   const atkDisplay = displayQuestionStats ? '?' : (ATK ?? '—');
   const defDisplay = displayQuestionStats ? '?' : (DEF ?? '—');
   const className = [

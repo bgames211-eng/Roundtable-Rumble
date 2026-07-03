@@ -328,6 +328,7 @@ export function BattleScreen({
   const [resolveTravel, setResolveTravel] = useState<{ usedX: number; usedY: number; graveX: number; graveY: number } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [riddlerFxActive, setRiddlerFxActive] = useState(false);
+  const [mirrorFxActive, setMirrorFxActive] = useState(false);
   const onResolveBattleRef = React.useRef(onResolveBattle);
 
   useEffect(() => {
@@ -472,21 +473,29 @@ export function BattleScreen({
           key: `equip-${humanCard.id}-${attachment.instanceId}-${index}`,
           source: attachment.displayName,
           definitionId: attachment.definitionId,
+          category: attachment.category,
           summary: `Equipped: +${attachment.ATK} ATK / +${attachment.DEF} DEF`,
           targets: new Set<string>([humanCard.id]),
           shared: false,
           sourceCharacterId: humanCard.id,
           attachmentInstanceId: attachment.instanceId,
+          artImageUrl: attachment.artImageUrl ?? null,
+          fullCardFaceImageUrl: attachment.fullCardFaceImageUrl ?? null,
+          visualMode: attachment.visualMode ?? 'layered-art',
         })),
         ...rivalCard.attachments.map((attachment, index) => ({
           key: `equip-${rivalCard.id}-${attachment.instanceId}-${index}`,
           source: attachment.displayName,
           definitionId: attachment.definitionId,
+          category: attachment.category,
           summary: `Equipped: +${attachment.ATK} ATK / +${attachment.DEF} DEF`,
           targets: new Set<string>([rivalCard.id]),
           shared: false,
           sourceCharacterId: rivalCard.id,
           attachmentInstanceId: attachment.instanceId,
+          artImageUrl: attachment.artImageUrl ?? null,
+          fullCardFaceImageUrl: attachment.fullCardFaceImageUrl ?? null,
+          visualMode: attachment.visualMode ?? 'layered-art',
         })),
       ];
 
@@ -510,11 +519,15 @@ export function BattleScreen({
       ]
     : sharedEffectCards;
   const expandedPowerCard = visibleManualCards.find(card => card.instanceId === expandedPowerCardId) ?? null;
-  const expandedChoice = expandedPowerCard ? selectedChoices[expandedPowerCard.instanceId] : undefined;
+  const explicitExpandedChoice = expandedPowerCard ? selectedChoices[expandedPowerCard.instanceId] : undefined;
+  const expandedChoice = expandedPowerCard
+    ? (explicitExpandedChoice ?? expandedPowerCard.allowedChoices[0])
+    : undefined;
   const expandedRequiresChoice = !!expandedPowerCard && expandedPowerCard.allowedChoices.length > 0;
   const expandedCanPlay = !!expandedPowerCard
     && expandedPowerCard.isPlayable
     && (!expandedRequiresChoice || !!expandedChoice);
+
   const isFinalKingDuel = battle.initiator.isKing && battle.opponent.isKing;
   const winningController = sideScoreDelta === 0
     ? null
@@ -532,6 +545,69 @@ export function BattleScreen({
   const riddlerReferenceSignature = riddlerReferences
     .map(entry => `${entry.owner.id}:${entry.source.instanceId}`)
     .join('|');
+  const mirrorReferences = useMemo(() => {
+    const isMirrorName = (name: string | undefined): boolean => (
+      (name ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '') === 'MIRROR'
+    );
+
+    const entries: Array<{
+      key: string;
+      ownerId: string;
+      ownerDisplayName: string;
+      ownerController: 'P1' | 'P2';
+      copiedFromDisplayName: string;
+      copiedATK: number;
+      copiedDEF: number;
+      source: 'main' | 'attachment' | 'riddler-source';
+    }> = [];
+
+    const pushMirrorEntry = (
+      owner: BattlePublicView['initiator'],
+      copiedFrom: BattlePublicView['initiator'],
+      source: 'main' | 'attachment' | 'riddler-source',
+    ): void => {
+      const key = `${owner.id}:${source}`;
+      if (entries.some(entry => entry.key === key)) {
+        return;
+      }
+      entries.push({
+        key,
+        ownerId: owner.id,
+        ownerDisplayName: owner.displayName,
+        ownerController: owner.controller,
+        copiedFromDisplayName: copiedFrom.displayName,
+        copiedATK: copiedFrom.ATK,
+        copiedDEF: copiedFrom.DEF,
+        source,
+      });
+    };
+
+    if (isMirrorName(battle.initiator.displayName)) {
+      pushMirrorEntry(battle.initiator, battle.opponent, 'main');
+    }
+    if (isMirrorName(battle.opponent.displayName)) {
+      pushMirrorEntry(battle.opponent, battle.initiator, 'main');
+    }
+
+    if (battle.initiator.attachments.some(attachment => attachment.category === 'follower' && isMirrorName(attachment.displayName))) {
+      pushMirrorEntry(battle.initiator, battle.opponent, 'attachment');
+    }
+    if (battle.opponent.attachments.some(attachment => attachment.category === 'follower' && isMirrorName(attachment.displayName))) {
+      pushMirrorEntry(battle.opponent, battle.initiator, 'attachment');
+    }
+
+    if (battle.initiatorRiddlerSource && isMirrorName(battle.initiatorRiddlerSource.displayName)) {
+      pushMirrorEntry(battle.initiator, battle.opponent, 'riddler-source');
+    }
+    if (battle.opponentRiddlerSource && isMirrorName(battle.opponentRiddlerSource.displayName)) {
+      pushMirrorEntry(battle.opponent, battle.initiator, 'riddler-source');
+    }
+
+    return entries;
+  }, [battle.initiator, battle.initiatorRiddlerSource, battle.opponent, battle.opponentRiddlerSource]);
+  const mirrorReferenceSignature = mirrorReferences
+    .map(entry => `${entry.key}:${entry.copiedFromDisplayName}:${entry.copiedATK}/${entry.copiedDEF}`)
+    .join('|');
 
   useEffect(() => {
     if (riddlerReferences.length === 0) {
@@ -546,6 +622,20 @@ export function BattleScreen({
 
     return () => window.clearTimeout(timer);
   }, [battleIntroKey, riddlerReferenceSignature]);
+
+  useEffect(() => {
+    if (mirrorReferences.length === 0) {
+      setMirrorFxActive(false);
+      return;
+    }
+
+    setMirrorFxActive(true);
+    const timer = window.setTimeout(() => {
+      setMirrorFxActive(false);
+    }, 5200);
+
+    return () => window.clearTimeout(timer);
+  }, [battleIntroKey, mirrorReferenceSignature]);
 
   useEffect(() => {
     const isJsdomTestEnv = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
@@ -660,6 +750,7 @@ export function BattleScreen({
 
     return linkedModifiers.map((modifier, index) => {
       const clickable = !!onAttachmentClick && !!modifier.sourceCharacterId && !!modifier.attachmentInstanceId;
+      const isFollowerAttachment = 'category' in modifier && modifier.category === 'follower';
 
       return React.createElement(
         clickable ? 'button' : 'div',
@@ -675,17 +766,33 @@ export function BattleScreen({
             ? `battle-attachment-action-${modifier.sourceCharacterId}-${modifier.attachmentInstanceId}`
             : `battle-attached-card-${targetCharacterId}-${index}`,
         },
-        React.createElement(PowerCardFrame, {
-          size: 'compact',
-          displayName: modifier.source,
-          rulesText: modifier.summary,
-          artSrc: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.artImageUrl ?? null : null,
-          fullCardFaceSrc: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.fullCardFaceImageUrl ?? null : null,
-          visualMode: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.visualMode : 'layered-art',
-          state: 'selected',
-          selected: true,
-          testId: `battle-attached-card-${targetCharacterId}-${index}`,
-        }),
+        isFollowerAttachment
+          ? React.createElement(CharacterCardFrame, {
+              size: 'compact',
+              revealed: true,
+              controllerColorClass: 'player-color-blue',
+              displayName: modifier.source,
+              ATK: 0,
+              DEF: 0,
+              ability: '',
+              artSrc: (modifier as { artImageUrl?: string | null }).artImageUrl ?? null,
+              fullCardFaceSrc: (modifier as { fullCardFaceImageUrl?: string | null }).fullCardFaceImageUrl ?? null,
+              visualMode: (modifier as { visualMode?: 'layered-art' | 'full-card-face' }).visualMode,
+              isKing: false,
+              isFrozen: false,
+              testId: `battle-attached-card-${targetCharacterId}-${index}`,
+            })
+          : React.createElement(PowerCardFrame, {
+              size: 'compact',
+              displayName: modifier.source,
+              rulesText: modifier.summary,
+              artSrc: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.artImageUrl ?? null : null,
+              fullCardFaceSrc: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.fullCardFaceImageUrl ?? null : null,
+              visualMode: modifier.definitionId ? powerCatalogById.get(modifier.definitionId)?.visualMode : 'layered-art',
+              state: 'selected',
+              selected: true,
+              testId: `battle-attached-card-${targetCharacterId}-${index}`,
+            }),
       );
     });
   };
@@ -803,29 +910,12 @@ export function BattleScreen({
     if (isMultiplayerSeatView) {
       if (multiplayerSeat !== 'P1') {
         return React.createElement('div', { className: 'battle-opponent-column' },
-          (manualP1Cards.length > 0 ? manualP1Cards : Array.from({ length: battle.powerCardHandCount.P1 }).map((_, idx) => ({ instanceId: `placeholder-P1-${idx}` } as typeof manualP1Cards[number]))).map((card, idx) => {
-            const revealed = !!card.instanceId && revealedSetP1.has(card.instanceId);
-            if (!revealed || !('displayName' in card)) {
-              return React.createElement(PowerCardFrame, {
-                key: `battle-opponent-back-P1-${idx}`,
-                size: 'hand',
-                state: 'back',
-                testId: `battle-opponent-back-P1-${idx}`,
-              });
-            }
-
-            return React.createElement(PowerCardFrame, {
-              key: `battle-opponent-revealed-P1-${card.instanceId}`,
-              size: 'hand',
-              displayName: card.displayName,
-              rulesText: card.rulesText,
-              artSrc: card.artImageUrl ?? null,
-              fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
-              visualMode: card.visualMode ?? 'layered-art',
-              state: 'playable',
-              testId: `battle-opponent-revealed-P1-${card.instanceId}`,
-            });
-          }),
+          Array.from({ length: battle.powerCardHandCount.P1 }).map((_, idx) => React.createElement(PowerCardFrame, {
+            key: `battle-opponent-back-P1-${idx}`,
+            size: 'hand',
+            state: 'back',
+            testId: `battle-opponent-back-P1-${idx}`,
+          })),
         );
       }
 
@@ -973,29 +1063,12 @@ export function BattleScreen({
     if (isMultiplayerSeatView) {
       if (multiplayerSeat === 'P1') {
         return React.createElement('div', { className: 'battle-opponent-column' },
-          (manualP2Cards.length > 0 ? manualP2Cards : Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => ({ instanceId: `placeholder-P2-${idx}` } as typeof manualP2Cards[number]))).map((card, idx) => {
-            const revealed = !!card.instanceId && revealedSetP2.has(card.instanceId);
-            if (!revealed || !('displayName' in card)) {
-              return React.createElement(PowerCardFrame, {
-                key: `battle-opponent-back-${idx}`,
-                size: 'hand',
-                state: 'back',
-                testId: `battle-opponent-back-${idx}`,
-              });
-            }
-
-            return React.createElement(PowerCardFrame, {
-              key: `battle-opponent-revealed-P2-${card.instanceId}`,
-              size: 'hand',
-              displayName: card.displayName,
-              rulesText: card.rulesText,
-              artSrc: card.artImageUrl ?? null,
-              fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
-              visualMode: card.visualMode ?? 'layered-art',
-              state: 'playable',
-              testId: `battle-opponent-revealed-P2-${card.instanceId}`,
-            });
-          }),
+          Array.from({ length: battle.powerCardHandCount.P2 }).map((_, idx) => React.createElement(PowerCardFrame, {
+            key: `battle-opponent-back-${idx}`,
+            size: 'hand',
+            state: 'back',
+            testId: `battle-opponent-back-${idx}`,
+          })),
         );
       }
 
@@ -1203,6 +1276,57 @@ export function BattleScreen({
                 isFrozen: false,
                 statusTag: characterStatusById[entry.owner.id] ?? null,
                 testId: `battle-riddler-fx-card-${entry.owner.id}`,
+              }),
+            )),
+          ),
+        )
+      : null,
+
+    mirrorFxActive && mirrorReferences.length > 0
+      ? React.createElement(
+          'section',
+          { className: 'battle-mirror-fx-overlay', 'data-testid': 'battle-mirror-fx-overlay' },
+          React.createElement(
+            'div',
+            { className: 'battle-mirror-fx-shards', 'aria-hidden': 'true' },
+            Array.from({ length: 16 }).map((_, index) => React.createElement('span', {
+              key: `mirror-shard-${index}`,
+              className: 'battle-mirror-fx-shard',
+              style: {
+                '--mirror-shard-left': `${5 + ((index * 6.5) % 92)}%`,
+                '--mirror-shard-top': `${6 + ((index * 9) % 78)}%`,
+                '--mirror-shard-delay': `${index * 60}ms`,
+                '--mirror-shard-rot': `${(index % 2 === 0 ? 1 : -1) * (8 + ((index * 9) % 36))}deg`,
+              } as React.CSSProperties,
+            })),
+          ),
+          React.createElement(
+            'div',
+            { className: 'battle-mirror-fx-cards' },
+            mirrorReferences.map(entry => React.createElement(
+              'article',
+              {
+                key: `mirror-fx-card-${entry.key}`,
+                className: 'battle-mirror-fx-card',
+                'data-testid': `battle-mirror-fx-card-${entry.ownerId}`,
+              },
+              React.createElement('p', { className: 'battle-mirror-fx-label' }, `${entry.ownerDisplayName} reflects ${entry.copiedFromDisplayName}`),
+              React.createElement('p', { className: 'battle-mirror-fx-stats' }, `ATK ${entry.copiedATK} / DEF ${entry.copiedDEF}`),
+              React.createElement('p', { className: 'battle-mirror-fx-source' }, entry.source === 'attachment' ? 'via follower attachment' : entry.source === 'riddler-source' ? 'via Riddler source' : 'main battler reflection'),
+              React.createElement(CharacterCardFrame, {
+                size: 'compact',
+                revealed: true,
+                controllerColorClass: entry.ownerController === 'P1' ? p1ColorClass : p2ColorClass,
+                displayName: 'MIRROR',
+                ATK: entry.copiedATK,
+                DEF: entry.copiedDEF,
+                ability: '',
+                artSrc: null,
+                fullCardFaceSrc: null,
+                visualMode: 'layered-art',
+                isKing: false,
+                isFrozen: false,
+                testId: `battle-mirror-fx-frame-${entry.ownerId}`,
               }),
             )),
           ),
@@ -1492,7 +1616,7 @@ export function BattleScreen({
                       {
                         key: `${expandedPowerCard.instanceId}-inspector-${option}`,
                         type: 'button',
-                        className: `battle-choice-button ${expandedChoice === option ? 'selected' : ''}`,
+                        className: `battle-choice-button ${explicitExpandedChoice === option ? 'selected' : ''}`,
                         onClick: () => {
                           setSelectedChoices(prev => ({ ...prev, [expandedPowerCard.instanceId]: option }));
                         },

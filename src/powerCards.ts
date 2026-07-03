@@ -231,6 +231,48 @@ export const FIRST_ALPHA_POWER_CARD_DEFINITIONS: PowerCardDefinition[] = [
       'Any time, including battle: reverse the most recently completed action (cannot reverse playing Time Stone itself).',
     alphaDeckCount: 1,
   },
+  {
+    definitionId: 'power-alpha-029',
+    displayName: "HEISENBERG'S RV",
+    rulesText:
+      "Any time, including battle: Vehicle. +3 ATK / +5 DEF. If Heisenberg drives it, once per game after revealed, select 1 opponent Power Card from a face-down view and take it.",
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-030',
+    displayName: 'BREAKING BREAD',
+    rulesText:
+      'Any time: assemble all bread and Breaking Bad related characters not currently in use. They become followers of your card in play.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-031',
+    displayName: 'INDY\'S WHIP',
+    rulesText:
+      'Any time, including battle: Weapon. +3 ATK / +2 DEF. If Indiana Jones uses it, once per game pull the nearest character in front as close as desired through open spaces; must stop open in front of Indiana Jones.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-040',
+    displayName: 'THE FORGE',
+    rulesText:
+      'On your turn: place on open spot. First character to land there may search for any Weapon and equip it. Remove The Forge.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-041',
+    displayName: 'BOOMERANG',
+    rulesText:
+      'During battle: subtract 2 ATK or DEF from opponent. If played from hand, returns to your hand after battle and may be used once per turn. If equipped to Sokka, subtract 5 instead, but attaches to Sokka.',
+    alphaDeckCount: 1,
+  },
+  {
+    definitionId: 'power-alpha-042',
+    displayName: 'FIND IT',
+    rulesText:
+      'During battle: opponent hides this card in a room of your choosing. You have 15 seconds to find it. If successful, add 6 ATK or DEF this battle.',
+    alphaDeckCount: 1,
+  },
 ];
 
 const POWER_CARD_DEFINITION_MAP = new Map(
@@ -266,6 +308,12 @@ const POWER_CARD_AI_METADATA: Record<string, PowerCardAiMetadata> = {
   'power-alpha-026': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'premium' },
   'power-alpha-027': { timing: 'turn-only', effectType: 'movement', targetType: 'board', strategicValue: 'high' },
   'power-alpha-028': { timing: 'anytime', effectType: 'replace', targetType: 'both', strategicValue: 'premium' },
+  'power-alpha-029': { timing: 'anytime', effectType: 'equipment', targetType: 'board', strategicValue: 'high' },
+  'power-alpha-030': { timing: 'anytime', effectType: 'replace', targetType: 'self', strategicValue: 'high' },
+  'power-alpha-031': { timing: 'anytime', effectType: 'equipment', targetType: 'self', strategicValue: 'high' },
+  'power-alpha-040': { timing: 'anytime', effectType: 'replace', targetType: 'board', strategicValue: 'medium' },
+  'power-alpha-041': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'high' },
+  'power-alpha-042': { timing: 'battle', effectType: 'stat-buff', targetType: 'self', strategicValue: 'high' },
 };
 
 export function getPowerCardDefinition(definitionId: string): PowerCardDefinition {

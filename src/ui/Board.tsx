@@ -1,5 +1,6 @@
 import React from 'react';
 import { type PlayerSafeCardView, type PlayerSafeGameView } from '../setup';
+import type { Controller } from '../gameState';
 import type { PlayerColor } from './StartScreen';
 import { CharacterCardFrame, PowerCardFrame } from './CardFrames';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS, getPowerCardDefinition } from '../powerCards';
@@ -15,6 +16,7 @@ interface BoardProps {
   onActionTargetClick?: (action: 'move' | 'attack' | 'defend', position: RingPosition) => void;
   allowCardClickOnActionTargets?: boolean;
   allowWeaponTargetClicks?: boolean;
+  selectionController?: Controller | null;
   portalRetargetEnabled?: boolean;
   portalSourceCharacterId?: string | null;
   actionTargetFx?: 'power-portal' | 'space-stone-portal' | 'back-it-up' | null;
@@ -75,7 +77,7 @@ interface BoardProps {
     visualMode?: 'layered-art' | 'full-card-face';
     artImageUrl?: string;
     fullCardFaceImageUrl?: string;
-    style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up';
+    style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up' | 'indy-whip-pull';
   } | null;
   rapunzelHairTrail?: {
     sourceCharacterId: string;
@@ -84,6 +86,15 @@ interface BoardProps {
     targetPosition: RingPosition;
     attachedPosition: RingPosition | null;
     phase: 'attach' | 'fling' | 'retract';
+    pathPositions: RingPosition[];
+  } | null;
+  indyWhipTrail?: {
+    sourceCharacterId: string;
+    sourcePosition: RingPosition;
+    targetCharacterId: string;
+    targetPosition: RingPosition;
+    attachedPosition: RingPosition | null;
+    phase: 'attach' | 'pull' | 'retract';
     pathPositions: RingPosition[];
   } | null;
   postBattleMotion?: {
@@ -125,6 +136,7 @@ interface BoardProps {
   inspectAllCards?: boolean;
   characterStatusById?: Record<string, string>;
   gauntletEnergizedCharacterIds?: string[];
+  activeForgePosition?: RingPosition | null;
 }
 
 const ringOrder = ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_5', 'P2_4', 'P2_3', 'P2_2', 'P2_1'] as const;
@@ -171,6 +183,7 @@ function renderRingSpace(
   onActionTargetClick: ((action: 'move' | 'attack' | 'defend', position: RingPosition) => void) | undefined,
   allowCardClickOnActionTargets: boolean,
   allowWeaponTargetClicks: boolean,
+  selectionController: Controller | null,
   portalRetargetEnabled: boolean,
   portalSourceCharacterId: string | null,
   actionTargetFx: BoardProps['actionTargetFx'],
@@ -196,7 +209,8 @@ function renderRingSpace(
   const layout = RING_LAYOUT[position];
   const actionTarget = actionTargets[position as RingPosition] ?? null;
   const actionTargetClickable = !readOnly && !!actionTarget && !!onActionTargetClick;
-  const selectable = !readOnly && !!card && card.controller === view.activePlayer && view.gameStatus === 'active' && !actionTargetClickable;
+  const selectableController = selectionController ?? view.activePlayer;
+  const selectable = !readOnly && !!card && card.controller === selectableController && view.gameStatus === 'active' && !actionTargetClickable;
   const inspectableOpponent = !readOnly && !!card && card.revealed && card.controller !== view.activePlayer && !actionTargetClickable;
   const inspectableAny = !!card && inspectAllCards && !actionTargetClickable;
   const selectableViaActionTarget = !!card && actionTargetClickable && allowCardClickOnActionTargets;
@@ -295,7 +309,13 @@ function renderRingSpace(
                 'div',
                 { className: 'board-attachment-stack', 'data-testid': `board-attachments-${card.instanceId}` },
                 (card.attachments ?? []).map((attachment, index) => {
-                  const visual = powerCatalogById.get(attachment.definitionId);
+                    const visual = attachment.category === 'follower'
+                      ? {
+                          artImageUrl: attachment.artImageUrl ?? null,
+                          fullCardFaceImageUrl: attachment.fullCardFaceImageUrl ?? null,
+                          visualMode: attachment.visualMode ?? 'layered-art',
+                        }
+                      : powerCatalogById.get(attachment.definitionId);
                   return React.createElement(
                     onAttachmentClick && !readOnly ? 'button' : 'div',
                     {
@@ -311,17 +331,34 @@ function renderRingSpace(
                         : undefined,
                       'data-testid': `board-attachment-action-${card.instanceId}-${attachment.instanceId}`,
                     },
-                    React.createElement(PowerCardFrame, {
-                      size: 'compact',
-                      displayName: attachment.displayName,
-                      rulesText: `+${attachment.ATK} ATK / +${attachment.DEF} DEF`,
-                      artSrc: visual?.artImageUrl ?? null,
-                      fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
-                      visualMode: visual?.visualMode ?? 'layered-art',
-                      state: 'attached',
-                      selected: false,
-                      testId: `board-attachment-card-${card.instanceId}-${index}`,
-                    }),
+                    attachment.category === 'follower'
+                      ? React.createElement(CharacterCardFrame, {
+                          size: 'compact',
+                          revealed: true,
+                          controllerColorClass: card.controller === 'P2' ? 'player-color-red' : 'player-color-blue',
+                          displayName: attachment.displayName,
+                          ATK: attachment.ATK,
+                          DEF: attachment.DEF,
+                          ability: '',
+                          artSrc: visual?.artImageUrl ?? null,
+                          fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                          visualMode: visual?.visualMode,
+                          isKing: false,
+                          isFrozen: false,
+                          selected: false,
+                          testId: `board-attachment-card-${card.instanceId}-${index}`,
+                        })
+                      : React.createElement(PowerCardFrame, {
+                          size: 'compact',
+                          displayName: attachment.displayName,
+                          rulesText: `+${attachment.ATK} ATK / +${attachment.DEF} DEF`,
+                          artSrc: visual?.artImageUrl ?? null,
+                          fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                          visualMode: visual?.visualMode ?? 'layered-art',
+                          state: 'attached',
+                          selected: false,
+                          testId: `board-attachment-card-${card.instanceId}-${index}`,
+                        }),
                   );
                 }),
               )
@@ -335,7 +372,7 @@ function renderRingSpace(
   );
 }
 
-export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], freezingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {}, gauntletEnergizedCharacterIds = [] }: BoardProps): React.ReactElement {
+export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, actionTargets = {}, onActionTargetClick, allowCardClickOnActionTargets = false, allowWeaponTargetClicks = false, selectionController = null, portalRetargetEnabled = false, portalSourceCharacterId = null, actionTargetFx = null, readOnly = false, playerColors, cardMotion = null, swapCharacterMotion = null, specialCardMotion = null, rapunzelHairTrail = null, indyWhipTrail = null, postBattleMotion = null, kingDrawFx = null, revealAnimationIds = [], kingDuelRumbleIds = [], thawingCharacterIds = [], freezingCharacterIds = [], boardImploding = false, inspectAllCards = false, characterStatusById = {}, gauntletEnergizedCharacterIds = [], activeForgePosition = null }: BoardProps): React.ReactElement {
   const segments = ringOrder.map((position, index) => [position, ringOrder[(index + 1) % ringOrder.length]] as const);
   const animatedCard = cardMotion ? view.boardCards.find(card => card.instanceId === cardMotion.characterId) : null;
   const animatedControllerClass = animatedCard ? colorClassFor(playerColors?.[animatedCard.controller]) : 'player-color-blue';
@@ -409,6 +446,21 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
   const rapunzelAttachedLayout = rapunzelHairTrail?.attachedPosition
     ? RING_LAYOUT[rapunzelHairTrail.attachedPosition]
     : null;
+  const indyWhipPoints = indyWhipTrail && indyWhipTrail.pathPositions.length > 1
+    ? indyWhipTrail.pathPositions
+      .map(position => {
+        const layout = RING_LAYOUT[position];
+        const x = Number(layout.left.replace('%', ''));
+        const y = Number(layout.top.replace('%', ''));
+        return `${x},${y}`;
+      })
+      .join(' ')
+    : null;
+  const indyWhipAttachedLayout = indyWhipTrail?.attachedPosition
+    ? RING_LAYOUT[indyWhipTrail.attachedPosition]
+    : null;
+  const activeForgeLayout = activeForgePosition ? RING_LAYOUT[activeForgePosition] : null;
+  const forgeVisual = powerCatalogById.get('power-alpha-040');
   const graveyardCardsForDisplay = postBattleMotion?.loser ? view.graveyard.slice(0, -1) : view.graveyard;
   return React.createElement(
     'section',
@@ -451,7 +503,30 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
         }),
       ),
       React.createElement('div', { className: 'territory-divider', 'data-testid': 'territory-divider' }),
-      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds, freezingCharacterIds, gauntletEnergizedCharacterIds)),
+      activeForgeLayout
+        ? React.createElement(
+            'div',
+            {
+              className: 'forge-location-card',
+              style: {
+                left: activeForgeLayout.left,
+                top: activeForgeLayout.top,
+              },
+              'data-testid': `forge-location-card-${activeForgePosition}`,
+            },
+            React.createElement(PowerCardFrame, {
+              size: 'board',
+              displayName: getPowerCardDefinition('power-alpha-040').displayName,
+              rulesText: getPowerCardDefinition('power-alpha-040').rulesText,
+              artSrc: forgeVisual?.artImageUrl ?? null,
+              fullCardFaceSrc: forgeVisual?.fullCardFaceImageUrl ?? null,
+              visualMode: forgeVisual?.visualMode ?? 'layered-art',
+              state: 'playable',
+              testId: 'forge-location-card-frame',
+            }),
+          )
+        : null,
+      ringOrder.map(position => renderRingSpace(view, position, selectedCardId, onCardClick, onAttachmentClick, actionTargets, onActionTargetClick, allowCardClickOnActionTargets, allowWeaponTargetClicks, selectionController, portalRetargetEnabled, portalSourceCharacterId, actionTargetFx, readOnly, inspectAllCards, characterStatusById, powerCatalogById, playerColors, cardMotion, swapCharacterMotion, specialCardMotion, revealAnimationIds, kingDuelRumbleIds, thawingCharacterIds, freezingCharacterIds, gauntletEnergizedCharacterIds)),
       rapunzelHairPoints
         ? React.createElement(
             'svg',
@@ -470,6 +545,28 @@ export function Board({ view, selectedCardId, onCardClick, onAttachmentClick, ac
                   cy: Number(rapunzelAttachedLayout.top.replace('%', '')),
                   r: rapunzelHairTrail?.phase === 'fling' ? 2.2 : 1.9,
                   className: `rapunzel-hair-latch rapunzel-hair-latch-${rapunzelHairTrail?.phase ?? 'attach'}`,
+                })
+              : null,
+          )
+        : null,
+      indyWhipPoints
+        ? React.createElement(
+            'svg',
+            { className: 'indy-whip-overlay', viewBox: '0 0 100 100', preserveAspectRatio: 'none', 'aria-hidden': 'true' },
+            React.createElement('polyline', {
+              points: indyWhipPoints,
+              className: `indy-whip-path indy-whip-path-base indy-whip-path-${indyWhipTrail?.phase ?? 'attach'}`,
+            }),
+            React.createElement('polyline', {
+              points: indyWhipPoints,
+              className: `indy-whip-path indy-whip-path-glint indy-whip-path-${indyWhipTrail?.phase ?? 'attach'}`,
+            }),
+            indyWhipAttachedLayout
+              ? React.createElement('circle', {
+                  cx: Number(indyWhipAttachedLayout.left.replace('%', '')),
+                  cy: Number(indyWhipAttachedLayout.top.replace('%', '')),
+                  r: indyWhipTrail?.phase === 'pull' ? 2.1 : 1.7,
+                  className: `indy-whip-latch indy-whip-latch-${indyWhipTrail?.phase ?? 'attach'}`,
                 })
               : null,
           )

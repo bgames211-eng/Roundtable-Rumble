@@ -61,6 +61,21 @@
   height: 104px;
 }
 
+.forge-location-card {
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(-3deg);
+  width: 98px;
+  z-index: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45));
+}
+
+.forge-location-card .power-card-board {
+  box-shadow:
+    0 0 0 2px rgba(255, 216, 124, 0.72),
+    0 0 20px rgba(255, 188, 84, 0.52);
+}
+
 .ring-space-square {
   position: absolute;
   inset: 0;
@@ -111,7 +126,8 @@
   transform: translateX(calc(var(--attach-index, 0) * 4px)) translateY(calc(var(--attach-index, 0) * -3px));
 }
 
-.board-attachment-card .power-card-compact {
+.board-attachment-card .power-card-compact,
+.board-attachment-card .character-card-compact {
   width: 42px;
   border-width: 2px;
   border-radius: 6px;
@@ -254,6 +270,10 @@
 
 .board-card-motion-special-back-it-up {
   animation: board-card-back-it-up-rewind 1.62s cubic-bezier(0.19, 0.86, 0.3, 1) forwards;
+}
+
+.board-card-motion-special-indy-whip-pull {
+  animation: board-card-indy-whip-pull 1.26s cubic-bezier(0.16, 0.88, 0.22, 1) forwards;
 }
 
 .board-card-motion-swap {
@@ -455,6 +475,65 @@
 
 .rapunzel-hair-latch-fling {
   animation: rapunzel-hair-latch-spin 0.42s linear infinite;
+}
+
+.indy-whip-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.indy-whip-path {
+  fill: none;
+  stroke: rgba(123, 72, 24, 0.98);
+  stroke-width: 1.28;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(111, 70, 26, 0.55));
+}
+
+.indy-whip-path-base {
+  stroke: rgba(91, 52, 17, 0.98);
+  stroke-width: 1.88;
+}
+
+.indy-whip-path-glint {
+  stroke: rgba(206, 160, 106, 0.9);
+  stroke-width: 0.52;
+  filter: drop-shadow(0 0 5px rgba(179, 136, 86, 0.4));
+}
+
+.indy-whip-path-attach {
+  stroke-dasharray: 220;
+  stroke-dashoffset: 220;
+  animation: indy-whip-rollout 0.88s ease-out forwards;
+}
+
+.indy-whip-path-pull {
+  animation: indy-whip-tension 0.4s ease-in-out infinite alternate;
+}
+
+.indy-whip-path-retract {
+  stroke-dasharray: 210;
+  stroke-dashoffset: 0;
+  animation: indy-whip-retract 0.66s cubic-bezier(0.22, 0.74, 0.34, 1) forwards;
+}
+
+.indy-whip-latch {
+  fill: rgba(132, 84, 31, 0.95);
+  stroke: rgba(221, 177, 124, 0.9);
+  stroke-width: 0.28;
+}
+
+.indy-whip-latch-attach {
+  animation: indy-whip-latch-pulse 0.78s ease-in-out infinite alternate;
+}
+
+.indy-whip-latch-pull {
+  animation: indy-whip-latch-pull 0.42s ease-in-out infinite alternate;
 }
 
 .board-card-motion-special-wind::after {
@@ -1012,6 +1091,30 @@
   }
 }
 
+@keyframes board-card-indy-whip-pull {
+  0% {
+    left: var(--motion-from-left);
+    top: var(--motion-from-top);
+    transform: translate(-50%, -50%) rotate(var(--motion-from-rotation)) scale(1);
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  72% {
+    left: var(--motion-to-left);
+    top: var(--motion-to-top);
+    transform: translate(-50%, -50%) rotate(calc(var(--motion-to-rotation) + 6deg)) scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    left: var(--motion-to-left);
+    top: var(--motion-to-top);
+    transform: translate(-50%, -50%) rotate(var(--motion-to-rotation)) scale(1);
+    opacity: 0;
+  }
+}
+
 @keyframes board-card-swap-travel {
   0% {
     left: var(--motion-from-left);
@@ -1204,6 +1307,61 @@
   100% {
     transform: scale(1.45);
     opacity: 0;
+  }
+}
+
+@keyframes indy-whip-rollout {
+  0% {
+    stroke-dashoffset: 220;
+    opacity: 0.25;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes indy-whip-tension {
+  0% {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 4px rgba(130, 88, 44, 0.4));
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px rgba(161, 113, 59, 0.62));
+  }
+}
+
+@keyframes indy-whip-retract {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 220;
+    opacity: 0.2;
+  }
+}
+
+@keyframes indy-whip-latch-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.86;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes indy-whip-latch-pull {
+  0% {
+    transform: scale(1) rotate(-8deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.16) rotate(8deg);
+    opacity: 1;
   }
 }
 

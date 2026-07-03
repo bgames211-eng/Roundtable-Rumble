@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { type Controller, type GameState, getSpaceTerritory, logEvent, shouldTriggerFinalKingDuel } from './gameState';
+import { type Controller, type GameState, type GameStatus, getSpaceTerritory, logEvent, shouldTriggerFinalKingDuel } from './gameState';
 import {
   advanceSessionDeckPools,
   collectSessionUsedCardIds,
@@ -17,6 +17,7 @@ import { CharacterCardFrame, PowerCardFrame } from './ui/CardFrames';
 import { StartScreen, type GameMode, type PlayerColor, type SessionMode } from './ui/StartScreen';
 import { ActionControls, type LegalActionType } from './ui/ActionControls';
 import { BattleScreen } from './ui/BattleScreen';
+import { ALPHA_1_CHARACTER_DEFINITIONS } from './cardDefinitions';
 import {
   canUseMrsPuffSpecial,
   canUseRapunzelSpecial,
@@ -24,11 +25,14 @@ import {
   executeBackItUpMove,
   executeBehindTheCurtainsSwap,
   executeFreezeGunSpecial,
+  executeIndyWhipSpecial,
   executeMoveForward,
   executeMrsPuffSpecial,
   executeNightcrawlerTeleportMove,
   executePortalMove,
   executeRapunzelSpecial,
+  getIndyWhipSpecialOptions,
+  resolveBattle,
   executeSwapCharactersMove,
   getBackItUpDestinations,
   getNightcrawlerTeleportDestinations,
@@ -38,6 +42,7 @@ import {
 } from './gameEngine';
 import { getCharacter } from './gameState';
 import {
+  applyBreakingBreadAssembly,
   acknowledgeBattleHandoff,
   beginBattleResolution,
   getBattlePrivateHandView,
@@ -48,8 +53,10 @@ import {
   previewBattlePowerCardPlay,
   resolvePendingBattle,
   setBattleReady,
+  splitAttachmentDropsForDefeatedCharacter,
   startFinalKingDuel,
   startBattle,
+  type FollowerTieBreakOrderByHostId,
   type PrivateBattleHandView,
   type PlayBattlePowerCardInput,
 } from './battleFlow';
@@ -57,7 +64,7 @@ import { chooseBotBattleDecision, chooseBotBoardDecision, chooseBotCurtainsSwap,
 import { getBotGameView } from './botView';
 import { getBackwardSpace, getForwardSpace } from './board';
 import { FIRST_ALPHA_POWER_CARD_DEFINITIONS } from './powerCards';
-import { loadPowerCatalog } from './cardCatalog';
+import { loadCharacterCatalog, loadPowerCatalog } from './cardCatalog';
 import { createMultiplayerClient, type MultiplayerClient, type MultiplayerRoomSnapshot } from './multiplayer';
 
 function toPublicEventText(events: Array<{ turn: number; activePlayer: Controller; action: string }>): string[] {
@@ -119,6 +126,11 @@ function isUncleIrohName(name: string | undefined): boolean {
   return normalizeCardName(name) === 'UNCLEIROH';
 }
 
+function isIndianaJonesName(name: string | undefined): boolean {
+  const normalized = normalizeCardName(name);
+  return normalized === 'INDIANAJONES' || normalized === 'INDY';
+}
+
 function isRoombaName(name: string | undefined): boolean {
   return normalizeCardName(name) === 'ROOMBA';
 }
@@ -147,6 +159,7 @@ function isWeaponDefinitionId(definitionId: string): boolean {
     'power-alpha-014',
     'power-alpha-015',
     'power-alpha-023',
+    'power-alpha-031',
   ].includes(definitionId);
 }
 
@@ -250,9 +263,16 @@ type PendingBoardPowerPlay = {
     | 'back-pick-character'
     | 'back-pick-destination'
     | 'swap-pick-own'
-    | 'swap-pick-opponent';
+    | 'swap-pick-opponent'
+    | 'breaking-bread-pick-character'
+    | 'forge-pick-location';
   sourceCharacterId?: string;
   pendingCharacterId?: string;
+};
+
+type PendingForgeEquip = {
+  characterId: string;
+  selectedWeaponInstanceId: string | null;
 };
 
 type PendingBattleSwapPlay = {
@@ -331,6 +351,35 @@ type PendingBattleSoulStonePlay = {
   selectedChoice: 'ATK' | 'DEF';
 };
 
+type PendingBattleBreakingBreadPlay = {
+  actor: Controller;
+  cardInstanceId: string;
+  selectedCharacterId: string | null;
+};
+
+type FindItRoomId = 'kitchen';
+
+type FindItKitchenAnchor = {
+  id: string;
+  xPct: number;
+  yPct: number;
+  rotationDeg: number;
+  scale: number;
+  peekPct: number;
+};
+
+type PendingBattleFindItPlay = {
+  actor: Controller;
+  cardInstanceId: string;
+  selectedChoice: 'ATK' | 'DEF';
+  roomId: FindItRoomId | null;
+  selectedAnchor: FindItKitchenAnchor | null;
+  phase: 'choose-room' | 'ready' | 'searching' | 'success' | 'failure-magnify' | 'failure-reveal';
+  startedAtMs: number | null;
+  resultReadyAtMs: number | null;
+  markerPoint: { xPct: number; yPct: number } | null;
+};
+
 type PendingRealityStonePlay = {
   phase: 'board' | 'battle';
   actor: Controller;
@@ -339,12 +388,36 @@ type PendingRealityStonePlay = {
   expandedSection: 'graveyard' | 'usedpower' | 'decktops' | null;
 };
 
+const FIND_IT_ROOM_CHOICES: Array<{ id: FindItRoomId; title: string; thumbnail: string }> = [
+  {
+    id: 'kitchen',
+    title: 'Kitchen',
+    thumbnail: `${import.meta.env.BASE_URL}find-it/kitchen-bg.svg`,
+  },
+];
+
+const FIND_IT_KITCHEN_ANCHORS: FindItKitchenAnchor[] = [
+  { id: 'k-1', xPct: 10.8, yPct: 78.6, rotationDeg: -14, scale: 1.06, peekPct: 14 },
+  { id: 'k-2', xPct: 19.2, yPct: 63.4, rotationDeg: 11, scale: 1.02, peekPct: 11 },
+  { id: 'k-3', xPct: 27.7, yPct: 83.1, rotationDeg: -6, scale: 1.12, peekPct: 13 },
+  { id: 'k-4', xPct: 35.9, yPct: 57.8, rotationDeg: 8, scale: 0.98, peekPct: 9 },
+  { id: 'k-5', xPct: 44.1, yPct: 72.6, rotationDeg: -11, scale: 1.1, peekPct: 12 },
+  { id: 'k-6', xPct: 52.8, yPct: 84.5, rotationDeg: 6, scale: 1.08, peekPct: 10 },
+  { id: 'k-7', xPct: 60.2, yPct: 61.5, rotationDeg: -9, scale: 1.04, peekPct: 8 },
+  { id: 'k-8', xPct: 67.9, yPct: 45.1, rotationDeg: 15, scale: 0.96, peekPct: 10 },
+  { id: 'k-9', xPct: 77.3, yPct: 70.2, rotationDeg: -7, scale: 1.14, peekPct: 12 },
+  { id: 'k-10', xPct: 87.1, yPct: 81.3, rotationDeg: 13, scale: 1.06, peekPct: 11 },
+  { id: 'k-11', xPct: 90.4, yPct: 58.2, rotationDeg: -10, scale: 0.99, peekPct: 8 },
+  { id: 'k-12', xPct: 73.4, yPct: 88.2, rotationDeg: 4, scale: 1.15, peekPct: 13 },
+];
+
 type RealityStoneTarget = {
   targetRef: string;
   zoneLabel: string;
   cardType: 'character' | 'power';
   displayName: string;
   subtitle: string;
+  isHidden?: boolean;
   visualMode?: 'layered-art' | 'full-card-face';
   artImageUrl?: string;
   fullCardFaceImageUrl?: string;
@@ -357,6 +430,9 @@ type ExpandedAttachmentCardView = {
   attachmentInstanceId: string;
   displayName: string;
   rulesText: string;
+  category: 'weapon' | 'follower';
+  ATK: number;
+  DEF: number;
   artImageUrl?: string;
   fullCardFaceImageUrl?: string;
   visualMode?: 'layered-art' | 'full-card-face';
@@ -396,14 +472,39 @@ type PendingAangEscape = {
   characterId: string;
   options: RingPosition[];
   fromPosition: RingPosition;
+  deferredGameStatus?: Exclude<GameStatus, 'active'>;
   step: 'prompt' | 'pick-spot';
 };
 
 type PendingSkarReclaim = {
+  sourceCharacterId: string;
   controller: Controller;
   cards: Array<{ instanceId: string; definitionId: string; displayName: string }>;
   selectedInstanceId: string | null;
   step: 'prompt' | 'select';
+};
+
+type PendingFollowerTieBreakChoice = {
+  hostCharacterId: string;
+  hostDisplayName: string;
+  attachments: Array<{
+    instanceId: string;
+    definitionId: string;
+    displayName: string;
+    ATK: number;
+    DEF: number;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  }>;
+};
+
+type PendingFollowerTieBreak = {
+  controller: Controller;
+  choices: PendingFollowerTieBreakChoice[];
+  index: number;
+  selectedOrder: string[];
+  orderByHostId: FollowerTieBreakOrderByHostId;
 };
 
 type PendingIrohCounter = {
@@ -476,7 +577,7 @@ interface PendingBoardSpecialMotion {
   visualMode?: 'layered-art' | 'full-card-face';
   artImageUrl?: string;
   fullCardFaceImageUrl?: string;
-  style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up';
+  style: 'wind' | 'rapunzel-fling' | 'nightcrawler-portal' | 'power-portal' | 'space-stone-portal' | 'back-it-up' | 'indy-whip-pull';
 }
 
 type InfinityAnimationKind = 'thanos' | 'gauntlet' | 'space' | 'mind' | 'soul' | 'time' | 'reality' | 'power';
@@ -488,6 +589,30 @@ interface InfinityAnimationState {
   durationMs: number;
 }
 
+interface BreakingBreadCinematicState {
+  origin: 'board' | 'battle';
+  target: {
+    id: string;
+    controller: Controller;
+    displayName: string;
+    ATK: number;
+    DEF: number;
+    isKing: boolean;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  };
+  followers: Array<{
+    definitionId: string;
+    displayName: string;
+    ATK: number;
+    DEF: number;
+    visualMode?: 'layered-art' | 'full-card-face';
+    artImageUrl?: string;
+    fullCardFaceImageUrl?: string;
+  }>;
+}
+
 interface PendingRapunzelHairTrail {
   sourceCharacterId: string;
   sourcePosition: RingPosition;
@@ -495,6 +620,16 @@ interface PendingRapunzelHairTrail {
   targetPosition: RingPosition;
   attachedPosition: RingPosition | null;
   phase: 'attach' | 'fling' | 'retract';
+  pathPositions: RingPosition[];
+}
+
+interface PendingIndyWhipTrail {
+  sourceCharacterId: string;
+  sourcePosition: RingPosition;
+  targetCharacterId: string;
+  targetPosition: RingPosition;
+  attachedPosition: RingPosition | null;
+  phase: 'attach' | 'pull' | 'retract';
   pathPositions: RingPosition[];
 }
 
@@ -619,7 +754,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBoardSpecialMotion, setPendingBoardSpecialMotion] = useState<PendingBoardSpecialMotion | null>(null);
   const [pendingMrsPuffPuffUp, setPendingMrsPuffPuffUp] = useState<PendingMrsPuffPuffUp | null>(null);
   const [pendingRapunzelHairTrail, setPendingRapunzelHairTrail] = useState<PendingRapunzelHairTrail | null>(null);
+  const [pendingIndyWhipTrail, setPendingIndyWhipTrail] = useState<PendingIndyWhipTrail | null>(null);
   const [infinityAnimation, setInfinityAnimation] = useState<InfinityAnimationState | null>(null);
+  const [breakingBreadCinematic, setBreakingBreadCinematic] = useState<BreakingBreadCinematicState | null>(null);
   const [postBattleBoardAnimation, setPostBattleBoardAnimation] = useState<PostBattleBoardAnimation | null>(null);
   const [kingDrawAnimationFor, setKingDrawAnimationFor] = useState<'P1' | 'P2' | null>(null);
   const [kingDrawBoardPosition, setKingDrawBoardPosition] = useState<RingPosition | null>(null);
@@ -633,6 +770,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     toHandY: number;
   } | null>(null);
   const kingDrawFxTimerRef = useRef<number | null>(null);
+  const breakingBreadCinematicTimerRef = useRef<number | null>(null);
   const antVictoryFxDelayTimerRef = useRef<number | null>(null);
   const soulStoneReturnTimerRef = useRef<number | null>(null);
   const processedDrawFxEventIndexRef = useRef<number>(-1);
@@ -659,6 +797,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [freezingCharacterIds, setFreezingCharacterIds] = useState<string[]>([]);
   const [freezeSpecialSourceId, setFreezeSpecialSourceId] = useState<string | null>(null);
   const [freezeSpecialTargetId, setFreezeSpecialTargetId] = useState<string | null>(null);
+  const [indyWhipSpecialSourceId, setIndyWhipSpecialSourceId] = useState<string | null>(null);
+  const [indyWhipSpecialDestination, setIndyWhipSpecialDestination] = useState<RingPosition | null>(null);
   const [pendingBoardPowerPlay, setPendingBoardPowerPlay] = useState<PendingBoardPowerPlay | null>(null);
   const [pendingBoardWeaponEquipPlay, setPendingBoardWeaponEquipPlay] = useState<PendingBoardWeaponEquipPlay | null>(null);
   const [pendingCurtainsPlay, setPendingCurtainsPlay] = useState<PendingCurtainsPlay | null>(null);
@@ -669,8 +809,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const [pendingBattlePhoneFriendPlay, setPendingBattlePhoneFriendPlay] = useState<PendingBattlePhoneFriendPlay | null>(null);
   const [pendingBattleWeaponEquipPlay, setPendingBattleWeaponEquipPlay] = useState<PendingBattleWeaponEquipPlay | null>(null);
   const [pendingBattleSoulStonePlay, setPendingBattleSoulStonePlay] = useState<PendingBattleSoulStonePlay | null>(null);
+  const [pendingBattleBreakingBreadPlay, setPendingBattleBreakingBreadPlay] = useState<PendingBattleBreakingBreadPlay | null>(null);
+  const [pendingBattleFindItPlay, setPendingBattleFindItPlay] = useState<PendingBattleFindItPlay | null>(null);
   const [pendingRealityStonePlay, setPendingRealityStonePlay] = useState<PendingRealityStonePlay | null>(null);
   const [pendingBattleSwapPlay, setPendingBattleSwapPlay] = useState<PendingBattleSwapPlay | null>(null);
+  const [pendingForgeEquip, setPendingForgeEquip] = useState<PendingForgeEquip | null>(null);
   const [phoneFriendAnimation, setPhoneFriendAnimation] = useState<PhoneFriendAnimationState | null>(null);
   const [multiplayerBattlePowerReveal, setMultiplayerBattlePowerReveal] = useState<MultiplayerBattlePowerRevealState | null>(null);
   const [multiplayerRpsResult, setMultiplayerRpsResult] = useState<MultiplayerRpsResultState | null>(null);
@@ -845,6 +988,336 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     );
   };
 
+  const renderBreakingBreadCinematicOverlay = (): React.ReactNode => {
+    if (!breakingBreadCinematic) {
+      return null;
+    }
+
+    const followerCount = breakingBreadCinematic.followers.length;
+    const orbitCount = Math.max(followerCount, 1);
+    const tableOrbitRadiusX = 250 + Math.min(followerCount, 6) * 18;
+    const tableOrbitRadiusY = 120 + Math.min(followerCount, 6) * 10;
+    const exitOrbitRadiusX = 520 + Math.min(followerCount, 6) * 32;
+    const exitOrbitRadiusY = 260 + Math.min(followerCount, 6) * 18;
+
+    return React.createElement(
+      'section',
+      {
+        className: 'breaking-bread-cinematic-overlay',
+        'data-testid': 'breaking-bread-cinematic',
+      },
+      React.createElement('div', { className: 'breaking-bread-backdrop', 'aria-hidden': 'true' }),
+      React.createElement('div', { className: 'breaking-bread-stage-glow', 'aria-hidden': 'true' }),
+      React.createElement(
+        'div',
+        { className: 'breaking-bread-table-stage' },
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-deck-launch', 'aria-hidden': 'true' },
+          React.createElement('div', { className: 'breaking-bread-deck-stack' }),
+          React.createElement('div', { className: 'breaking-bread-deck-beam' }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-orbit-ring', 'aria-hidden': 'true' },
+        ),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-flying-cards', 'aria-hidden': 'true' },
+          breakingBreadCinematic.followers.map((card, index) => {
+            const angleDegrees = index * (360 / orbitCount) - 90;
+            const angleRadians = (angleDegrees * Math.PI) / 180;
+
+            return React.createElement(
+              'div',
+              {
+                key: `${card.definitionId}-${index}`,
+                className: 'breaking-bread-flying-card',
+                style: {
+                  '--fly-x': `${Math.round(Math.cos(angleRadians) * tableOrbitRadiusX)}px`,
+                  '--fly-y': `${Math.round(Math.sin(angleRadians) * tableOrbitRadiusY)}px`,
+                  '--exit-x': `${Math.round(Math.cos(angleRadians) * exitOrbitRadiusX)}px`,
+                  '--exit-y': `${Math.round(Math.sin(angleRadians) * exitOrbitRadiusY)}px`,
+                  '--fly-delay': `${index * 180}ms`,
+                  '--settle-delay': `${700 + index * 120}ms`,
+                  '--eat-delay': `${3300 + index * 140}ms`,
+                  '--exit-delay': `${6500 + index * 120}ms`,
+                  '--fly-angle': `${angleDegrees + 12}deg`,
+                } as React.CSSProperties,
+              },
+              React.createElement(CharacterCardFrame, {
+                size: 'battle',
+                revealed: true,
+                controllerColorClass: breakingBreadCinematic.target.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                displayName: card.displayName,
+                ATK: card.ATK,
+                DEF: card.DEF,
+                ability: '',
+                artSrc: card.artImageUrl ?? null,
+                fullCardFaceSrc: card.fullCardFaceImageUrl ?? null,
+                visualMode: card.visualMode,
+                isKing: false,
+                isFrozen: false,
+                testId: `breaking-bread-follower-${card.definitionId}-${index}`,
+              }),
+            );
+          }),
+        ),
+        React.createElement('div', { className: 'breaking-bread-table', 'aria-hidden': 'true' }),
+        React.createElement('div', { className: 'breaking-bread-table-surface', 'aria-hidden': 'true' }),
+        React.createElement('div', { className: 'breaking-bread-table-centerpiece', 'aria-hidden': 'true' }),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-target-seat' },
+          React.createElement(CharacterCardFrame, {
+            size: 'battle',
+            revealed: true,
+            controllerColorClass: breakingBreadCinematic.target.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+            displayName: breakingBreadCinematic.target.displayName,
+            ATK: breakingBreadCinematic.target.ATK,
+            DEF: breakingBreadCinematic.target.DEF,
+            ability: '',
+            artSrc: breakingBreadCinematic.target.artImageUrl ?? null,
+            fullCardFaceSrc: breakingBreadCinematic.target.fullCardFaceImageUrl ?? null,
+            visualMode: breakingBreadCinematic.target.visualMode,
+            isKing: breakingBreadCinematic.target.isKing,
+            isFrozen: false,
+            testId: 'breaking-bread-target-card',
+          }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-bread-streams', 'aria-hidden': 'true' },
+          breakingBreadCinematic.followers.map((card, index) => React.createElement('span', {
+            key: `${card.definitionId}-bread-${index}`,
+            className: 'breaking-bread-bread-stream',
+            style: {
+              '--bread-angle': `${index * (360 / orbitCount)}deg`,
+              '--bread-delay': `${3300 + index * 140}ms`,
+            } as React.CSSProperties,
+          })),
+        ),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-title' },
+          'BREAKING BREAD',
+        ),
+        React.createElement(
+          'div',
+          { className: 'breaking-bread-subtitle' },
+          breakingBreadCinematic.origin === 'battle'
+            ? 'Return to battle after the feast'
+            : 'The table gathers the whole board',
+        ),
+      ),
+    );
+  };
+
+  const renderFindItMiniGameOverlay = (): React.ReactNode => {
+    if (!pendingBattleFindItPlay) {
+      return null;
+    }
+
+    const cardVisual = powerCatalogById.get('power-alpha-042');
+    const roomId = pendingBattleFindItPlay.roomId;
+    const anchor = pendingBattleFindItPlay.selectedAnchor;
+    const timeLeftMs = pendingBattleFindItPlay.phase === 'searching' && pendingBattleFindItPlay.startedAtMs
+      ? Math.max(15000 - (Date.now() - pendingBattleFindItPlay.startedAtMs), 0)
+      : 15000;
+    const failureElapsed = pendingBattleFindItPlay.phase === 'failure-reveal' && pendingBattleFindItPlay.resultReadyAtMs
+      ? Date.now() - pendingBattleFindItPlay.resultReadyAtMs
+      : 0;
+    const isFailureMagnify = pendingBattleFindItPlay.phase === 'failure-magnify';
+    const showFailureReveal = pendingBattleFindItPlay.phase === 'failure-reveal';
+
+    return React.createElement(
+      'section',
+      { className: 'board-card-modal find-it-modal-overlay', 'data-testid': 'find-it-modal' },
+      React.createElement(
+        'div',
+        { className: 'board-card-modal-panel board-power-card-modal-panel find-it-modal-panel' },
+        React.createElement('h3', null, 'FIND IT'),
+        pendingBattleFindItPlay.phase === 'choose-room'
+          ? React.createElement(
+              React.Fragment,
+              null,
+              React.createElement('p', { className: 'status-label' }, 'Choose a room. Then click GO to start the 15-second search.'),
+              React.createElement(
+                'div',
+                { className: 'find-it-room-gallery' },
+                FIND_IT_ROOM_CHOICES.map(room => React.createElement(
+                  'button',
+                  {
+                    key: `find-it-room-${room.id}`,
+                    type: 'button',
+                    className: 'find-it-room-option',
+                    onClick: () => handleFindItRoomPick(room.id),
+                    'data-testid': `find-it-room-${room.id}`,
+                  },
+                  React.createElement('img', { src: room.thumbnail, alt: room.title }),
+                  React.createElement('span', null, room.title),
+                )),
+              ),
+            )
+          : null,
+        roomId === 'kitchen'
+          ? React.createElement(
+              'div',
+              {
+                className: `find-it-room-stage ${pendingBattleFindItPlay.phase === 'ready' ? 'find-it-room-blurred' : ''}`,
+                'data-testid': 'find-it-kitchen-stage',
+              },
+              React.createElement('img', {
+                className: 'find-it-room-bg',
+                src: `${import.meta.env.BASE_URL}find-it/kitchen-bg.svg`,
+                alt: 'Kitchen room',
+              }),
+              anchor
+                ? React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'find-it-hidden-card',
+                      onClick: handleFindItCardClick,
+                      disabled: pendingBattleFindItPlay.phase !== 'searching',
+                      style: {
+                        left: `${anchor.xPct}%`,
+                        top: `${anchor.yPct}%`,
+                        transform: `translate(-50%, -50%) rotate(${anchor.rotationDeg}deg) scale(${anchor.scale})`,
+                        backgroundImage: `url(${cardVisual?.fullCardFaceImageUrl ?? ''})`,
+                        '--find-it-peek': `${anchor.peekPct}%`,
+                      } as React.CSSProperties,
+                      'data-testid': 'find-it-hidden-card',
+                    },
+                  )
+                : null,
+              React.createElement('img', {
+                className: 'find-it-room-occluder',
+                src: `${import.meta.env.BASE_URL}find-it/kitchen-occluder.svg`,
+                alt: '',
+                'aria-hidden': 'true',
+              }),
+              pendingBattleFindItPlay.phase === 'searching'
+                ? React.createElement(
+                    'div',
+                    { className: 'find-it-timer', 'data-testid': 'find-it-timer' },
+                    `${Math.ceil(timeLeftMs / 1000)}s`,
+                  )
+                : null,
+              pendingBattleFindItPlay.markerPoint
+                ? React.createElement(
+                    'div',
+                    {
+                      className: `find-it-marker ${pendingBattleFindItPlay.phase === 'success' ? 'find-it-marker-success' : 'find-it-marker-failure'}`,
+                      style: {
+                        left: `${pendingBattleFindItPlay.markerPoint.xPct}%`,
+                        top: `${pendingBattleFindItPlay.markerPoint.yPct}%`,
+                      } as React.CSSProperties,
+                    },
+                    pendingBattleFindItPlay.phase === 'success' ? 'OK' : 'X',
+                  )
+                : null,
+              isFailureMagnify && pendingBattleFindItPlay.markerPoint
+                ? React.createElement('div', {
+                    className: 'find-it-magnify-lens',
+                    style: {
+                      '--lens-target-x': `${pendingBattleFindItPlay.markerPoint.xPct}%`,
+                      '--lens-target-y': `${pendingBattleFindItPlay.markerPoint.yPct}%`,
+                    } as React.CSSProperties,
+                    'data-testid': 'find-it-magnify-lens',
+                  })
+                : null,
+            )
+          : null,
+        pendingBattleFindItPlay.phase === 'ready'
+          ? React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: handleFindItStartSearch,
+                'data-testid': 'find-it-go-button',
+              },
+              'GO',
+            )
+          : null,
+        pendingBattleFindItPlay.phase === 'success'
+          ? React.createElement('p', { className: 'status-label find-it-success' }, 'Success! +6 applied. Confetti!')
+          : null,
+        isFailureMagnify
+          ? React.createElement('p', { className: 'status-label find-it-failure' }, 'Time is up. Scanning with magnifying lens...')
+          : null,
+        showFailureReveal
+          ? React.createElement(
+              'div',
+              { className: 'find-it-failure-controls' },
+              React.createElement('p', { className: 'status-label' }, 'Hiding spot revealed.'),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: handleFindItFailureContinue,
+                  'data-testid': 'find-it-continue',
+                },
+                'Continue',
+              ),
+            )
+          : null,
+      ),
+    );
+  };
+
+  const triggerBreakingBreadCinematic = (origin: 'board' | 'battle', targetCharacterId: string, assembledDefinitionIds: string[]): void => {
+    if (!state) {
+      return;
+    }
+
+    const target = getCharacter(state, targetCharacterId);
+    if (!target) {
+      return;
+    }
+
+    const followerVisuals = assembledDefinitionIds.map(definitionId => {
+      const characterDef = ALPHA_1_CHARACTER_DEFINITIONS.find(definition => definition.definitionId === definitionId);
+      const catalogEntry = characterDef ? characterCatalogById.get(definitionId) : null;
+      return {
+        definitionId,
+        displayName: characterDef?.displayName ?? definitionId,
+        ATK: characterDef?.printedATK ?? 0,
+        DEF: characterDef?.printedDEF ?? 0,
+        visualMode: catalogEntry?.visualMode,
+        artImageUrl: catalogEntry?.artImageUrl,
+        fullCardFaceImageUrl: catalogEntry?.fullCardFaceImageUrl,
+      };
+    });
+
+    setBreakingBreadCinematic({
+      origin,
+      target: {
+        id: target.id,
+        controller: target.controller,
+        displayName: target.displayName ?? target.id,
+        ATK: target.ATK,
+        DEF: target.DEF,
+        isKing: target.isKing,
+        artImageUrl: target.artImageUrl,
+        fullCardFaceImageUrl: target.fullCardFaceImageUrl,
+      },
+      followers: followerVisuals,
+    });
+
+    if (breakingBreadCinematicTimerRef.current !== null) {
+      window.clearTimeout(breakingBreadCinematicTimerRef.current);
+    }
+
+    breakingBreadCinematicTimerRef.current = window.setTimeout(() => {
+      setBreakingBreadCinematic(null);
+      if (origin === 'battle') {
+        setShowBattleFullBoard(false);
+      }
+      breakingBreadCinematicTimerRef.current = null;
+    }, 10000);
+  };
+
   const renderRealityStoneTargetOverlay = (): React.ReactNode => {
     if (!pendingRealityStonePlay) {
       return null;
@@ -856,7 +1329,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const opponentForView: Controller = viewingController === 'P1' ? 'P2' : 'P1';
 
     const directTargets = realityStoneTargets.filter(target => (
-      target.zoneLabel === 'Attachment'
+      target.zoneLabel === 'Board Character'
+      || target.zoneLabel === 'Attachment'
+      || target.zoneLabel === 'Riddler Source'
       || target.zoneLabel === 'Player One Hand'
       || target.zoneLabel === 'Player Two Hand'
     ));
@@ -902,15 +1377,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               target.cardType === 'character'
                 ? React.createElement(CharacterCardFrame, {
                     size: 'compact',
-                    revealed: true,
+                    revealed: !target.isHidden,
                     controllerColorClass: 'player-color-blue',
-                    displayName: target.displayName,
+                    displayName: target.isHidden ? undefined : target.displayName,
                     ATK: target.ATK ?? 0,
                     DEF: target.DEF ?? 0,
-                    ability: target.subtitle,
-                    artSrc: target.artImageUrl ?? null,
-                    fullCardFaceSrc: target.fullCardFaceImageUrl ?? null,
-                    visualMode: target.visualMode ?? 'layered-art',
+                    ability: target.isHidden ? '' : target.subtitle,
+                    artSrc: target.isHidden ? null : (target.artImageUrl ?? null),
+                    fullCardFaceSrc: target.isHidden ? null : (target.fullCardFaceImageUrl ?? null),
+                    visualMode: target.isHidden ? 'layered-art' : (target.visualMode ?? 'layered-art'),
                     isKing: false,
                     isFrozen: false,
                     testId: `reality-target-card-${testSuffix}`,
@@ -1095,12 +1570,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   };
   const [pendingAangEscape, setPendingAangEscape] = useState<PendingAangEscape | null>(null);
   const [pendingSkarReclaim, setPendingSkarReclaim] = useState<PendingSkarReclaim | null>(null);
+  const [pendingFollowerTieBreak, setPendingFollowerTieBreak] = useState<PendingFollowerTieBreak | null>(null);
   const [pendingIrohCounter, setPendingIrohCounter] = useState<PendingIrohCounter | null>(null);
   const canceledBattleCardPlayIdsRef = useRef<Set<string>>(new Set());
   const [irohTimerNowMs, setIrohTimerNowMs] = useState<number>(Date.now());
   const previousFrozenByIdRef = useRef<Map<string, boolean>>(new Map());
   const scoredSessionGamesRef = useRef<Set<number>>(new Set());
   const rapunzelTimerRefs = useRef<number[]>([]);
+  const indyWhipTimerRefs = useRef<number[]>([]);
   const [savedGameContinueAvailable, setSavedGameContinueAvailable] = useState(false);
   const [savedGameContinueDisabledReason, setSavedGameContinueDisabledReason] = useState<string | null>(null);
 
@@ -1625,6 +2102,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     rapunzelTimerRefs.current = [];
   };
 
+  const clearIndyWhipTimers = (): void => {
+    for (const timer of indyWhipTimerRefs.current) {
+      window.clearTimeout(timer);
+    }
+    indyWhipTimerRefs.current = [];
+  };
+
   const resolveSessionRps = (humanChoice: SessionRpsChoice, botChoice: SessionRpsChoice): SessionRpsOutcome => {
     if (humanChoice === botChoice) {
       return 'tie';
@@ -1705,6 +2189,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     return getBattlePublicView(state);
   }, [state]);
+  const characterCatalogById = useMemo(
+    () => new Map(loadCharacterCatalog(ALPHA_1_CHARACTER_DEFINITIONS).map(entry => [entry.definitionId, entry])),
+    [],
+  );
   const usedPowerCardsThisBattle = useMemo(() => {
     if (!state?.pendingBattle || battleUsedPileStartCount === null) {
       return [];
@@ -1955,10 +2443,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
 
     if (isBotMode) {
-      if (state.pendingBattle.handoffRequiredFor !== 'P1') {
+      if (state.pendingBattle.handoffRequiredFor === null) {
         return;
       }
-      setState(acknowledgeBattleHandoff(state, 'P1'));
+      setState(acknowledgeBattleHandoff(state, state.pendingBattle.handoffRequiredFor));
       return;
     }
 
@@ -2146,6 +2634,104 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return getPowerCardAiMetadata(expandedBoardPowerCard.definitionId).timing;
   }, [expandedBoardPowerCard]);
 
+  const expandedBoardPowerCardSupportsBoardPlay = useMemo(() => {
+    if (!expandedBoardPowerCard) {
+      return false;
+    }
+
+    return isWeaponDefinitionId(expandedBoardPowerCard.definitionId)
+      || expandedBoardPowerCard.definitionId === 'power-alpha-022'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-040'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-027'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-021'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-018'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-025'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-024'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-028'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-019'
+      || expandedBoardPowerCard.definitionId === 'power-alpha-030';
+  }, [expandedBoardPowerCard]);
+
+  const expandedBoardPowerCardCanPlay = useMemo(() => {
+    if (!expandedBoardPowerCardSupportsBoardPlay || !expandedBoardPowerCard || !state) {
+      return false;
+    }
+
+    const canForgePlayDuringBattle = state.pendingBattle
+      && expandedBoardPowerCard.definitionId === 'power-alpha-040'
+      && expandedBoardPowerCardTiming === 'anytime';
+
+    return state.gameStatus === 'active'
+      && (!state.pendingBattle || canForgePlayDuringBattle)
+      && (
+        expandedBoardPowerCardTiming === 'anytime'
+        || (multiplayerMode && multiplayerPlayer === state.activePlayer)
+        || (isBotMode && state.activePlayer === 'P1')
+        || (!multiplayerMode && boardHandVisibleFor === state.activePlayer)
+      )
+      && (isHumanBoardTurn || expandedBoardPowerCardTiming === 'anytime')
+      && !pendingBoardPowerPlay
+      && !pendingCurtainsPlay;
+  }, [
+    boardHandVisibleFor,
+    expandedBoardPowerCard,
+    expandedBoardPowerCardSupportsBoardPlay,
+    expandedBoardPowerCardTiming,
+    isBotMode,
+    isHumanBoardTurn,
+    multiplayerMode,
+    multiplayerPlayer,
+    pendingBoardPowerPlay,
+    pendingCurtainsPlay,
+    state,
+  ]);
+
+  const expandedBoardPowerCardDisabledReason = useMemo(() => {
+    if (!expandedBoardPowerCardSupportsBoardPlay || expandedBoardPowerCardCanPlay || !state || !expandedBoardPowerCard) {
+      return null;
+    }
+
+    if (state.gameStatus !== 'active') {
+      return 'Cannot play: game is not active.';
+    }
+
+    if (state.pendingBattle && !(expandedBoardPowerCard.definitionId === 'power-alpha-040' && expandedBoardPowerCardTiming === 'anytime')) {
+      return 'Cannot play: a battle is currently in progress.';
+    }
+
+    if (pendingBoardPowerPlay || pendingCurtainsPlay) {
+      return 'Cannot play: resolve the current power-card sequence first.';
+    }
+
+    if (expandedBoardPowerCardTiming !== 'anytime' && !isHumanBoardTurn) {
+      return 'Cannot play: not your turn.';
+    }
+
+    const canAccessCurrentTurnHand = expandedBoardPowerCardTiming === 'anytime'
+      || (multiplayerMode && multiplayerPlayer === state.activePlayer)
+      || (isBotMode && state.activePlayer === 'P1')
+      || (!multiplayerMode && boardHandVisibleFor === state.activePlayer);
+
+    if (!canAccessCurrentTurnHand) {
+      return 'Cannot play: reveal the active player hand and try again.';
+    }
+
+    return 'Cannot play right now.';
+  }, [
+    boardHandVisibleFor,
+    expandedBoardPowerCard,
+    expandedBoardPowerCardCanPlay,
+    expandedBoardPowerCardSupportsBoardPlay,
+    expandedBoardPowerCardTiming,
+    isBotMode,
+    isHumanBoardTurn,
+    multiplayerMode,
+    multiplayerPlayer,
+    pendingBoardPowerPlay,
+    pendingCurtainsPlay,
+    state,
+  ]);
+
   const expandedBoardCharacter = useMemo(() => {
     if (!expandedBoardCharacterId || !safeView) {
       return null;
@@ -2153,13 +2739,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     const card = safeView.boardCards.find(boardCard => boardCard.instanceId === expandedBoardCharacterId) ?? null;
     const allowUnrevealedRead = !!pendingBattleWeaponEquipPlay
       || !!pendingBattleSoulStonePlay
+      || !!pendingBattleBreakingBreadPlay
       || !!pendingBattlePhoneFriendPlay
       || !!pendingBattleSwapPlay
       || showBattleFullBoard
       || !!pendingBoardWeaponEquipPlay
-      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018';
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018'
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-030';
     return card && (card.revealed || allowUnrevealedRead) ? card : null;
-  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
+  }, [expandedBoardCharacterId, pendingBattleBreakingBreadPlay, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
 
   const publicEventLog = useMemo(() => (safeView ? toPublicEventText(safeView.eventLog) : []), [safeView]);
 
@@ -2181,21 +2769,27 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return revealed[controller].includes(instanceId);
   };
 
-  const buildRealityStoneTargets = (currentState: GameState, sourceCardInstanceId: string): RealityStoneTarget[] => {
+  const buildRealityStoneTargets = (
+    currentState: GameState,
+    sourceCardInstanceId: string,
+    viewingController: Controller,
+  ): RealityStoneTarget[] => {
     const targets: RealityStoneTarget[] = [];
 
     for (const character of currentState.characters.filter(entry => entry.alive && !!entry.boardPosition)) {
+      const boardCharacterHidden = !character.revealed;
       targets.push({
         targetRef: `boardchar:${character.id}`,
         zoneLabel: 'Board Character',
         cardType: 'character',
-        displayName: character.displayName ?? character.id,
+        displayName: boardCharacterHidden ? 'Hidden Character' : (character.displayName ?? character.id),
         subtitle: `${character.controller} ${character.boardPosition}`,
+        isHidden: boardCharacterHidden,
         visualMode: character.visualMode,
         artImageUrl: character.artImageUrl,
         fullCardFaceImageUrl: character.fullCardFaceImageUrl,
-        ATK: character.ATK,
-        DEF: character.DEF,
+        ATK: boardCharacterHidden ? undefined : character.ATK,
+        DEF: boardCharacterHidden ? undefined : character.DEF,
       });
 
       for (const attachment of character.attachments ?? []) {
@@ -2232,17 +2826,36 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         if (card.instanceId === sourceCardInstanceId) {
           continue;
         }
+        const isVisibleToViewer = controller === viewingController || isPowerCardRevealedThisGame(controller, card.instanceId);
         const definition = getPowerCardDefinition(card.definitionId);
         const visual = powerCatalogById.get(card.definitionId);
         targets.push({
           targetRef: `hand:${controller}:${card.instanceId}`,
           zoneLabel: controller === 'P1' ? 'Player One Hand' : 'Player Two Hand',
           cardType: 'power',
-          displayName: definition.displayName,
-          subtitle: card.instanceId,
+          displayName: isVisibleToViewer ? definition.displayName : 'Hidden Power Card',
+          subtitle: isVisibleToViewer ? card.instanceId : 'Unrevealed',
           visualMode: visual?.visualMode,
           artImageUrl: visual?.artImageUrl,
           fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+        });
+      }
+    }
+
+    if (currentState.pendingBattle) {
+      for (const [characterId, source] of Object.entries(currentState.pendingBattle.riddlerStatSourceByCharacterId)) {
+        const battler = currentState.characters.find(character => character.id === characterId) ?? null;
+        targets.push({
+          targetRef: `riddlersource:${characterId}`,
+          zoneLabel: 'Riddler Source',
+          cardType: 'character',
+          displayName: source.displayName,
+          subtitle: battler ? `Source for ${battler.displayName ?? battler.id}` : 'Source for Riddler',
+          visualMode: source.visualMode,
+          artImageUrl: source.artImageUrl,
+          fullCardFaceImageUrl: source.fullCardFaceImageUrl,
+          ATK: source.ATK,
+          DEF: source.DEF,
         });
       }
     }
@@ -2327,6 +2940,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (definitionId === 'power-alpha-013') return { ATK: 3, DEF: 1 };
     if (definitionId === 'power-alpha-014') return { ATK: 4, DEF: 2 };
     if (definitionId === 'power-alpha-015') return { ATK: 2, DEF: 4 };
+    if (definitionId === 'power-alpha-031') return { ATK: 3, DEF: 2 };
     if (definitionId === 'power-alpha-023') return { ATK: state?.infinityGauntletEmpowered ? 7 : 4, DEF: state?.infinityGauntletEmpowered ? 5 : 2 };
     if (definitionId === 'power-alpha-010') return { ATK: 5, DEF: 0 };
     if (definitionId === 'power-alpha-027') return { ATK: 2, DEF: 2 };
@@ -2477,6 +3091,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       displayName: topCard.displayName,
       ATK: topCard.ATK,
       DEF: topCard.DEF,
+      attachments: [],
+      isFrozen: false,
       ability: topCard.ability,
       statRule: topCard.statRule,
       imageKey: topCard.imageKey,
@@ -2486,7 +3102,104 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       abilityUsed: false,
     });
 
-    if (targetRef.startsWith('boardchar:') || targetRef.startsWith('gravechar:')) {
+    const appendUsedPowerEntry = (
+      workingState: GameState,
+      card: { instanceId: string; definitionId: string },
+      controller: Controller,
+      summary: string,
+    ): GameState => {
+      const definition = getPowerCardDefinition(card.definitionId);
+      const visual = powerCatalogById.get(card.definitionId);
+      return {
+        ...workingState,
+        usedPowerCardPile: [
+          ...workingState.usedPowerCardPile,
+          {
+            instanceId: card.instanceId,
+            definitionId: card.definitionId,
+            controller,
+            displayName: definition.displayName,
+            selectedChoice: null,
+            effectSummary: summary,
+            visualMode: visual?.visualMode,
+            artImageUrl: visual?.artImageUrl,
+            fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+          },
+        ],
+      };
+    };
+
+    const buildGraveyardCharacterFromDeckCard = (
+      card: GameState['characterDeck'][number],
+      controller: Controller,
+      idSuffix: string,
+      isKing = false,
+    ): GameState['graveyard'][number] => ({
+      id: `reality-grave-${card.instanceId}-${idSuffix}`,
+      controller,
+      ATK: card.ATK,
+      DEF: card.DEF,
+      attachments: [],
+      isFrozen: false,
+      abilityUsed: false,
+      definitionId: card.definitionId,
+      displayName: card.displayName,
+      ability: card.ability,
+      statRule: card.statRule,
+      imageKey: card.imageKey,
+      visualMode: card.visualMode,
+      artImageUrl: card.artImageUrl,
+      fullCardFaceImageUrl: card.fullCardFaceImageUrl,
+      isKing,
+      revealed: true,
+      alive: false,
+      boardPosition: null,
+    });
+
+    if (targetRef.startsWith('riddlersource:')) {
+      if (!nextState.pendingBattle) {
+        return currentState;
+      }
+
+      nextState = refillCharacterDeckForReality(nextState);
+      if (nextState.characterDeck.length === 0) {
+        return currentState;
+      }
+
+      const characterId = targetRef.split(':')[1];
+      const currentSource = nextState.pendingBattle.riddlerStatSourceByCharacterId[characterId];
+      if (!currentSource) {
+        return currentState;
+      }
+
+      const topCard = nextState.characterDeck[0];
+      const sourceOwner = nextState.characters.find(character => character.id === characterId)?.controller ?? actingPlayer;
+
+      const nextRiddlerSources = {
+        ...nextState.pendingBattle.riddlerStatSourceByCharacterId,
+        [characterId]: topCard,
+      };
+      const nextRiddlerConsumed = [
+        ...nextState.pendingBattle.riddlerConsumedCards.filter(card => card.instanceId !== currentSource.instanceId),
+        topCard,
+      ];
+
+      nextState = {
+        ...nextState,
+        characterDeck: nextState.characterDeck.slice(1),
+        pendingBattle: {
+          ...nextState.pendingBattle,
+          riddlerStatSourceByCharacterId: nextRiddlerSources,
+          riddlerConsumedCards: nextRiddlerConsumed,
+        },
+        graveyard: [
+          ...nextState.graveyard,
+          buildGraveyardCharacterFromDeckCard(currentSource, sourceOwner, `riddler-${characterId}`),
+        ],
+      };
+
+      effectSummary = `REALITY STONE transformed Riddler source ${currentSource.displayName} into ${topCard.displayName}`;
+    } else if (targetRef.startsWith('boardchar:') || targetRef.startsWith('gravechar:')) {
       nextState = refillCharacterDeckForReality(nextState);
       if (nextState.characterDeck.length === 0) {
         return currentState;
@@ -2500,11 +3213,23 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         if (!target) {
           return currentState;
         }
+        const dropped = splitAttachmentDropsForDefeatedCharacter(target, 'Dropped from REALITY STONE character transform');
+        const replacedCharacter: GameState['graveyard'][number] = {
+          ...target,
+          id: `reality-replaced-${target.id}-${topCard.instanceId}`,
+          attachments: [],
+          isFrozen: false,
+          abilityUsed: false,
+          alive: false,
+          boardPosition: null,
+        };
         nextState = {
           ...nextState,
+          usedPowerCardPile: [...nextState.usedPowerCardPile, ...dropped.droppedWeapons],
           characters: nextState.characters.map(character => (
             character.id === characterId ? replaceCharacterFields(character, topCard) : character
           )),
+          graveyard: [...nextState.graveyard, ...dropped.droppedFollowers, replacedCharacter],
         };
         effectSummary = `REALITY STONE transformed ${target.displayName ?? target.id} into ${topCard.displayName}`;
       } else {
@@ -2514,18 +3239,24 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         }
         nextState = {
           ...nextState,
-          graveyard: nextState.graveyard.map(character => (
-            character.id === characterId ? replaceCharacterFields(character, topCard) : character
-          )),
+          graveyard: [
+            ...nextState.graveyard,
+            buildGraveyardCharacterFromDeckCard(topCard, target.controller, characterId, target.isKing),
+          ],
         };
-        effectSummary = `REALITY STONE transformed graveyard ${target.displayName ?? target.id} into ${topCard.displayName}`;
+        effectSummary = `REALITY STONE transformed graveyard ${target.displayName ?? target.id} by adding ${topCard.displayName} to the graveyard`;
       }
     } else if (targetRef === 'decktop:character') {
       nextState = refillCharacterDeckForReality(nextState);
       if (nextState.characterDeck.length > 1) {
+        const replacedTop = nextState.characterDeck[0];
         nextState = {
           ...nextState,
           characterDeck: [nextState.characterDeck[1], ...nextState.characterDeck.slice(2)],
+          graveyard: [
+            ...nextState.graveyard,
+            buildGraveyardCharacterFromDeckCard(replacedTop, actingPlayer, 'decktoppick'),
+          ],
         };
       }
       effectSummary = 'REALITY STONE transformed the top Character Deck card into the next top Character Deck card';
@@ -2541,57 +3272,44 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
       if (targetRef.startsWith('hand:')) {
         const [, controller, instanceId] = targetRef.split(':');
+        const owningController = controller as Controller;
+        const replacedCard = nextState.powerCardHands[owningController].find(card => card.instanceId === instanceId) ?? null;
         const revealedPowerIds = nextState.revealedPowerCardInstanceIds ?? { P1: [], P2: [] };
-        const wasRevealed = revealedPowerIds[controller as Controller].includes(instanceId);
+        const wasRevealed = revealedPowerIds[owningController].includes(instanceId);
         nextState = {
           ...nextState,
           powerCardHands: {
             ...nextState.powerCardHands,
-            [controller]: nextState.powerCardHands[controller as Controller].map(card => (
+            [owningController]: nextState.powerCardHands[owningController].map(card => (
               card.instanceId === instanceId ? topPower : card
             )),
           },
           revealedPowerCardInstanceIds: wasRevealed
             ? {
                 ...revealedPowerIds,
-                [controller]: revealedPowerIds[controller as Controller].map(id => (id === instanceId ? topPower.instanceId : id)),
+                [owningController]: revealedPowerIds[owningController].map(id => (id === instanceId ? topPower.instanceId : id)),
               }
             : revealedPowerIds,
         };
+        if (replacedCard) {
+          nextState = appendUsedPowerEntry(nextState, replacedCard, owningController, 'Replaced by REALITY STONE from deck');
+        }
         effectSummary = `REALITY STONE transformed a hand card into ${topDefinition.displayName}`;
       } else if (targetRef.startsWith('usedpower:')) {
         const instanceId = targetRef.split(':')[1];
         const original = nextState.usedPowerCardPile.find(card => card.instanceId === instanceId) ?? null;
         nextState = removeBattleSourceEffects(nextState, instanceId, original?.definitionId ?? null, original?.controller ?? actingPlayer);
-        nextState = {
-          ...nextState,
-          usedPowerCardPile: nextState.usedPowerCardPile.filter(card => card.instanceId !== instanceId),
-        };
         effectSummary = `REALITY STONE transformed a used power card into ${topDefinition.displayName}`;
         if (phase === 'battle' && original) {
           nextState = maybeEnableBattleReplayWindow(nextState, original.controller, topPower, effectSummary);
         } else {
-          nextState = {
-            ...nextState,
-            usedPowerCardPile: [
-              ...nextState.usedPowerCardPile,
-              {
-                instanceId: topPower.instanceId,
-                definitionId: topPower.definitionId,
-                controller: original?.controller ?? actingPlayer,
-                displayName: topDefinition.displayName,
-                selectedChoice: null,
-                effectSummary,
-                visualMode: topVisual?.visualMode,
-                artImageUrl: topVisual?.artImageUrl,
-                fullCardFaceImageUrl: topVisual?.fullCardFaceImageUrl,
-              },
-            ],
-          };
+          nextState = appendUsedPowerEntry(nextState, topPower, original?.controller ?? actingPlayer, effectSummary);
         }
       } else if (targetRef.startsWith('attach:')) {
         const [, characterId, instanceId] = targetRef.split(':');
-        const attachmentOwner = nextState.characters.find(character => character.id === characterId)?.controller ?? actingPlayer;
+        const hostCharacter = nextState.characters.find(character => character.id === characterId) ?? null;
+        const originalAttachment = hostCharacter?.attachments?.find(attachment => attachment.instanceId === instanceId) ?? null;
+        const attachmentOwner = hostCharacter?.controller ?? actingPlayer;
         const stats = realityAttachmentStats(topPower.definitionId);
         const isReplacementAttachment = [
           'power-alpha-010',
@@ -2600,9 +3318,30 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           'power-alpha-013',
           'power-alpha-014',
           'power-alpha-015',
+          'power-alpha-031',
           'power-alpha-023',
           'power-alpha-027',
         ].includes(topPower.definitionId);
+        if (originalAttachment?.category === 'follower' && hostCharacter) {
+          const dropped = splitAttachmentDropsForDefeatedCharacter(
+            {
+              ...hostCharacter,
+              attachments: [originalAttachment],
+            },
+            'Dropped from REALITY STONE attachment transform',
+          );
+          nextState = {
+            ...nextState,
+            graveyard: [...nextState.graveyard, ...dropped.droppedFollowers],
+          };
+        } else if (originalAttachment) {
+          nextState = appendUsedPowerEntry(
+            nextState,
+            { instanceId: originalAttachment.instanceId, definitionId: originalAttachment.definitionId },
+            attachmentOwner,
+            'Dropped from REALITY STONE attachment transform',
+          );
+        }
         if (isReplacementAttachment) {
           nextState = {
             ...nextState,
@@ -2678,6 +3417,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         }
       } else if (targetRef === 'decktop:power') {
         nextState = refillPowerDeckForReality(nextState);
+        const replacedTop = nextState.powerCardDeck[0] ?? topPower;
         if (nextState.powerCardDeck.length > 1) {
           nextState = {
             ...nextState,
@@ -2689,6 +3429,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             powerCardDeck: [topPower, ...nextState.powerCardDeck],
           };
         }
+        nextState = appendUsedPowerEntry(nextState, replacedTop, actingPlayer, 'Replaced by REALITY STONE from deck top');
         effectSummary = `REALITY STONE transformed the top Power Deck card into the next top Power Deck card`;
       }
     }
@@ -2762,8 +3503,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (!state || !pendingRealityStonePlay) {
       return [] as RealityStoneTarget[];
     }
-    return buildRealityStoneTargets(state, pendingRealityStonePlay.cardInstanceId);
-  }, [pendingRealityStonePlay, state]);
+    const viewingController: Controller = isBotMode
+      ? 'P1'
+      : (multiplayerMode && multiplayerPlayer ? multiplayerPlayer : pendingRealityStonePlay.actor);
+    return buildRealityStoneTargets(state, pendingRealityStonePlay.cardInstanceId, viewingController);
+  }, [isBotMode, multiplayerMode, multiplayerPlayer, pendingRealityStonePlay, state]);
 
   const selectedRealityStoneTarget = useMemo(() => {
     if (!pendingRealityStonePlay?.selectedTargetRef) {
@@ -2925,16 +3669,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       return;
     }
 
-    const definition = getPowerCardDefinition(attachment.definitionId);
-    const visual = powerCatalogById.get(attachment.definitionId);
+    const definition = attachment.category === 'weapon' ? getPowerCardDefinition(attachment.definitionId) : null;
+    const powerVisual = powerCatalogById.get(attachment.definitionId);
+    const characterVisual = characterCatalogById.get(attachment.definitionId);
     setExpandedAttachmentCardView({
       sourceCharacterId: characterId,
       attachmentInstanceId,
       displayName: attachment.displayName,
-      rulesText: `${definition.rulesText} (+${attachment.ATK} ATK / +${attachment.DEF} DEF)`,
-      artImageUrl: visual?.artImageUrl,
-      fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
-      visualMode: visual?.visualMode,
+      rulesText: attachment.category === 'weapon'
+        ? `${definition?.rulesText ?? ''} (+${attachment.ATK} ATK / +${attachment.DEF} DEF)`
+        : `Follower attachment (+${attachment.ATK} ATK / +${attachment.DEF} DEF)`,
+      category: attachment.category,
+      ATK: attachment.ATK,
+      DEF: attachment.DEF,
+      artImageUrl: attachment.category === 'weapon' ? powerVisual?.artImageUrl : characterVisual?.artImageUrl,
+      fullCardFaceImageUrl: attachment.category === 'weapon' ? powerVisual?.fullCardFaceImageUrl : characterVisual?.fullCardFaceImageUrl,
+      visualMode: attachment.category === 'weapon' ? powerVisual?.visualMode : characterVisual?.visualMode,
       definitionId: attachment.definitionId,
     });
 
@@ -2950,6 +3700,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         instanceId: string;
         definitionId: string;
         displayName: string;
+        category: 'weapon' | 'follower';
         ATK: number;
         DEF: number;
       }>;
@@ -2964,12 +3715,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     return React.createElement(
       'aside',
       { className: 'character-attachment-rail', 'data-testid': `${testPrefix}-attachment-rail` },
-      React.createElement('h4', null, 'Equipped Weapons'),
+      React.createElement('h4', null, 'Attachments'),
       React.createElement(
         'div',
         { className: 'character-attachment-rail-list' },
         attachments.map((attachment, index) => {
-          const visual = powerCatalogById.get(attachment.definitionId);
+          const sourceCharacter = state?.characters.find(entry => entry.id === character.instanceId);
+          const controllerColorClass = sourceCharacter?.controller === 'P2' ? 'player-color-red' : 'player-color-blue';
+          const powerVisual = powerCatalogById.get(attachment.definitionId);
+          const characterVisual = characterCatalogById.get(attachment.definitionId);
+          const isFollower = attachment.category === 'follower';
           return React.createElement(
             'button',
             {
@@ -2979,16 +3734,32 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               onClick: () => handleAttachmentCardClick(character.instanceId, attachment.instanceId),
               'data-testid': `${testPrefix}-attachment-${attachment.instanceId}`,
             },
-            React.createElement(PowerCardFrame, {
-              size: 'compact',
-              displayName: attachment.displayName,
-              rulesText: `+${attachment.ATK} ATK / +${attachment.DEF} DEF`,
-              artSrc: visual?.artImageUrl ?? null,
-              fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
-              visualMode: visual?.visualMode ?? 'layered-art',
-              state: 'attached',
-              testId: `${testPrefix}-attachment-card-${index}`,
-            }),
+            isFollower
+              ? React.createElement(CharacterCardFrame, {
+                  size: 'compact',
+                  revealed: true,
+                  controllerColorClass,
+                  displayName: attachment.displayName,
+                  ATK: attachment.ATK,
+                  DEF: attachment.DEF,
+                  ability: '',
+                  artSrc: characterVisual?.artImageUrl ?? null,
+                  fullCardFaceSrc: characterVisual?.fullCardFaceImageUrl ?? null,
+                  visualMode: characterVisual?.visualMode,
+                  isKing: false,
+                  isFrozen: false,
+                  testId: `${testPrefix}-attachment-card-${index}`,
+                })
+              : React.createElement(PowerCardFrame, {
+                  size: 'compact',
+                  displayName: attachment.displayName,
+                  rulesText: `+${attachment.ATK} ATK / +${attachment.DEF} DEF`,
+                  artSrc: powerVisual?.artImageUrl ?? null,
+                  fullCardFaceSrc: powerVisual?.fullCardFaceImageUrl ?? null,
+                  visualMode: powerVisual?.visualMode ?? 'layered-art',
+                  state: 'attached',
+                  testId: `${testPrefix}-attachment-card-${index}`,
+                }),
           );
         }),
       ),
@@ -3014,17 +3785,39 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       { className: 'board-card-modal', 'data-testid': 'attachment-card-read-modal' },
       React.createElement(
         'div',
-        { className: 'board-card-modal-panel board-power-card-modal-panel' },
-        React.createElement(PowerCardFrame, {
-          size: 'battle',
-          displayName: expandedAttachmentCardView.displayName,
-          rulesText: expandedAttachmentCardView.rulesText,
-          artSrc: expandedAttachmentCardView.artImageUrl ?? null,
-          fullCardFaceSrc: expandedAttachmentCardView.fullCardFaceImageUrl ?? null,
-          visualMode: expandedAttachmentCardView.visualMode ?? 'layered-art',
-          state: 'attached',
-          testId: 'attachment-card-read-frame',
-        }),
+        {
+          className: `board-card-modal-panel ${expandedAttachmentCardView.category === 'follower'
+            ? 'board-character-card-modal-panel'
+            : 'board-power-card-modal-panel'}`,
+        },
+        expandedAttachmentCardView.category === 'follower'
+          ? React.createElement(CharacterCardFrame, {
+              size: 'battle',
+              revealed: true,
+              controllerColorClass: state?.characters.find(entry => entry.id === expandedAttachmentCardView.sourceCharacterId)?.controller === 'P2'
+                ? 'player-color-red'
+                : 'player-color-blue',
+              displayName: expandedAttachmentCardView.displayName,
+              ATK: expandedAttachmentCardView.ATK,
+              DEF: expandedAttachmentCardView.DEF,
+              ability: '',
+              artSrc: expandedAttachmentCardView.artImageUrl ?? null,
+              fullCardFaceSrc: expandedAttachmentCardView.fullCardFaceImageUrl ?? null,
+              visualMode: expandedAttachmentCardView.visualMode ?? 'layered-art',
+              isKing: false,
+              isFrozen: false,
+              testId: 'attachment-card-read-frame',
+            })
+          : React.createElement(PowerCardFrame, {
+              size: 'battle',
+              displayName: expandedAttachmentCardView.displayName,
+              rulesText: expandedAttachmentCardView.rulesText,
+              artSrc: expandedAttachmentCardView.artImageUrl ?? null,
+              fullCardFaceSrc: expandedAttachmentCardView.fullCardFaceImageUrl ?? null,
+              visualMode: expandedAttachmentCardView.visualMode ?? 'layered-art',
+              state: 'attached',
+              testId: 'attachment-card-read-frame',
+            }),
         expandedAttachmentCardView.definitionId === 'power-alpha-014' && canUseFreezeGunSpecial(expandedAttachmentCardView.sourceCharacterId)
           ? React.createElement(
               'button',
@@ -3034,6 +3827,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 'data-testid': 'attachment-freeze-special-button',
               },
               'Use Freeze Gun Special',
+            )
+          : null,
+        expandedAttachmentCardView.definitionId === 'power-alpha-031' && canUseIndyWhipSpecial(expandedAttachmentCardView.sourceCharacterId)
+          ? React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => openIndyWhipSpecialPicker(expandedAttachmentCardView.sourceCharacterId),
+                'data-testid': 'attachment-indy-whip-special-button',
+              },
+              'Use Indy\'s Whip Special',
             )
           : null,
         React.createElement(
@@ -3068,6 +3872,34 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
   };
 
+  const canUseIndyWhipSpecial = (characterId: string): boolean => {
+    if (!state || state.gameStatus !== 'active' || state.pendingBattle) {
+      return false;
+    }
+
+    const source = state.characters.find(character => character.id === characterId);
+    if (!source || !source.alive || !source.revealed || !source.boardPosition || !isIndianaJonesName(source.displayName)) {
+      return false;
+    }
+
+    return getIndyWhipSpecialOptions(state, characterId) !== null;
+  };
+
+  const openIndyWhipSpecialPicker = (sourceCharacterId: string): void => {
+    if (!state || !canUseIndyWhipSpecial(sourceCharacterId)) {
+      return;
+    }
+
+    setIndyWhipSpecialSourceId(sourceCharacterId);
+    setIndyWhipSpecialDestination(null);
+    setExpandedAttachmentCardView(null);
+  };
+
+  const closeIndyWhipSpecialPicker = (): void => {
+    setIndyWhipSpecialSourceId(null);
+    setIndyWhipSpecialDestination(null);
+  };
+
   const freezeSpecialSourceCharacter = useMemo(() => {
     if (!state || !freezeSpecialSourceId) {
       return null;
@@ -3082,6 +3914,126 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     return state.characters.find(character => character.id === freezeSpecialTargetId) ?? null;
   }, [freezeSpecialTargetId, state]);
+
+  const indyWhipSourceCharacter = useMemo(() => {
+    if (!state || !indyWhipSpecialSourceId) {
+      return null;
+    }
+    return state.characters.find(character => character.id === indyWhipSpecialSourceId) ?? null;
+  }, [indyWhipSpecialSourceId, state]);
+
+  const indyWhipOptions = useMemo(() => {
+    if (!state || !indyWhipSpecialSourceId) {
+      return null;
+    }
+    return getIndyWhipSpecialOptions(state, indyWhipSpecialSourceId);
+  }, [indyWhipSpecialSourceId, state]);
+
+  const indyWhipTargetCharacter = useMemo(() => {
+    if (!state || !indyWhipOptions?.targetCharacterId) {
+      return null;
+    }
+    return state.characters.find(character => character.id === indyWhipOptions.targetCharacterId) ?? null;
+  }, [indyWhipOptions?.targetCharacterId, state]);
+
+  const executeManualIndyWhipSpecial = (): void => {
+    if (!state || !indyWhipSourceCharacter || !indyWhipTargetCharacter || !indyWhipOptions || !indyWhipSpecialDestination) {
+      return;
+    }
+
+    if (!indyWhipOptions.destinationOptions.includes(indyWhipSpecialDestination)) {
+      closeIndyWhipSpecialPicker();
+      return;
+    }
+
+    const sourcePosition = indyWhipSourceCharacter.boardPosition as RingPosition;
+    const targetStartPosition = indyWhipTargetCharacter.boardPosition as RingPosition;
+    const destination = indyWhipSpecialDestination;
+
+    setPendingIndyWhipTrail({
+      sourceCharacterId: indyWhipSourceCharacter.id,
+      sourcePosition,
+      targetCharacterId: indyWhipTargetCharacter.id,
+      targetPosition: targetStartPosition,
+      attachedPosition: targetStartPosition,
+      phase: 'attach',
+      pathPositions: [sourcePosition, targetStartPosition],
+    });
+
+    const INDY_WHIP_ATTACH_MS = 1000;
+    const INDY_WHIP_PULL_MS = 1300;
+    const INDY_WHIP_RETRACT_MS = 700;
+
+    clearIndyWhipTimers();
+
+    const pullTimer = window.setTimeout(() => {
+      setPendingIndyWhipTrail(prev => {
+        if (!prev || prev.sourceCharacterId !== indyWhipSourceCharacter.id) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          phase: 'pull',
+          attachedPosition: destination,
+          pathPositions: [sourcePosition, targetStartPosition, destination],
+        };
+      });
+
+      setPendingBoardSpecialMotion({
+        characterId: indyWhipTargetCharacter.id,
+        displayName: indyWhipTargetCharacter.displayName ?? indyWhipTargetCharacter.id,
+        ATK: indyWhipTargetCharacter.ATK,
+        DEF: indyWhipTargetCharacter.DEF,
+        isKing: indyWhipTargetCharacter.isKing,
+        isFrozen: indyWhipTargetCharacter.isFrozen,
+        controller: indyWhipTargetCharacter.controller,
+        fromPosition: targetStartPosition,
+        toPosition: destination,
+        visualMode: indyWhipTargetCharacter.visualMode,
+        artImageUrl: indyWhipTargetCharacter.artImageUrl,
+        fullCardFaceImageUrl: indyWhipTargetCharacter.fullCardFaceImageUrl,
+        style: 'indy-whip-pull',
+      });
+    }, INDY_WHIP_ATTACH_MS);
+
+    const resolveTimer = window.setTimeout(() => {
+      setState(prev => {
+        if (!prev || prev.gameStatus !== 'active' || prev.pendingBattle) {
+          return prev;
+        }
+
+        try {
+          return executeIndyWhipSpecial(prev, indyWhipSourceCharacter.id, destination);
+        } catch {
+          return prev;
+        }
+      });
+
+      setPendingBoardSpecialMotion(null);
+      setPendingIndyWhipTrail(prev => {
+        if (!prev || prev.sourceCharacterId !== indyWhipSourceCharacter.id) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          phase: 'retract',
+          attachedPosition: null,
+          pathPositions: [destination, sourcePosition],
+        };
+      });
+    }, INDY_WHIP_ATTACH_MS + INDY_WHIP_PULL_MS);
+
+    const clearTrailTimer = window.setTimeout(() => {
+      setPendingIndyWhipTrail(null);
+      clearIndyWhipTimers();
+    }, INDY_WHIP_ATTACH_MS + INDY_WHIP_PULL_MS + INDY_WHIP_RETRACT_MS);
+
+    indyWhipTimerRefs.current = [pullTimer, resolveTimer, clearTrailTimer];
+    closeIndyWhipSpecialPicker();
+    setSelectedCardId(null);
+  };
 
   const curtainsSourceController = useMemo<Controller | null>(() => {
     return pendingCurtainsPlay?.sourceController ?? null;
@@ -3346,7 +4298,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       noSprayCard.instanceId,
       `NO SPRAY canceled ${pendingBoardReactionWindow.displayName}`,
     );
-    setState(nextState);
+    const canceledState = consumeBoardPowerCard(
+      nextState,
+      pendingBoardReactionWindow.sourceController,
+      pendingBoardReactionWindow.cardInstanceId,
+      `NO SPRAY canceled ${pendingBoardReactionWindow.displayName}`,
+    );
+    setState(canceledState);
     setPendingBoardReactionWindow(null);
     setBoardReactionSecondsLeft(null);
     setPendingCurtainsPlay(null);
@@ -3360,7 +4318,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   const clearPendingBattleCardPlayUi = (): void => {
     setPendingBattlePhoneFriendPlay(null);
     setPendingBattleWeaponEquipPlay(null);
+    setPendingBattleFindItPlay(null);
     setPendingBattleSoulStonePlay(null);
+    setPendingBattleBreakingBreadPlay(null);
     setPendingRealityStonePlay(null);
     setPendingBattleSwapPlay(null);
     setPendingCurtainsPlay(null);
@@ -3503,6 +4463,37 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           },
         };
 
+        if (i > 0 && chain[i - 1].definitionId !== 'power-alpha-020') {
+          const canceledReaction = chain[i - 1];
+          const canceledHand = consumed.powerCardHands[canceledReaction.sourceController];
+          const canceledCard = canceledHand.find(card => card.instanceId === canceledReaction.input.instanceId);
+          if (canceledCard) {
+            const canceledDefinition = getPowerCardDefinition(canceledCard.definitionId);
+            const canceledVisual = powerCatalogById.get(canceledCard.definitionId);
+            consumed = {
+              ...consumed,
+              powerCardHands: {
+                ...consumed.powerCardHands,
+                [canceledReaction.sourceController]: canceledHand.filter(card => card.instanceId !== canceledCard.instanceId),
+              },
+              usedPowerCardPile: [
+                ...consumed.usedPowerCardPile,
+                {
+                  instanceId: canceledCard.instanceId,
+                  definitionId: canceledCard.definitionId,
+                  controller: canceledReaction.sourceController,
+                  displayName: canceledDefinition.displayName,
+                  selectedChoice: null,
+                  effectSummary: `NO SPRAY canceled ${canceledLabel}`,
+                  visualMode: canceledVisual?.visualMode,
+                  artImageUrl: canceledVisual?.artImageUrl,
+                  fullCardFaceImageUrl: canceledVisual?.fullCardFaceImageUrl,
+                },
+              ],
+            };
+          }
+        }
+
         canceledBattleCardPlayIdsRef.current.add(reaction.cardInstanceId);
         clearPendingBattleCardPlayUi();
 
@@ -3570,6 +4561,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           parent: reaction,
         };
 
+        const canceledReaction = reaction.parent ?? reaction;
+        let consumedState = state;
+        const canceledTargetCard = consumedState.powerCardHands[canceledReaction.sourceController].find(card => card.instanceId === canceledReaction.cardInstanceId);
+        if (canceledTargetCard) {
+          consumedState = consumeBattlePowerCard(
+            consumedState,
+            canceledReaction.sourceController,
+            canceledTargetCard.instanceId,
+            `NO SPRAY canceled ${canceledReaction.displayName}`,
+          );
+        }
+        setState(consumedState);
+
         if (noSprayOptions.length > 0 || irohCounterCharacter) {
           setPendingBattleReactionWindow(noSprayReaction);
           setBattleReactionSecondsLeft(20);
@@ -3585,7 +4589,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           return;
         }
 
-        const resolvedAfterNoSpray = resolveBattleReactionChain(state, noSprayReaction);
+        const resolvedAfterNoSpray = resolveBattleReactionChain(consumedState, noSprayReaction);
         setState(resolvedAfterNoSpray);
         setPendingBattleReactionWindow(null);
         setBattleReactionSecondsLeft(null);
@@ -3657,6 +4661,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
     return state.characters.find(character => character.id === pendingBattleSoulStonePlay.selectedCharacterId) ?? null;
   }, [pendingBattleSoulStonePlay, state]);
+
+  const selectedBattleBreakingBreadTarget = useMemo(() => {
+    if (!state || !pendingBattleBreakingBreadPlay?.selectedCharacterId) {
+      return null;
+    }
+    return state.characters.find(character => character.id === pendingBattleBreakingBreadPlay.selectedCharacterId) ?? null;
+  }, [pendingBattleBreakingBreadPlay, state]);
 
   const selectedBattleSwapTarget = useMemo(() => {
     if (!state || !pendingBattleSwapPlay?.pendingCharacterId) {
@@ -3804,6 +4815,60 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     }
   };
 
+  const confirmBattleBreakingBreadSelection = (): void => {
+    if (!state?.pendingBattle || !pendingBattleBreakingBreadPlay?.selectedCharacterId) {
+      return;
+    }
+
+    const actor = pendingBattleBreakingBreadPlay.actor;
+    const target = state.characters.find(character => character.id === pendingBattleBreakingBreadPlay.selectedCharacterId);
+    if (!target || !target.alive || target.controller !== actor || !target.boardPosition) {
+      setPendingBattleBreakingBreadPlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    const input: PlayBattlePowerCardInput = {
+      instanceId: pendingBattleBreakingBreadPlay.cardInstanceId,
+      targetCharacterId: target.id,
+    };
+    const sourceCard = state.powerCardHands[actor].find(card => card.instanceId === input.instanceId);
+    if (!sourceCard) {
+      setPendingBattleBreakingBreadPlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    if (startBattleReactionWindow(state, actor, input, sourceCard.definitionId)) {
+      setPendingBattleBreakingBreadPlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    try {
+      const assembled = applyBreakingBreadAssembly(state, actor, target.id);
+      const nextState = consumeBattlePowerCard(
+        assembled.nextState,
+        actor,
+        pendingBattleBreakingBreadPlay.cardInstanceId,
+        assembled.effectSummary,
+      );
+      setState(nextState);
+      triggerBreakingBreadCinematic('battle', target.id, assembled.assembledDefinitionIds);
+    } catch {
+      setPendingBattleBreakingBreadPlay(null);
+      setExpandedBoardCharacterId(null);
+      setShowBattleFullBoard(false);
+      return;
+    }
+
+    setPendingBattleBreakingBreadPlay(null);
+    setExpandedBoardCharacterId(null);
+  };
+
   const confirmBoardWeaponEquip = (): void => {
     if (!state || !pendingBoardWeaponEquipPlay?.selectedCharacterId) {
       return;
@@ -3833,6 +4898,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       'power-alpha-013': { ATK: 3, DEF: 1 },
       'power-alpha-014': { ATK: 4, DEF: 2 },
       'power-alpha-015': { ATK: 2, DEF: 4 },
+      'power-alpha-031': { ATK: 3, DEF: 2 },
       'power-alpha-023': { ATK: state.infinityGauntletEmpowered ? 7 : 4, DEF: state.infinityGauntletEmpowered ? 5 : 2 },
     };
 
@@ -4012,6 +5078,177 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setPendingBoardPowerPlay(null);
     setExpandedBoardCharacterId(null);
     setSelectedCardId(null);
+  };
+
+  const confirmBoardBreakingBreadSelection = (): void => {
+    if (!state || !pendingBoardPowerPlay || pendingBoardPowerPlay.definitionId !== 'power-alpha-030' || !pendingBoardPowerPlay.pendingCharacterId) {
+      return;
+    }
+
+    const sourceCard = state.powerCardHands[state.activePlayer].find(card => card.instanceId === pendingBoardPowerPlay.cardInstanceId);
+    if (!sourceCard) {
+      setPendingBoardPowerPlay(null);
+      setExpandedBoardCharacterId(null);
+      return;
+    }
+
+    if (startBoardReactionWindow(state, state.activePlayer, sourceCard.instanceId, sourceCard.definitionId)) {
+      setPendingBoardPowerPlay(null);
+      setExpandedBoardCharacterId(null);
+      setSelectedCardId(null);
+      return;
+    }
+
+    if (
+      pendingIrohCounter
+      && pendingIrohCounter.controller !== state.activePlayer
+      && pendingIrohCounter.expiresAt > Date.now()
+    ) {
+      const canceled = applyIrohCounterCancellation(state, {
+        counterController: pendingIrohCounter.controller,
+        counterCharacterId: pendingIrohCounter.characterId,
+        sourceController: state.activePlayer,
+        cardDefinitionId: sourceCard.definitionId,
+        cardInstanceId: sourceCard.instanceId,
+        phase: 'board',
+      });
+      setState(canceled);
+      setPendingIrohCounter(null);
+      setPendingBoardPowerPlay(null);
+      setExpandedBoardCharacterId(null);
+      setSelectedCardId(null);
+      return;
+    }
+
+    try {
+      const assembled = applyBreakingBreadAssembly(state, state.activePlayer, pendingBoardPowerPlay.pendingCharacterId);
+      const nextState = consumeBoardPowerCard(
+        assembled.nextState,
+        state.activePlayer,
+        pendingBoardPowerPlay.cardInstanceId,
+        assembled.effectSummary,
+      );
+      setState(nextState);
+      triggerBreakingBreadCinematic('board', pendingBoardPowerPlay.pendingCharacterId, assembled.assembledDefinitionIds);
+    } catch {
+      setPendingBoardPowerPlay(null);
+      setExpandedBoardCharacterId(null);
+      return;
+    }
+
+    setPendingBoardPowerPlay(null);
+    setExpandedBoardCharacterId(null);
+    setSelectedCardId(null);
+  };
+
+  const confirmForgeWeaponEquip = (): void => {
+    if (!state || !pendingForgeEquip || !state.activeForgeLocation) {
+      return;
+    }
+
+    const targetCharacter = getCharacter(state, pendingForgeEquip.characterId);
+    if (!targetCharacter || !targetCharacter.alive || !targetCharacter.boardPosition || targetCharacter.boardPosition !== state.activeForgeLocation.position) {
+      setPendingForgeEquip(null);
+      return;
+    }
+
+    if (!pendingForgeEquip.selectedWeaponInstanceId) {
+      return;
+    }
+
+    const weaponIndex = state.powerCardDeck.findIndex(card => (
+      card.instanceId === pendingForgeEquip.selectedWeaponInstanceId
+      && isWeaponDefinitionId(card.definitionId)
+    ));
+    if (weaponIndex < 0) {
+      setPendingForgeEquip(prev => (prev ? { ...prev, selectedWeaponInstanceId: null } : prev));
+      return;
+    }
+
+    const weaponCard = state.powerCardDeck[weaponIndex];
+    const weaponDefinition = getPowerCardDefinition(weaponCard.definitionId);
+    const statsByDefinitionId: Record<string, { ATK: number; DEF: number }> = {
+      'power-alpha-011': { ATK: 3, DEF: 3 },
+      'power-alpha-012': { ATK: 5, DEF: 1 },
+      'power-alpha-013': { ATK: 3, DEF: 1 },
+      'power-alpha-014': { ATK: 4, DEF: 2 },
+      'power-alpha-015': { ATK: 2, DEF: 4 },
+      'power-alpha-031': { ATK: 3, DEF: 2 },
+      'power-alpha-023': {
+        ATK: state.infinityGauntletEmpowered ? 7 : 4,
+        DEF: state.infinityGauntletEmpowered ? 5 : 2,
+      },
+    };
+
+    const baseBonus = statsByDefinitionId[weaponCard.definitionId];
+    const bonusATK = weaponCard.definitionId === 'power-alpha-013' && /BATMAN/i.test(targetCharacter.displayName ?? '')
+      ? baseBonus.ATK
+      : weaponCard.definitionId === 'power-alpha-015' && /RAPUNZEL/i.test(targetCharacter.displayName ?? '')
+        ? baseBonus.ATK + 2
+        : baseBonus.ATK;
+    const bonusDEF = baseBonus.DEF;
+
+    const nextDeck = [...state.powerCardDeck.slice(0, weaponIndex), ...state.powerCardDeck.slice(weaponIndex + 1)];
+
+    let nextState: GameState = {
+      ...state,
+      powerCardDeck: nextDeck,
+      activeForgeLocation: null,
+      characters: state.characters.map(character => (
+        character.id === targetCharacter.id
+          ? {
+              ...character,
+              attachments: [
+                ...(character.attachments ?? []),
+                {
+                  instanceId: weaponCard.instanceId,
+                  definitionId: weaponCard.definitionId,
+                  displayName: weaponDefinition.displayName,
+                  category: 'weapon',
+                  ATK: bonusATK,
+                  DEF: bonusDEF,
+                  specialUsed: false,
+                  infinityEmpowered: weaponCard.definitionId === 'power-alpha-023' ? !!state.infinityGauntletEmpowered : undefined,
+                },
+              ],
+            }
+          : character
+      )),
+    };
+
+    const forgeDefinition = getPowerCardDefinition('power-alpha-040');
+    const forgeVisual = powerCatalogById.get('power-alpha-040');
+    nextState = {
+      ...nextState,
+      usedPowerCardPile: [
+        ...nextState.usedPowerCardPile,
+        {
+          instanceId: state.activeForgeLocation.cardInstanceId,
+          definitionId: 'power-alpha-040',
+          controller: state.activeForgeLocation.sourceController,
+          displayName: forgeDefinition.displayName,
+          selectedChoice: null,
+          effectSummary: `THE FORGE equipped ${weaponDefinition.displayName} at ${state.activeForgeLocation.position}`,
+          visualMode: forgeVisual?.visualMode,
+          artImageUrl: forgeVisual?.artImageUrl,
+          fullCardFaceImageUrl: forgeVisual?.fullCardFaceImageUrl,
+        },
+      ],
+    };
+
+    nextState = logEvent(nextState, 'Forge Weapon Equipped', {
+      targetCharacterId: targetCharacter.id,
+      targetDisplayName: targetCharacter.displayName ?? targetCharacter.id,
+      forgePosition: state.activeForgeLocation.position,
+      equippedInstanceId: weaponCard.instanceId,
+      equippedDefinitionId: weaponCard.definitionId,
+      equippedDisplayName: weaponDefinition.displayName,
+      bonusATK,
+      bonusDEF,
+    });
+
+    setState(nextState);
+    setPendingForgeEquip(null);
   };
 
   const confirmBattleSwapSelection = (): void => {
@@ -4290,6 +5527,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     void effectiveFirstPlayer;
 
     clearRapunzelTimers();
+    clearIndyWhipTimers();
 
     setState(next);
     setSelectedCardId(null);
@@ -4311,6 +5549,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setPendingBoardSpecialMotion(null);
     setPendingMrsPuffPuffUp(null);
     setPendingRapunzelHairTrail(null);
+    setPendingIndyWhipTrail(null);
     setPostBattleBoardAnimation(null);
     setExpandedBoardPowerCardId(null);
     setExpandedBoardCharacterId(null);
@@ -4319,14 +5558,18 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setPendingBoardCharacterSpecial(null);
     setPendingBattlePhoneFriendPlay(null);
     setPendingBattleWeaponEquipPlay(null);
+    setPendingBattleFindItPlay(null);
     setPendingBattleSwapPlay(null);
     setPhoneFriendAnimation(null);
     setPendingJeremySpecial(null);
     setShowJeremySelectionModal(true);
     setPendingAangEscape(null);
     setPendingSkarReclaim(null);
+    setPendingFollowerTieBreak(null);
     setPendingIrohCounter(null);
     closeFreezeSpecialPicker();
+    setIndyWhipSpecialSourceId(null);
+    setIndyWhipSpecialDestination(null);
     setKingDrawAnimationFor(null);
     setKingDrawBoardPosition(null);
     setKingDrawTravelStart(null);
@@ -4667,6 +5910,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   ): GameState => {
     let next: GameState = {
       ...baseState,
+      gameStatus: aangCharacter.isKing ? 'active' : baseState.gameStatus,
       characters: baseState.characters.map(character => (
         character.id === aangCharacter.id
           ? {
@@ -4708,6 +5952,36 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     });
 
     return next;
+  };
+
+  const handleAangEscapePass = (): void => {
+    if (!pendingAangEscape) {
+      return;
+    }
+
+    const deferredStatus = pendingAangEscape.deferredGameStatus;
+    const characterId = pendingAangEscape.characterId;
+    setPendingAangEscape(null);
+
+    if (!deferredStatus) {
+      return;
+    }
+
+    setState(prev => {
+      if (!prev) {
+        return prev;
+      }
+
+      const finalized = {
+        ...prev,
+        gameStatus: deferredStatus,
+      };
+
+      return logEvent(finalized, 'Avatar Aang Escape Declined', {
+        characterId,
+        finalStatus: deferredStatus,
+      });
+    });
   };
 
   const getAnytimeCharacterSpecialStatus = (
@@ -5478,6 +6752,34 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     });
   };
 
+  const removeBoardPowerCardFromHand = (
+    currentState: GameState,
+    actingPlayer: Controller,
+    cardInstanceId: string,
+    effectSummary: string,
+  ): GameState => {
+    const hand = currentState.powerCardHands[actingPlayer];
+    const card = hand.find(entry => entry.instanceId === cardInstanceId);
+    if (!card) {
+      return currentState;
+    }
+
+    const next: GameState = {
+      ...currentState,
+      powerCardHands: {
+        ...currentState.powerCardHands,
+        [actingPlayer]: hand.filter(entry => entry.instanceId !== cardInstanceId),
+      },
+    };
+
+    return logEvent(next, 'Board Power Card Activated', {
+      actingPlayer,
+      cardInstanceId,
+      cardDefinitionId: card.definitionId,
+      effectSummary,
+    });
+  };
+
   const consumeBattlePowerCard = (
     currentState: GameState,
     actingPlayer: Controller,
@@ -5697,6 +6999,27 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         for (const character of state.characters) {
           if (character.alive && character.controller !== state.activePlayer && character.boardPosition) {
             targets[character.boardPosition as RingPosition] = 'move';
+          }
+        }
+        return targets;
+      }
+
+      if (pendingBoardPowerPlay.step === 'breaking-bread-pick-character') {
+        const targets: Partial<Record<RingPosition, LegalActionType>> = {};
+        for (const character of state.characters) {
+          if (character.alive && character.controller === state.activePlayer && character.boardPosition) {
+            targets[character.boardPosition as RingPosition] = 'move';
+          }
+        }
+        return targets;
+      }
+
+      if (pendingBoardPowerPlay.step === 'forge-pick-location') {
+        const targets: Partial<Record<RingPosition, LegalActionType>> = {};
+        for (const space of ['P1_1', 'P1_2', 'P1_3', 'P1_4', 'P1_5', 'P2_1', 'P2_2', 'P2_3', 'P2_4', 'P2_5'] as RingPosition[]) {
+          const occupied = state.characters.some(character => character.alive && character.boardPosition === space);
+          if (!occupied) {
+            targets[space] = 'move';
           }
         }
         return targets;
@@ -6399,6 +7722,14 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [multiplayerBattlePowerReveal]);
 
   useEffect(() => {
+    return () => {
+      if (breakingBreadCinematicTimerRef.current !== null) {
+        window.clearTimeout(breakingBreadCinematicTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!phoneFriendAnimation || pendingBattlePhoneFriendPlay) {
       return;
     }
@@ -6551,6 +7882,21 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         return;
       }
 
+      if (pendingBoardPowerPlay.step === 'breaking-bread-pick-character') {
+        if (clicked.alive && clicked.controller === state.activePlayer) {
+          setPendingBoardPowerPlay({
+            ...pendingBoardPowerPlay,
+            pendingCharacterId: clicked.instanceId,
+          });
+          setExpandedBoardCharacterId(clicked.instanceId);
+        }
+        return;
+      }
+
+      if (pendingBoardPowerPlay.step === 'forge-pick-location') {
+        return;
+      }
+
       return;
     }
 
@@ -6682,6 +8028,69 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           pendingCharacterId: selected.id,
         });
         setExpandedBoardCharacterId(selected.id);
+        return;
+      }
+
+      if (pendingBoardPowerPlay.step === 'breaking-bread-pick-character' && targetPosition) {
+        const selected = state.characters.find(character => (
+          character.alive
+          && character.controller === state.activePlayer
+          && character.boardPosition === targetPosition
+        ));
+        if (!selected) {
+          return;
+        }
+        setPendingBoardPowerPlay({
+          ...pendingBoardPowerPlay,
+          pendingCharacterId: selected.id,
+        });
+        setExpandedBoardCharacterId(selected.id);
+        return;
+      }
+
+      if (pendingBoardPowerPlay.step === 'forge-pick-location' && targetPosition) {
+        const occupied = state.characters.some(character => character.alive && character.boardPosition === targetPosition);
+        if (occupied) {
+          return;
+        }
+
+        if (
+          pendingIrohCounter
+          && pendingIrohCounter.controller !== state.activePlayer
+          && pendingIrohCounter.expiresAt > Date.now()
+        ) {
+          const canceled = applyIrohCounterCancellation(state, {
+            counterController: pendingIrohCounter.controller,
+            counterCharacterId: pendingIrohCounter.characterId,
+            sourceController: state.activePlayer,
+            cardDefinitionId: pendingBoardPowerPlay.definitionId,
+            cardInstanceId: pendingBoardPowerPlay.cardInstanceId,
+            phase: 'board',
+          });
+          setState(canceled);
+          setPendingIrohCounter(null);
+          setPendingBoardPowerPlay(null);
+          setSelectedCardId(null);
+          return;
+        }
+
+        let nextState = removeBoardPowerCardFromHand(
+          state,
+          state.activePlayer,
+          pendingBoardPowerPlay.cardInstanceId,
+          `THE FORGE placed at ${targetPosition}`,
+        );
+        nextState = {
+          ...nextState,
+          activeForgeLocation: {
+            position: targetPosition,
+            cardInstanceId: pendingBoardPowerPlay.cardInstanceId,
+            sourceController: state.activePlayer,
+          },
+        };
+        setState(nextState);
+        setPendingBoardPowerPlay(null);
+        setSelectedCardId(null);
         return;
       }
 
@@ -7931,7 +9340,108 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     setState(next);
   };
 
-  const finalizeBattleResolution = (): void => {
+  const buildFollowerTieBreakChoices = (currentState: GameState): PendingFollowerTieBreakChoice[] => {
+    if (!currentState.pendingBattle) {
+      return [];
+    }
+
+    const battle = currentState.pendingBattle;
+    const initiator = getCharacter(currentState, battle.initiatorId);
+    const opponent = getCharacter(currentState, battle.opponentId);
+    if (!initiator || !opponent) {
+      return [];
+    }
+
+    const publicView = getBattlePublicView(currentState);
+    const outcome = resolveBattle(
+      initiator,
+      opponent,
+      publicView.initiatorEffectiveComparison,
+      publicView.opponentEffectiveComparison,
+    );
+    const defeatedIds = outcome.doubleLoss
+      ? [battle.opponentId, battle.initiatorId]
+      : [outcome.loserId];
+
+    const choices: PendingFollowerTieBreakChoice[] = [];
+    for (const defeatId of defeatedIds) {
+      const defeated = getCharacter(currentState, defeatId);
+      if (!defeated) {
+        continue;
+      }
+
+      const followers = (defeated.attachments ?? []).filter(attachment => attachment.category === 'follower');
+      if (followers.length < 2) {
+        continue;
+      }
+
+      const groupedByStats = new Map<string, typeof followers>();
+      for (const follower of followers) {
+        const key = `${follower.ATK}|${follower.DEF}`;
+        const current = groupedByStats.get(key);
+        if (current) {
+          current.push(follower);
+        } else {
+          groupedByStats.set(key, [follower]);
+        }
+      }
+
+      const tiedFollowers = [...groupedByStats.values()]
+        .filter(group => group.length > 1)
+        .flat();
+      if (tiedFollowers.length === 0) {
+        continue;
+      }
+
+      tiedFollowers.sort((left, right) => {
+        if (left.ATK !== right.ATK) {
+          return left.ATK - right.ATK;
+        }
+        if (left.DEF !== right.DEF) {
+          return left.DEF - right.DEF;
+        }
+        return 0;
+      });
+
+      choices.push({
+        hostCharacterId: defeated.id,
+        hostDisplayName: defeated.displayName ?? defeated.id,
+        attachments: tiedFollowers.map(attachment => {
+          const visual = characterCatalogById.get(attachment.definitionId);
+          return {
+            instanceId: attachment.instanceId,
+            definitionId: attachment.definitionId,
+            displayName: attachment.displayName,
+            ATK: attachment.ATK,
+            DEF: attachment.DEF,
+            visualMode: visual?.visualMode,
+            artImageUrl: visual?.artImageUrl,
+            fullCardFaceImageUrl: visual?.fullCardFaceImageUrl,
+          };
+        }),
+      });
+    }
+
+    return choices;
+  };
+
+  const canPromptInitiatorForFollowerTieBreak = (battle: GameState['pendingBattle']): boolean => {
+    if (!battle) {
+      return false;
+    }
+
+    if (isBotMode) {
+      return battle.initiatorController === 'P1';
+    }
+
+    if (multiplayerMode) {
+      return multiplayerPlayer === battle.initiatorController;
+    }
+
+    return true;
+  };
+
+  const finalizeBattleResolution = (followerTieBreakOrderByHostId: FollowerTieBreakOrderByHostId = {}): void => {
     if (!state?.pendingBattle) {
       return;
     }
@@ -7956,9 +9466,23 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       && battleSnapshot.battleType === 'attack'
       && winnerId === battleSnapshot.initiatorId;
 
-    let next = resolvePendingBattle(state);
+    const tieBreakChoices = buildFollowerTieBreakChoices(state);
+    const unresolvedTieBreakChoices = tieBreakChoices.filter(choice => (
+      (followerTieBreakOrderByHostId[choice.hostCharacterId]?.length ?? 0) === 0
+    ));
+    if (unresolvedTieBreakChoices.length > 0 && canPromptInitiatorForFollowerTieBreak(state.pendingBattle)) {
+      setPendingFollowerTieBreak({
+        controller: state.pendingBattle.initiatorController,
+        choices: unresolvedTieBreakChoices,
+        index: 0,
+        selectedOrder: [],
+        orderByHostId: { ...followerTieBreakOrderByHostId },
+      });
+      return;
+    }
 
-    setState(next);
+    let next = resolvePendingBattle(state, { followerTieBreakOrderByHostId });
+
     setSelectedCardId(null);
     setPendingAangEscape(null);
 
@@ -8013,6 +9537,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
         if (options.size > 0) {
           const escapeOptions = [...options];
+          const deferredGameStatus = loserCharacter.isKing && next.gameStatus !== 'active'
+            ? next.gameStatus
+            : null;
+          if (deferredGameStatus) {
+            next = {
+              ...next,
+              gameStatus: 'active',
+            };
+          }
           if (isBotMode && loserCharacter.controller === 'P2') {
             next = applyAangEscape(
               next,
@@ -8025,6 +9558,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               characterId: loserCharacter.id,
               options: escapeOptions,
               fromPosition: loserCharacter.boardPosition as RingPosition,
+              deferredGameStatus: deferredGameStatus ?? undefined,
               step: 'prompt',
             });
           }
@@ -8089,8 +9623,9 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       ? []
       : next.usedPowerCardPile.slice(battleUsedPileStartCount);
 
-    if (skarInvolvedCharacter && thisBattleUsedCards.length > 0) {
+    if (skarInvolvedCharacter && !skarInvolvedCharacter.abilityUsed && thisBattleUsedCards.length > 0) {
       setPendingSkarReclaim({
+        sourceCharacterId: skarInvolvedCharacter.id,
         controller: skarInvolvedCharacter.controller,
         cards: thisBattleUsedCards.map(card => ({
           instanceId: card.instanceId,
@@ -8101,6 +9636,57 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         step: 'prompt',
       });
     }
+
+    setState(next);
+  };
+
+  const handleFollowerTieBreakPick = (attachmentInstanceId: string): void => {
+    setPendingFollowerTieBreak(prev => {
+      if (!prev || prev.selectedOrder.includes(attachmentInstanceId)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        selectedOrder: [...prev.selectedOrder, attachmentInstanceId],
+      };
+    });
+  };
+
+  const handleFollowerTieBreakReset = (): void => {
+    setPendingFollowerTieBreak(prev => (
+      prev
+        ? { ...prev, selectedOrder: [] }
+        : prev
+    ));
+  };
+
+  const handleFollowerTieBreakConfirm = (): void => {
+    if (!pendingFollowerTieBreak) {
+      return;
+    }
+
+    const currentChoice = pendingFollowerTieBreak.choices[pendingFollowerTieBreak.index];
+    if (!currentChoice || pendingFollowerTieBreak.selectedOrder.length !== currentChoice.attachments.length) {
+      return;
+    }
+
+    const nextOrderByHostId: FollowerTieBreakOrderByHostId = {
+      ...pendingFollowerTieBreak.orderByHostId,
+      [currentChoice.hostCharacterId]: pendingFollowerTieBreak.selectedOrder,
+    };
+
+    if (pendingFollowerTieBreak.index < pendingFollowerTieBreak.choices.length - 1) {
+      setPendingFollowerTieBreak({
+        ...pendingFollowerTieBreak,
+        index: pendingFollowerTieBreak.index + 1,
+        selectedOrder: [],
+        orderByHostId: nextOrderByHostId,
+      });
+      return;
+    }
+
+    setPendingFollowerTieBreak(null);
+    finalizeBattleResolution(nextOrderByHostId);
   };
 
   const handleResolveBattle = (): void => {
@@ -8221,7 +9807,26 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       setState(promptedState);
     }
 
-    const reactionPrimed = multiplayerMode
+    if (card.definitionId === 'power-alpha-042' && !resolvedInput.findItMiniGameResolved) {
+      if (persistCurrentStateOnEarlyExit) {
+        setState(promptedState);
+      }
+      const randomAnchor = FIND_IT_KITCHEN_ANCHORS[Math.floor(Math.random() * FIND_IT_KITCHEN_ANCHORS.length)] ?? FIND_IT_KITCHEN_ANCHORS[0];
+      setPendingBattleFindItPlay({
+        actor,
+        cardInstanceId: resolvedInput.instanceId,
+        selectedChoice: resolvedInput.selectedChoice ?? 'ATK',
+        roomId: actor === 'P2' ? 'kitchen' : null,
+        selectedAnchor: actor === 'P2' ? randomAnchor : null,
+        phase: actor === 'P2' ? 'ready' : 'choose-room',
+        startedAtMs: null,
+        resultReadyAtMs: null,
+        markerPoint: null,
+      });
+      return;
+    }
+
+    const reactionPrimed = multiplayerMode && card.definitionId !== 'power-alpha-030'
       ? startBattleReactionWindow(promptedState, actor, resolvedInput, card.definitionId)
       : false;
 
@@ -8259,6 +9864,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         cardInstanceId: resolvedInput.instanceId,
         selectedCharacterId: null,
         selectedChoice: resolvedInput.selectedChoice ?? 'ATK',
+      });
+      setShowBattleFullBoard(true);
+      return;
+    }
+
+    if ((actor === 'P1' || !isBotMode) && card.definitionId === 'power-alpha-030') {
+      if (persistCurrentStateOnEarlyExit) {
+        setState(promptedState);
+      }
+      setPendingBattleBreakingBreadPlay({
+        actor,
+        cardInstanceId: resolvedInput.instanceId,
+        selectedCharacterId: null,
       });
       setShowBattleFullBoard(true);
       return;
@@ -8395,6 +10013,149 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     queueBattleCardPlay(state, actor, input);
   };
 
+  const handleFindItRoomPick = (roomId: FindItRoomId): void => {
+    setPendingBattleFindItPlay(prev => {
+      if (!prev) {
+        return prev;
+      }
+      const randomAnchor = FIND_IT_KITCHEN_ANCHORS[Math.floor(Math.random() * FIND_IT_KITCHEN_ANCHORS.length)] ?? FIND_IT_KITCHEN_ANCHORS[0];
+      return {
+        ...prev,
+        roomId,
+        selectedAnchor: randomAnchor,
+        phase: 'ready',
+        startedAtMs: null,
+        resultReadyAtMs: null,
+        markerPoint: null,
+      };
+    });
+  };
+
+  const handleFindItStartSearch = (): void => {
+    setPendingBattleFindItPlay(prev => {
+      if (!prev || !prev.roomId || !prev.selectedAnchor) {
+        return prev;
+      }
+      return {
+        ...prev,
+        phase: 'searching',
+        startedAtMs: Date.now(),
+        resultReadyAtMs: null,
+        markerPoint: null,
+      };
+    });
+  };
+
+  const resolveFindItBattlePlay = (success: boolean): void => {
+    if (!state || !pendingBattleFindItPlay || !state.pendingBattle) {
+      setPendingBattleFindItPlay(null);
+      return;
+    }
+
+    const actor = pendingBattleFindItPlay.actor;
+    const input: PlayBattlePowerCardInput = {
+      instanceId: pendingBattleFindItPlay.cardInstanceId,
+      selectedChoice: pendingBattleFindItPlay.selectedChoice,
+      findItSucceeded: success,
+      findItMiniGameResolved: true,
+    };
+
+    setPendingBattleFindItPlay(null);
+
+    if (success) {
+      queueBattleCardPlay(state, actor, input);
+      return;
+    }
+
+    try {
+      const next = playBattlePowerCard(state, actor, input);
+      setState(next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown FIND IT resolution error';
+      const rejected = logEvent(state, 'Battle Card Play Rejected', {
+        controller: actor,
+        definitionId: 'power-alpha-042',
+        instanceId: pendingBattleFindItPlay.cardInstanceId,
+        reason: message,
+      });
+      setState(rejected);
+    }
+  };
+
+  const handleFindItCardClick = (): void => {
+    setPendingBattleFindItPlay(prev => {
+      if (!prev || prev.phase !== 'searching' || !prev.selectedAnchor) {
+        return prev;
+      }
+      return {
+        ...prev,
+        phase: 'success',
+        resultReadyAtMs: Date.now(),
+        markerPoint: {
+          xPct: prev.selectedAnchor.xPct,
+          yPct: prev.selectedAnchor.yPct,
+        },
+      };
+    });
+  };
+
+  const handleFindItFailureContinue = (): void => {
+    resolveFindItBattlePlay(false);
+  };
+
+  useEffect(() => {
+    if (!pendingBattleFindItPlay) {
+      return;
+    }
+
+    if (pendingBattleFindItPlay.phase === 'searching' && pendingBattleFindItPlay.startedAtMs) {
+      const timer = window.setInterval(() => {
+        setPendingBattleFindItPlay(prev => {
+          if (!prev || prev.phase !== 'searching' || !prev.startedAtMs || !prev.selectedAnchor) {
+            return prev;
+          }
+          const elapsed = Date.now() - prev.startedAtMs;
+          if (elapsed < 15000) {
+            return prev;
+          }
+          return {
+            ...prev,
+            phase: 'failure-magnify',
+            resultReadyAtMs: Date.now(),
+            markerPoint: {
+              xPct: prev.selectedAnchor.xPct,
+              yPct: prev.selectedAnchor.yPct,
+            },
+          };
+        });
+      }, 100);
+
+      return () => window.clearInterval(timer);
+    }
+
+    if (pendingBattleFindItPlay.phase === 'success' && pendingBattleFindItPlay.resultReadyAtMs) {
+      const elapsed = Date.now() - pendingBattleFindItPlay.resultReadyAtMs;
+      const remaining = Math.max(5000 - elapsed, 0);
+      const timer = window.setTimeout(() => {
+        resolveFindItBattlePlay(true);
+      }, remaining);
+      return () => window.clearTimeout(timer);
+    }
+
+    if (pendingBattleFindItPlay.phase === 'failure-magnify' && pendingBattleFindItPlay.resultReadyAtMs) {
+      const elapsed = Date.now() - pendingBattleFindItPlay.resultReadyAtMs;
+      const remaining = Math.max(2300 - elapsed, 0);
+      const timer = window.setTimeout(() => {
+        setPendingBattleFindItPlay(prev => (
+          prev && prev.phase === 'failure-magnify'
+            ? { ...prev, phase: 'failure-reveal' }
+            : prev
+        ));
+      }, remaining);
+      return () => window.clearTimeout(timer);
+    }
+  }, [pendingBattleFindItPlay]);
+
   const handleSkarPass = (): void => {
     setPendingSkarReclaim(null);
   };
@@ -8418,6 +10179,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     let next: GameState = {
       ...state,
       usedPowerCardPile: state.usedPowerCardPile.filter((_, index) => index !== usedIndex),
+      characters: state.characters.map(character => (
+        character.id === pendingSkarReclaim.sourceCharacterId
+          ? { ...character, abilityUsed: true }
+          : character
+      )),
       powerCardHands: {
         ...state.powerCardHands,
         [pendingSkarReclaim.controller]: [
@@ -8552,6 +10318,28 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
   }, [pendingHumanBoardAction]);
 
   useEffect(() => {
+    if (!state?.activeForgeLocation) {
+      if (pendingForgeEquip) {
+        setPendingForgeEquip(null);
+      }
+      return;
+    }
+
+    if (pendingForgeEquip) {
+      return;
+    }
+
+    const landingCharacter = state.characters.find(character => (
+      character.alive
+      && character.boardPosition === state.activeForgeLocation?.position
+    ));
+
+    if (landingCharacter) {
+      setPendingForgeEquip({ characterId: landingCharacter.id, selectedWeaponInstanceId: null });
+    }
+  }, [pendingForgeEquip, state]);
+
+  useEffect(() => {
     if (!pendingBotBoardAction) {
       return;
     }
@@ -8667,6 +10455,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         ? 1700
       : pendingBoardSpecialMotion.style === 'back-it-up'
         ? 1780
+      : pendingBoardSpecialMotion.style === 'indy-whip-pull'
+        ? 1320
       : pendingBoardSpecialMotion.style === 'nightcrawler-portal'
         ? 1150
         : 1050);
@@ -8731,11 +10521,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
 
     const allowUnrevealedBattleTargetRead = !!pendingBattleWeaponEquipPlay
       || !!pendingBattleSoulStonePlay
+      || !!pendingBattleBreakingBreadPlay
       || !!pendingBattlePhoneFriendPlay
       || !!pendingBattleSwapPlay
       || showBattleFullBoard
       || !!pendingBoardWeaponEquipPlay
-      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018';
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-018'
+      || pendingBoardPowerPlay?.definitionId === 'power-alpha-030';
     const cardStillVisible = !!safeView.boardCards.some(card => (
       card.instanceId === expandedBoardCharacterId
       && (allowUnrevealedBattleTargetRead ? card.alive : card.revealed)
@@ -8743,7 +10535,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (!cardStillVisible) {
       setExpandedBoardCharacterId(null);
     }
-  }, [expandedBoardCharacterId, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
+  }, [expandedBoardCharacterId, pendingBattleBreakingBreadPlay, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleSwapPlay, pendingBattleWeaponEquipPlay, pendingBoardPowerPlay, pendingBoardWeaponEquipPlay, safeView, showBattleFullBoard]);
 
   useEffect(() => () => {
     if (kingDrawFxTimerRef.current !== null) {
@@ -8763,6 +10555,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (!state?.pendingBattle && showBattleFullBoard) {
       setShowBattleFullBoard(false);
       setPendingBattleSwapPlay(null);
+      setPendingBattleBreakingBreadPlay(null);
     }
   }, [showBattleFullBoard, state?.pendingBattle]);
 
@@ -8779,10 +10572,16 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
     if (pendingBattleSoulStonePlay) {
       setPendingBattleSoulStonePlay(null);
     }
+    if (pendingBattleBreakingBreadPlay) {
+      setPendingBattleBreakingBreadPlay(null);
+    }
+    if (pendingBattleFindItPlay) {
+      setPendingBattleFindItPlay(null);
+    }
     if (phoneFriendAnimation) {
       setPhoneFriendAnimation(null);
     }
-  }, [pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleWeaponEquipPlay, phoneFriendAnimation, state?.pendingBattle]);
+  }, [pendingBattleBreakingBreadPlay, pendingBattleFindItPlay, pendingBattlePhoneFriendPlay, pendingBattleSoulStonePlay, pendingBattleWeaponEquipPlay, phoneFriendAnimation, state?.pendingBattle]);
 
   useEffect(() => {
     if (state?.pendingBattle) {
@@ -8993,6 +10792,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             onCardClick: () => undefined,
             readOnly: true,
             inspectAllCards: true,
+            activeForgePosition: state.activeForgeLocation?.position ?? null,
             gauntletEnergizedCharacterIds,
             playerColors,
             cardMotion: pendingBoardCardMotion,
@@ -9016,6 +10816,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         ),
       ),
       renderInfinityAnimationOverlay(),
+      renderFindItMiniGameOverlay(),
+      renderBreakingBreadCinematicOverlay(),
       renderRealityStoneTargetOverlay(),
     ));
   }
@@ -9030,6 +10832,11 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
       : null;
 
     if (showBattleFullBoard) {
+      const viewingController: Controller = pendingRealityStonePlay?.phase === 'battle'
+        ? (multiplayerMode && multiplayerPlayer ? multiplayerPlayer : pendingRealityStonePlay.actor)
+        : (multiplayerMode && multiplayerPlayer ? multiplayerPlayer : state.pendingBattle.currentPriorityPlayer ?? state.activePlayer);
+      const opponentForView: Controller = viewingController === 'P1' ? 'P2' : 'P1';
+
       const battleTargetMap: Partial<Record<RingPosition, LegalActionType>> = {};
       if (pendingBattlePhoneFriendPlay) {
         for (const target of phoneFriendSelectableTargets) {
@@ -9059,6 +10866,15 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           && character.controller === pendingBattleSoulStonePlay.actor
           && character.id !== ownBattlerId
           && character.id !== opponentBattlerId
+        ))) {
+          battleTargetMap[target.boardPosition as RingPosition] = 'move';
+        }
+      }
+      if (pendingBattleBreakingBreadPlay) {
+        for (const target of state.characters.filter(character => (
+          character.alive
+          && !!character.boardPosition
+          && character.controller === pendingBattleBreakingBreadPlay.actor
         ))) {
           battleTargetMap[target.boardPosition as RingPosition] = 'move';
         }
@@ -9145,6 +10961,18 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           return;
         }
 
+        if (pendingBattleBreakingBreadPlay) {
+          if (selected.controller !== pendingBattleBreakingBreadPlay.actor) {
+            return;
+          }
+          setPendingBattleBreakingBreadPlay({
+            ...pendingBattleBreakingBreadPlay,
+            selectedCharacterId: selected.id,
+          });
+          setExpandedBoardCharacterId(selected.id);
+          return;
+        }
+
         if (pendingBattleSwapPlay) {
           if (pendingBattleSwapPlay.step === 'swap-pick-own' && selected.controller !== pendingBattleSwapPlay.actor) {
             return;
@@ -9178,6 +11006,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   setPendingBattlePhoneFriendPlay(null);
                   setPendingBattleWeaponEquipPlay(null);
                   setPendingBattleSoulStonePlay(null);
+                  setPendingBattleBreakingBreadPlay(null);
                   setPendingRealityStonePlay(null);
                   setPendingBattleSwapPlay(null);
                   closeFreezeSpecialPicker();
@@ -9290,6 +11119,12 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     { className: 'status-label', 'data-testid': 'battle-soulstone-targeting-hint' },
                     'SOUL STONE: select one of your other living characters (glowing), then confirm the sacrifice.',
                   )
+              : pendingBattleBreakingBreadPlay
+                ? React.createElement(
+                    'p',
+                    { className: 'status-label', 'data-testid': 'battle-breaking-bread-targeting-hint' },
+                    'BREAKING BREAD: select any of your alive characters (including unrevealed and kings), then confirm in card view.',
+                  )
               : pendingBattleSwapPlay
                 ? React.createElement(
                     'p',
@@ -9304,6 +11139,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             selectedCardId: pendingBattlePhoneFriendPlay?.selectedCharacterId
               ?? pendingBattleWeaponEquipPlay?.selectedCharacterId
               ?? pendingBattleSoulStonePlay?.selectedCharacterId
+              ?? pendingBattleBreakingBreadPlay?.selectedCharacterId
               ?? pendingBattleSwapPlay?.pendingCharacterId
               ?? freezeSpecialTargetId
               ?? null,
@@ -9321,9 +11157,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 handleBattleTargetSelection(target.id);
               }
             },
-            allowCardClickOnActionTargets: !!pendingRealityStonePlay || !!pendingBattleWeaponEquipPlay || !!pendingBattleSoulStonePlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay || !!freezeSpecialSourceId,
-            readOnly: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
-            inspectAllCards: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            allowCardClickOnActionTargets: !!pendingRealityStonePlay || !!pendingBattleWeaponEquipPlay || !!pendingBattleSoulStonePlay || !!pendingBattleBreakingBreadPlay || !!pendingBattlePhoneFriendPlay || !!pendingBattleSwapPlay || !!freezeSpecialSourceId,
+            readOnly: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleBreakingBreadPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            inspectAllCards: !pendingRealityStonePlay && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleBreakingBreadPlay && !pendingBattleSwapPlay && !freezeSpecialSourceId,
+            activeForgePosition: state.activeForgeLocation?.position ?? null,
             characterStatusById: irohStatusByCharacterId,
             playerColors,
             swapCharacterMotion: pendingSwapCharactersMotion,
@@ -9335,6 +11172,43 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             ? React.createElement(
                 React.Fragment,
                 null,
+                Object.entries(state.pendingBattle.riddlerStatSourceByCharacterId).length > 0
+                  ? React.createElement(
+                      'section',
+                      { className: 'power-card-row', 'data-testid': 'reality-battle-riddler-sources', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+                      Object.entries(state.pendingBattle.riddlerStatSourceByCharacterId).map(([characterId, source]) => {
+                        const selected = pendingRealityStonePlay.selectedTargetRef === `riddlersource:${characterId}`;
+                        const hostCharacter = state.characters.find(character => character.id === characterId) ?? null;
+                        const colorClass = hostCharacter?.controller === 'P2' ? 'player-color-red' : 'player-color-blue';
+                        return React.createElement(
+                          'button',
+                          {
+                            key: `reality-battle-riddler-source-${characterId}`,
+                            type: 'button',
+                            className: 'power-card-button',
+                            onClick: () => setPendingRealityStonePlay(prev => prev ? { ...prev, selectedTargetRef: `riddlersource:${characterId}` } : prev),
+                            'aria-pressed': selected,
+                            'data-testid': `reality-battle-riddler-source-${characterId}`,
+                          },
+                          React.createElement(CharacterCardFrame, {
+                            size: 'compact',
+                            revealed: true,
+                            controllerColorClass: colorClass,
+                            displayName: source.displayName,
+                            ATK: source.ATK,
+                            DEF: source.DEF,
+                            ability: hostCharacter ? `Source for ${hostCharacter.displayName ?? hostCharacter.id}` : 'Source for Riddler',
+                            artSrc: source.artImageUrl ?? null,
+                            fullCardFaceSrc: source.fullCardFaceImageUrl ?? null,
+                            visualMode: source.visualMode,
+                            isKing: false,
+                            isFrozen: false,
+                            testId: `reality-battle-riddler-source-card-${characterId}`,
+                          }),
+                        );
+                      }),
+                    )
+                  : null,
                 React.createElement(
                   'section',
                   { className: 'power-card-row', 'data-testid': 'reality-battle-live-effects', style: { justifyContent: 'center', flexWrap: 'wrap' } },
@@ -9597,6 +11471,70 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         type: 'button',
                         onClick: () => setExpandedBoardCharacterId(null),
                         'data-testid': 'battle-soulstone-close',
+                      },
+                      'Close',
+                    ),
+                  ),
+                ),
+              )
+            : null,
+          pendingBattleBreakingBreadPlay && selectedBattleBreakingBreadTarget && expandedBoardCharacterId === selectedBattleBreakingBreadTarget.id
+            ? React.createElement(
+                'section',
+                {
+                  className: 'board-card-modal',
+                  'data-testid': 'battle-breaking-bread-character-read',
+                  onClick: () => setExpandedBoardCharacterId(null),
+                },
+                React.createElement(
+                  'div',
+                  {
+                    className: 'board-card-modal-panel board-character-card-modal-panel',
+                    onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
+                  },
+                  React.createElement(
+                    'div',
+                    { className: getCharacterReadModalLayoutClass(selectedBattleBreakingBreadTarget.attachments) },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'battle',
+                      revealed: selectedBattleBreakingBreadTarget.revealed,
+                      controllerColorClass: selectedBattleBreakingBreadTarget.controller === 'P1' ? 'player-color-blue' : 'player-color-red',
+                      displayName: selectedBattleBreakingBreadTarget.displayName,
+                      ATK: selectedBattleBreakingBreadTarget.ATK,
+                      DEF: selectedBattleBreakingBreadTarget.DEF,
+                      ability: selectedBattleBreakingBreadTarget.ability ?? null,
+                      statRule: selectedBattleBreakingBreadTarget.statRule ?? null,
+                      artSrc: selectedBattleBreakingBreadTarget.artImageUrl ?? null,
+                      fullCardFaceSrc: selectedBattleBreakingBreadTarget.fullCardFaceImageUrl ?? null,
+                      visualMode: selectedBattleBreakingBreadTarget.visualMode,
+                      isKing: selectedBattleBreakingBreadTarget.isKing,
+                      isFrozen: selectedBattleBreakingBreadTarget.isFrozen,
+                      statusTag: irohStatusByCharacterId[selectedBattleBreakingBreadTarget.id] ?? null,
+                      testId: 'battle-breaking-bread-read-card',
+                    }),
+                    renderCharacterAttachmentRail({
+                      instanceId: selectedBattleBreakingBreadTarget.id,
+                      attachments: selectedBattleBreakingBreadTarget.attachments,
+                    }, 'battle-breaking-bread-read'),
+                  ),
+                  React.createElement(
+                    'div',
+                    { className: 'power-popover-controls board-modal-actions', 'data-testid': 'battle-breaking-bread-actions' },
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: confirmBattleBreakingBreadSelection,
+                        'data-testid': 'battle-breaking-bread-confirm',
+                      },
+                      'Confirm Selection',
+                    ),
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: () => setExpandedBoardCharacterId(null),
+                        'data-testid': 'battle-breaking-bread-close',
                       },
                       'Close',
                     ),
@@ -9945,7 +11883,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ),
               )
             : null,
-          !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
+          !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleBreakingBreadPlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
             ? React.createElement(
                 'section',
                 {
@@ -10021,6 +11959,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             : null,
           jeremySpecialModal,
           renderInfinityAnimationOverlay(),
+          renderFindItMiniGameOverlay(),
+          renderBreakingBreadCinematicOverlay(),
           renderRealityStoneTargetOverlay(),
         ),
       ));
@@ -10084,7 +12024,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         onPlayCard: handlePlayBattleCard,
         onResolveBattle: handleResolveBattle,
       }),
-      !showBattleFullBoard && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
+      !showBattleFullBoard && !pendingBattlePhoneFriendPlay && !pendingBattleWeaponEquipPlay && !pendingBattleSoulStonePlay && !pendingBattleBreakingBreadPlay && !pendingBattleSwapPlay && expandedBattleReadCharacter
         ? React.createElement(
             'section',
             {
@@ -10265,6 +12205,69 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                     type: 'button',
                     onClick: closeFreezeSpecialPicker,
                     'data-testid': 'freeze-special-cancel',
+                  },
+                  'Cancel',
+                ),
+              ),
+            ),
+          )
+        : null,
+      indyWhipSpecialSourceId && indyWhipSourceCharacter && indyWhipOptions
+        ? React.createElement(
+            'section',
+            { className: 'board-card-modal', 'data-testid': 'indy-whip-special-modal' },
+            React.createElement(
+              'div',
+              { className: 'board-card-modal-panel board-power-card-modal-panel' },
+              React.createElement('h3', null, `Indy\'s Whip Special: ${indyWhipSourceCharacter.displayName ?? 'Indiana Jones'}`),
+              React.createElement(
+                'p',
+                { className: 'status-label' },
+                indyWhipTargetCharacter
+                  ? `Nearest target in front: ${indyWhipTargetCharacter.displayName ?? indyWhipTargetCharacter.id}`
+                  : 'No legal target in front.',
+              ),
+              React.createElement(
+                'p',
+                { className: 'status-label', 'data-testid': 'indy-whip-selected-destination' },
+                indyWhipSpecialDestination
+                  ? `Selected destination: ${indyWhipSpecialDestination}`
+                  : 'Choose destination in front of Indiana Jones.',
+              ),
+              React.createElement(
+                'div',
+                { className: 'power-popover-controls' },
+                ...(indyWhipOptions.destinationOptions as RingPosition[]).map(destination => React.createElement(
+                  'button',
+                  {
+                    key: `indy-whip-destination-${destination}`,
+                    type: 'button',
+                    onClick: () => setIndyWhipSpecialDestination(destination),
+                    'aria-pressed': indyWhipSpecialDestination === destination,
+                    'data-testid': `indy-whip-destination-${destination}`,
+                  },
+                  destination,
+                )),
+              ),
+              React.createElement(
+                'div',
+                { className: 'power-popover-controls' },
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: executeManualIndyWhipSpecial,
+                    disabled: !indyWhipSpecialDestination,
+                    'data-testid': 'indy-whip-special-confirm',
+                  },
+                  indyWhipSpecialDestination ? 'Confirm Pull' : 'Pick Destination First',
+                ),
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: closeIndyWhipSpecialPicker,
+                    'data-testid': 'indy-whip-special-cancel',
                   },
                   'Cancel',
                 ),
@@ -10643,6 +12646,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         : null,
       jeremySpecialModal,
       renderInfinityAnimationOverlay(),
+      renderFindItMiniGameOverlay(),
+      renderBreakingBreadCinematicOverlay(),
       renderRealityStoneTargetOverlay(),
     ));
   }
@@ -10781,7 +12786,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           onAttachmentClick: handleAttachmentCardClick,
           actionTargets: boardActionTargets,
           onActionTargetClick: handleExecuteAction,
-          allowCardClickOnActionTargets: !!freezeSpecialSourceId || !!pendingRealityStonePlay || pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character',
+          allowCardClickOnActionTargets: !!freezeSpecialSourceId || !!pendingRealityStonePlay || pendingBoardPowerPlay?.step === 'swap-pick-own' || pendingBoardPowerPlay?.step === 'swap-pick-opponent' || pendingBoardPowerPlay?.step === 'back-pick-character' || pendingBoardPowerPlay?.step === 'breaking-bread-pick-character',
           allowWeaponTargetClicks: !!pendingBoardWeaponEquipPlay,
           portalRetargetEnabled: pendingBoardPowerPlay?.step === 'portal-pick-destination',
           portalSourceCharacterId: pendingBoardPowerPlay?.step === 'portal-pick-destination'
@@ -10793,6 +12798,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           swapCharacterMotion: pendingSwapCharactersMotion,
           specialCardMotion: pendingBoardSpecialMotion,
           rapunzelHairTrail: pendingRapunzelHairTrail,
+          indyWhipTrail: pendingIndyWhipTrail,
           postBattleMotion: postBattleBoardAnimation,
           kingDrawFx: kingDrawAnimationFor && kingDrawBoardPosition
             ? { controller: kingDrawAnimationFor, position: kingDrawBoardPosition }
@@ -10803,6 +12809,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
           freezingCharacterIds,
           gauntletEnergizedCharacterIds,
           boardImploding: finalKingDuelTransitionPhase === 'implode',
+          activeForgePosition: state.activeForgeLocation?.position ?? null,
           characterStatusById: irohStatusByCharacterId,
         }),
         isGameOver && endgameMessageVisible
@@ -11395,6 +13402,8 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 ? 'WEAPON: equip this card to one of your living board characters.'
                 : expandedBoardPowerCard.definitionId === 'power-alpha-022'
                 ? 'PORTAL: select one of your alive characters, then select any open destination spot.'
+                : expandedBoardPowerCard.definitionId === 'power-alpha-040'
+                  ? 'THE FORGE: place on any open spot. First character to land there searches the power deck for a Weapon and equips it. Then remove The Forge.'
                 : expandedBoardPowerCard.definitionId === 'power-alpha-027'
                   ? 'SPACE STONE: select one of your alive characters, then select any open destination spot. It grants +2 ATK / +2 DEF attachment.'
                 : expandedBoardPowerCard.definitionId === 'power-alpha-021'
@@ -11416,35 +13425,29 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             React.createElement(
               'div',
               { className: 'power-popover-controls' },
-              (
-                isWeaponDefinitionId(expandedBoardPowerCard.definitionId)
-                || (
-                expandedBoardPowerCard.definitionId === 'power-alpha-022'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-027'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-021'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-018'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-025'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-024'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-028'
-                || expandedBoardPowerCard.definitionId === 'power-alpha-019'
-                )
-              )
-                && state
-                && state.gameStatus === 'active'
-                && !state.pendingBattle
-                && (
-                  expandedBoardPowerCardTiming === 'anytime'
-                  || (multiplayerMode && multiplayerPlayer === state.activePlayer)
-                  || (!multiplayerMode && boardHandVisibleFor === state.activePlayer)
-                )
-                && (isHumanBoardTurn || expandedBoardPowerCardTiming === 'anytime')
-                && !pendingBoardPowerPlay
-                && !pendingCurtainsPlay
+              expandedBoardPowerCardSupportsBoardPlay
                 ? React.createElement(
-                    'button',
-                    {
-                      type: 'button',
-                      onClick: () => {
+                    React.Fragment,
+                    null,
+                    expandedBoardPowerCardDisabledReason
+                      ? React.createElement(
+                          'p',
+                          {
+                            className: 'status-label',
+                            'data-testid': 'board-power-card-disabled-reason',
+                          },
+                          expandedBoardPowerCardDisabledReason,
+                        )
+                      : null,
+                    React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        disabled: !expandedBoardPowerCardCanPlay,
+                        onClick: () => {
+                          if (!expandedBoardPowerCardCanPlay) {
+                            return;
+                          }
                         if (isWeaponDefinitionId(expandedBoardPowerCard.definitionId)) {
                           setPendingBoardWeaponEquipPlay({
                             cardInstanceId: expandedBoardPowerCard.instanceId,
@@ -11504,17 +13507,22 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                             step: expandedBoardPowerCard.definitionId === 'power-alpha-022'
                               || expandedBoardPowerCard.definitionId === 'power-alpha-027'
                               ? 'portal-pick-character'
+                              : expandedBoardPowerCard.definitionId === 'power-alpha-040'
+                                ? 'forge-pick-location'
                               : expandedBoardPowerCard.definitionId === 'power-alpha-021'
                                 ? 'back-pick-character'
+                                : expandedBoardPowerCard.definitionId === 'power-alpha-030'
+                                  ? 'breaking-bread-pick-character'
                                 : 'swap-pick-own',
                             pendingCharacterId: undefined,
                           });
                         }
                         setExpandedBoardPowerCardId(null);
                       },
-                      'data-testid': 'board-power-card-play-button',
-                    },
-                    'Play This Card',
+                        'data-testid': 'board-power-card-play-button',
+                      },
+                      expandedBoardPowerCardCanPlay ? 'Play This Card' : 'Play This Card (disabled)',
+                    ),
                   )
                 : null,
               React.createElement(
@@ -11545,15 +13553,33 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
               onClick: (event: React.MouseEvent<HTMLDivElement>) => event.stopPropagation(),
             },
             React.createElement(
-              'button',
-              {
-                type: 'button',
-                className: 'board-modal-close',
-                onClick: () => setExpandedBoardCharacterId(null),
-                'aria-label': 'Close character card viewer',
-                'data-testid': 'board-character-read-close-top',
-              },
-              'Close',
+              'div',
+              { className: 'board-modal-header-actions' },
+              pendingBoardPowerPlay
+                && pendingBoardPowerPlay.definitionId === 'power-alpha-030'
+                && pendingBoardPowerPlay.pendingCharacterId === expandedBoardCharacterId
+                ? React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'board-modal-close',
+                      onClick: confirmBoardBreakingBreadSelection,
+                      'data-testid': 'board-breaking-bread-confirm-top',
+                    },
+                    'Confirm Selection',
+                  )
+                : null,
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  className: 'board-modal-close',
+                  onClick: () => setExpandedBoardCharacterId(null),
+                  'aria-label': 'Close character card viewer',
+                  'data-testid': 'board-character-read-close-top',
+                },
+                'Close',
+              ),
             ),
             React.createElement(
               'div',
@@ -11592,6 +13618,17 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   'Use Freeze Gun Special',
                 )
               : null,
+            canUseIndyWhipSpecial(expandedBoardCharacter.instanceId)
+              ? React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => openIndyWhipSpecialPicker(expandedBoardCharacter.instanceId),
+                    'data-testid': 'indy-whip-special-from-character-modal',
+                  },
+                  'Use Indy\'s Whip Special',
+                )
+              : null,
             renderAnytimeCharacterSpecialControl(expandedBoardCharacter.instanceId, 'board-character'),
             React.createElement(
               'div',
@@ -11620,6 +13657,19 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                         : 'board-swap-opponent-confirm',
                     },
                     pendingBoardPowerPlay.step === 'swap-pick-own' ? 'Confirm First Selection' : 'Confirm Swap',
+                  )
+                : null,
+              pendingBoardPowerPlay
+                && pendingBoardPowerPlay.definitionId === 'power-alpha-030'
+                && pendingBoardPowerPlay.pendingCharacterId === expandedBoardCharacterId
+                ? React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: confirmBoardBreakingBreadSelection,
+                      'data-testid': 'board-breaking-bread-confirm',
+                    },
+                    'Confirm Selection',
                   )
                 : null,
               freezeSpecialSourceId && freezeSpecialTargetId === expandedBoardCharacter.instanceId
@@ -11682,6 +13732,69 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   type: 'button',
                   onClick: closeFreezeSpecialPicker,
                   'data-testid': 'freeze-special-cancel',
+                },
+                'Cancel',
+              ),
+            ),
+          ),
+        )
+      : null,
+    indyWhipSpecialSourceId && indyWhipSourceCharacter && indyWhipOptions
+      ? React.createElement(
+          'section',
+          { className: 'board-card-modal', 'data-testid': 'indy-whip-special-modal' },
+          React.createElement(
+            'div',
+            { className: 'board-card-modal-panel board-power-card-modal-panel' },
+            React.createElement('h3', null, `Indy\'s Whip Special: ${indyWhipSourceCharacter.displayName ?? 'Indiana Jones'}`),
+            React.createElement(
+              'p',
+              { className: 'status-label' },
+              indyWhipTargetCharacter
+                ? `Nearest target in front: ${indyWhipTargetCharacter.displayName ?? indyWhipTargetCharacter.id}`
+                : 'No legal target in front.',
+            ),
+            React.createElement(
+              'p',
+              { className: 'status-label', 'data-testid': 'indy-whip-selected-destination' },
+              indyWhipSpecialDestination
+                ? `Selected destination: ${indyWhipSpecialDestination}`
+                : 'Choose destination in front of Indiana Jones.',
+            ),
+            React.createElement(
+              'div',
+              { className: 'power-popover-controls' },
+              ...(indyWhipOptions.destinationOptions as RingPosition[]).map(destination => React.createElement(
+                'button',
+                {
+                  key: `indy-whip-destination-${destination}`,
+                  type: 'button',
+                  onClick: () => setIndyWhipSpecialDestination(destination),
+                  'aria-pressed': indyWhipSpecialDestination === destination,
+                  'data-testid': `indy-whip-destination-${destination}`,
+                },
+                destination,
+              )),
+            ),
+            React.createElement(
+              'div',
+              { className: 'power-popover-controls' },
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: executeManualIndyWhipSpecial,
+                  disabled: !indyWhipSpecialDestination,
+                  'data-testid': 'indy-whip-special-confirm',
+                },
+                indyWhipSpecialDestination ? 'Confirm Pull' : 'Pick Destination First',
+              ),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: closeIndyWhipSpecialPicker,
+                  'data-testid': 'indy-whip-special-cancel',
                 },
                 'Cancel',
               ),
@@ -12005,6 +14118,10 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   ? 'BACK IT UP Targeting'
                   : pendingBoardPowerPlay.definitionId === 'power-alpha-025'
                     ? 'REALITY STONE Targeting'
+                    : pendingBoardPowerPlay.definitionId === 'power-alpha-040'
+                      ? 'THE FORGE Placement'
+                  : pendingBoardPowerPlay.definitionId === 'power-alpha-030'
+                    ? 'BREAKING BREAD Targeting'
                   : 'SWAP CHARACTERS Targeting',
             ),
             React.createElement(
@@ -12017,12 +14134,18 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   : pendingBoardPowerPlay.step === 'back-pick-character'
                     ? pendingBoardPowerPlay.definitionId === 'power-alpha-025'
                       ? 'Select any alive character on the board to transform.'
+                      : pendingBoardPowerPlay.definitionId === 'power-alpha-040'
+                        ? 'Select any glowing open spot to place The Forge.'
                       : 'Select any alive character on the board.'
                     : pendingBoardPowerPlay.step === 'back-pick-destination'
                       ? 'Select one glowing backward destination space.'
                       : pendingBoardPowerPlay.step === 'swap-pick-own'
                         ? 'Select one of your glowing living cards, then confirm in card view.'
-                        : 'Select one glowing opponent living card, then confirm swap in card view.',
+                          : pendingBoardPowerPlay.step === 'breaking-bread-pick-character'
+                            ? 'Select any of your alive characters (including unrevealed and kings), then confirm in card view.'
+                            : pendingBoardPowerPlay.step === 'forge-pick-location'
+                              ? 'Select one glowing open spot for The Forge.'
+                              : 'Select one glowing opponent living card, then confirm swap in card view.',
             ),
             React.createElement(
               'p',
@@ -12040,6 +14163,85 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                   'data-testid': 'board-power-targeting-cancel',
                 },
                 'Cancel',
+              ),
+            ),
+          ),
+        )
+      : null,
+    state.activeForgeLocation
+      ? React.createElement(
+          'div',
+          {
+            className: 'forge-board-indicator',
+            'data-testid': `forge-location-${state.activeForgeLocation.position}`,
+          },
+          `THE FORGE active at ${state.activeForgeLocation.position}`,
+        )
+      : null,
+    pendingForgeEquip && state
+      ? React.createElement(
+          'section',
+          { className: 'board-card-modal', 'data-testid': 'forge-welcome-modal' },
+          React.createElement(
+            'div',
+            {
+              className: 'board-card-modal-panel board-power-card-modal-panel forge-equip-modal-panel',
+              style: {
+                '--forge-lower-art': `url("${powerCatalogById.get('power-alpha-040')?.fullCardFaceImageUrl ?? powerCatalogById.get('power-alpha-040')?.artImageUrl ?? ''}")`,
+              } as React.CSSProperties,
+            },
+            React.createElement('h3', null, 'THE FORGE'),
+            React.createElement('p', { className: 'status-label' }, 'Your character landed on The Forge. Choose any Weapon from the Power Deck to equip now.'),
+            React.createElement(
+              'section',
+              { className: 'power-card-row forge-weapon-grid', 'data-testid': 'forge-weapon-grid' },
+              state.powerCardDeck
+                .filter(card => isWeaponDefinitionId(card.definitionId))
+                .map(weapon => {
+                  const definition = getPowerCardDefinition(weapon.definitionId);
+                  const visual = powerCatalogById.get(weapon.definitionId);
+                  const selected = pendingForgeEquip.selectedWeaponInstanceId === weapon.instanceId;
+                  return React.createElement(
+                    'button',
+                    {
+                      key: weapon.instanceId,
+                      type: 'button',
+                      className: `power-card-button${selected ? ' option-card-selected' : ''}`,
+                      onClick: () => setPendingForgeEquip(prev => (prev
+                        ? { ...prev, selectedWeaponInstanceId: weapon.instanceId }
+                        : prev)),
+                      'aria-pressed': selected,
+                      'data-testid': `forge-weapon-option-${weapon.instanceId}`,
+                    },
+                    React.createElement(PowerCardFrame, {
+                      size: 'battle',
+                      displayName: definition.displayName,
+                      rulesText: definition.rulesText,
+                      artSrc: visual?.artImageUrl ?? null,
+                      fullCardFaceSrc: visual?.fullCardFaceImageUrl ?? null,
+                      visualMode: visual?.visualMode ?? 'layered-art',
+                      state: selected ? 'selected' : 'playable',
+                      selected,
+                      testId: `forge-weapon-card-${weapon.instanceId}`,
+                    }),
+                  );
+                }),
+            ),
+            state.powerCardDeck.some(card => isWeaponDefinitionId(card.definitionId))
+              ? null
+              : React.createElement('p', { className: 'status-label' }, 'No weapon cards are currently available in the Power Deck.'),
+            React.createElement(
+              'div',
+              { className: 'power-popover-controls' },
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  onClick: confirmForgeWeaponEquip,
+                  disabled: !pendingForgeEquip.selectedWeaponInstanceId,
+                  'data-testid': 'forge-confirm-weapon',
+                },
+                pendingForgeEquip.selectedWeaponInstanceId ? 'Equip Selected Weapon' : 'Select a Weapon',
               ),
             ),
           ),
@@ -12080,7 +14282,13 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
                 'button',
                 {
                   type: 'button',
-                  onClick: () => setPendingAangEscape(null),
+                  onClick: () => {
+                    if (pendingAangEscape.step === 'prompt') {
+                      handleAangEscapePass();
+                      return;
+                    }
+                    setPendingAangEscape(prev => (prev ? { ...prev, step: 'prompt' } : prev));
+                  },
                   'data-testid': 'aang-escape-pass',
                 },
                 pendingAangEscape.step === 'prompt' ? 'Pass' : 'Cancel',
@@ -12088,6 +14296,114 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
             ),
           ),
         )
+      : null,
+    pendingFollowerTieBreak && (!isBotMode || pendingFollowerTieBreak.controller === 'P1')
+      ? (() => {
+          const currentChoice = pendingFollowerTieBreak.choices[pendingFollowerTieBreak.index];
+          if (!currentChoice) {
+            return null;
+          }
+
+          const hostController = state?.characters.find(character => character.id === currentChoice.hostCharacterId)?.controller ?? pendingFollowerTieBreak.controller;
+          const colorClass = hostController === 'P2' ? 'player-color-red' : 'player-color-blue';
+          const selectedCards = pendingFollowerTieBreak.selectedOrder
+            .map(id => currentChoice.attachments.find(attachment => attachment.instanceId === id) ?? null)
+            .filter((attachment): attachment is NonNullable<typeof attachment> => !!attachment);
+
+          return React.createElement(
+            'section',
+            { className: 'board-card-modal', 'data-testid': 'follower-tie-break-modal' },
+            React.createElement(
+              'div',
+              { className: 'board-card-modal-panel board-power-card-modal-panel' },
+              React.createElement('h3', null, 'Follower Attachment Tie Order'),
+              React.createElement(
+                'p',
+                { className: 'status-label' },
+                `${currentChoice.hostDisplayName}: choose the order for full ATK/DEF ties, then confirm.`,
+              ),
+              React.createElement(
+                'div',
+                { className: 'power-card-row', style: { justifyContent: 'center', flexWrap: 'wrap' }, 'data-testid': 'follower-tie-break-selected-row' },
+                selectedCards.map(attachment => React.createElement(
+                  'div',
+                  { key: `selected-${attachment.instanceId}`, className: 'power-card-button option-card-selected' },
+                  React.createElement(CharacterCardFrame, {
+                    size: 'hand',
+                    revealed: true,
+                    controllerColorClass: colorClass,
+                    displayName: attachment.displayName,
+                    ATK: attachment.ATK,
+                    DEF: attachment.DEF,
+                    ability: '',
+                    artSrc: attachment.artImageUrl ?? null,
+                    fullCardFaceSrc: attachment.fullCardFaceImageUrl ?? null,
+                    visualMode: attachment.visualMode,
+                    isKing: false,
+                    isFrozen: false,
+                    testId: `follower-tie-break-selected-${attachment.instanceId}`,
+                  }),
+                )),
+              ),
+              React.createElement(
+                'div',
+                { className: 'power-card-row', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+                currentChoice.attachments.map(attachment => {
+                  const picked = pendingFollowerTieBreak.selectedOrder.includes(attachment.instanceId);
+                  return React.createElement(
+                    'button',
+                    {
+                      key: `choice-${attachment.instanceId}`,
+                      type: 'button',
+                      className: `power-card-button ${picked ? 'option-card-selected' : ''}`,
+                      onClick: () => handleFollowerTieBreakPick(attachment.instanceId),
+                      disabled: picked,
+                      'data-testid': `follower-tie-break-choice-${attachment.instanceId}`,
+                    },
+                    React.createElement(CharacterCardFrame, {
+                      size: 'hand',
+                      revealed: true,
+                      controllerColorClass: colorClass,
+                      displayName: attachment.displayName,
+                      ATK: attachment.ATK,
+                      DEF: attachment.DEF,
+                      ability: '',
+                      artSrc: attachment.artImageUrl ?? null,
+                      fullCardFaceSrc: attachment.fullCardFaceImageUrl ?? null,
+                      visualMode: attachment.visualMode,
+                      isKing: false,
+                      isFrozen: false,
+                      testId: `follower-tie-break-card-${attachment.instanceId}`,
+                    }),
+                  );
+                }),
+              ),
+              React.createElement(
+                'div',
+                { className: 'power-popover-controls' },
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: handleFollowerTieBreakConfirm,
+                    disabled: pendingFollowerTieBreak.selectedOrder.length !== currentChoice.attachments.length,
+                    'data-testid': 'follower-tie-break-confirm',
+                  },
+                  'Confirm Order',
+                ),
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: handleFollowerTieBreakReset,
+                    'data-testid': 'follower-tie-break-reset',
+                  },
+                  'Reset Picks',
+                ),
+              ),
+            ),
+          );
+        })()
       : null,
     pendingSkarReclaim && (!isBotMode || pendingSkarReclaim.controller === 'P1')
       ? React.createElement(
@@ -12232,6 +14548,7 @@ export function App({ createGameState }: AppProps = {}): React.ReactElement {
         )
       : null,
     renderInfinityAnimationOverlay(),
+    renderBreakingBreadCinematicOverlay(),
     renderRealityStoneTargetOverlay(),
   ));
 }

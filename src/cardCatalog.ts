@@ -73,6 +73,13 @@ const CHARACTER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'alpha-037': publicCardsPath('characters', 'bird.JPG'),
   'alpha-038': publicCardsPath('characters', 'avatar aang.JPG'),
   'alpha-039': publicCardsPath('characters', 'thanos.JPG'),
+  'alpha-040': publicCardsPath('characters', 'heisenberg.JPG'),
+  'alpha-041': publicCardsPath('characters', 'hank schrader.JPG'),
+  'alpha-042': publicCardsPath('characters', 'french toast.JPG'),
+  'alpha-043': publicCardsPath('characters', 'chicken sandwich.JPG'),
+  'alpha-044': publicCardsPath('characters', 'grilled cheese 2.JPG'),
+  'alpha-045': publicCardsPath('characters', 'indiana jones.JPG'),
+  'alpha-046': publicCardsPath('characters', 'mirror.JPG'),
 };
 
 const POWER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
@@ -104,6 +111,12 @@ const POWER_FULL_FACE_BY_DEFINITION_ID: Record<string, string> = {
   'power-alpha-026': publicCardsPath('power cards', 'soul stone power card 1.JPG'),
   'power-alpha-027': publicCardsPath('power cards', 'space stone power card.JPG'),
   'power-alpha-028': publicCardsPath('power cards', 'time stone power card.JPG'),
+  'power-alpha-029': publicCardsPath('power cards', 'vehicles', 'heisenberg\'s rv vehicle power card.JPG'),
+  'power-alpha-030': publicCardsPath('power cards', 'breaking bread power card.JPG'),
+  'power-alpha-031': publicCardsPath('power cards', 'weapons', 'Indy\'s whip weapon power card.JPG'),
+  'power-alpha-040': publicCardsPath('power cards', 'locations', 'the forge location power card.JPG'),
+  'power-alpha-041': publicCardsPath('power cards', 'weapons', 'boomerang weapon power card.JPG'),
+  'power-alpha-042': publicCardsPath('power cards', 'find it power card.JPG'),
 };
 
 function isLegacySoulStoneArtPath(path: string): boolean {

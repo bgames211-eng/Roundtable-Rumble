@@ -615,7 +615,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('action-attack'));
 
     await user.click(screen.getByTestId('battle-open-full-board-header'));
-    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(await screen.findByTestId('battle-full-board-view')).toBeInTheDocument();
     await user.click(screen.getByTestId('battle-return-to-battle'));
 
     await user.click(await screen.findByTestId('battle-reveal-P1'));
@@ -650,6 +650,52 @@ describe('Phase 5 UI', () => {
     expect(readModal).toBeInTheDocument();
     expect(within(readModal).getByTestId('battle-fullboard-read-card')).toHaveClass('character-hidden');
     expect(readModal).not.toHaveTextContent('SECRET-HIDDEN');
+  });
+
+  it('battle full-board opens a hidden character with follower attachments without crashing', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 9, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 3, 3, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p2-defender'
+            ? {
+                ...character,
+                attachments: [
+                  {
+                    instanceId: 'follower-heisenberg-1',
+                    definitionId: 'char-alpha-heisenberg',
+                    displayName: 'HEISENBERG',
+                    category: 'follower',
+                    ATK: 4,
+                    DEF: 4,
+                  },
+                ],
+              }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(screen.getByTestId('battle-open-full-board-header'));
+    await user.click(screen.getByTestId('space-P1_4'));
+
+    const readModal = await screen.findByTestId('battle-fullboard-character-read');
+    expect(within(readModal).getByTestId('battle-fullboard-read-attachment-rail')).toBeInTheDocument();
+    expect(within(readModal).getByTestId('battle-fullboard-read-card')).toBeInTheDocument();
   });
 
   it('battle full-board shows Uncle Iroh anytime special button when Iroh is revealed', async () => {
@@ -772,7 +818,7 @@ describe('Phase 5 UI', () => {
     });
   });
 
-  it('manual battle NO SPRAY prompt can be used without crashing', async () => {
+  it('manual battle NO SPRAY prompt sends the canceled card to the used pile immediately', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
       const base = initializeGameState([
@@ -823,6 +869,14 @@ describe('Phase 5 UI', () => {
     expect(screen.getByTestId('battle-nospray-card-back-button')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('battle-nospray-use-button'));
+
+    await waitFor(() => {
+      const usedPile = screen.getByTestId('center-used-power-pile');
+      const firstUsed = usedPile.querySelector('[data-testid="center-used-power-card-0"] img') as HTMLImageElement | null;
+      const secondUsed = usedPile.querySelector('[data-testid="center-used-power-card-1"] img') as HTMLImageElement | null;
+      expect(firstUsed?.getAttribute('src') ?? '').toContain('swap%20characters');
+      expect(secondUsed?.getAttribute('src') ?? '').toContain('no%20spray');
+    });
 
     await waitFor(() => {
       expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
@@ -1215,6 +1269,52 @@ describe('Phase 5 UI', () => {
     expect(within(modal).getByTestId('character-status-tag')).toHaveTextContent('-1');
   });
 
+  it('attachment opened from main board character view renders as a large card', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-skar', 'P1', 7.5, 6, false, 'P1_1', 'SKAR PRODUCTIONS'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characters: base.characters.map(character => (
+          character.id === 'p1-skar'
+            ? {
+                ...character,
+                revealed: true,
+                attachments: [
+                  {
+                    instanceId: 'follower-french-toast-1',
+                    definitionId: 'char-alpha-frenchtoast',
+                    displayName: 'FRENCH TOAST',
+                    category: 'follower',
+                    ATK: 5,
+                    DEF: 3,
+                  },
+                ],
+              }
+            : character
+        )),
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_1'));
+    await user.click(screen.getByTestId('board-read-selected-card'));
+
+    await user.click(screen.getByTestId('board-character-read-attachment-follower-french-toast-1'));
+
+    const attachmentModal = await screen.findByTestId('attachment-card-read-modal');
+    const frame = within(attachmentModal).getByTestId('attachment-card-read-frame');
+    expect(frame).toHaveClass('character-card-battle');
+    expect(frame).not.toHaveClass('character-card-compact');
+  });
+
   it('Aang escape targeting overlay keeps board clickable and limits legal spots after battle death', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
@@ -1290,6 +1390,49 @@ describe('Phase 5 UI', () => {
     expect(screen.getByTestId('action-target-P1_5')).toBeInTheDocument();
     expect(screen.queryByTestId('action-target-P1_4')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-target-P1_2')).not.toBeInTheDocument();
+  });
+
+  it('King Aang battle loss defers game end until escape decision when legal spots exist', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 10, 10, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-aang-king', 'P2', 2, 2, true, 'P1_4', 'AVATAR AANG'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-reveal-P2'));
+    await user.click(screen.getByTestId('battle-ready-button'));
+    await user.click(screen.getByTestId('battle-resolve-button'));
+
+    expect(await screen.findByTestId('aang-escape-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('game-status')).toHaveTextContent('Status: active');
+
+    await user.click(screen.getByTestId('aang-escape-use'));
+    expect(screen.getByTestId('action-target-P1_3')).toBeInTheDocument();
+    expect(screen.getByTestId('action-target-P1_5')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('aang-escape-pass'));
+    expect(screen.getByTestId('aang-escape-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('aang-escape-pass'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('aang-escape-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('game-status')).toHaveTextContent('Status: P1 wins');
+    });
   });
 
   it('Nightcrawler king teleport across territory triggers king draw event and FX banner', async () => {
@@ -1466,6 +1609,323 @@ describe('Phase 5 UI', () => {
     expect(screen.queryByTestId('selected-P2_4')).not.toBeInTheDocument();
   });
 
+  it('board BREAKING BREAD targets own alive card and confirms from character modal header', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-own', 'P1', 6, 6, false, 'P1_2', 'P1-OWN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-opp', 'P2', 6, 6, false, 'P2_4', 'P2-OPP'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characterDeck: [
+          {
+            instanceId: 'deck-bread-1',
+            definitionId: 'char-alpha-frenchtoast',
+            displayName: 'FRENCHTOAST',
+            ATK: 3,
+            DEF: 3,
+            ability: null,
+            statRule: null,
+            imageKey: 'frenchtoast',
+          },
+          {
+            instanceId: 'deck-bread-2',
+            definitionId: 'char-alpha-heisenberg',
+            displayName: 'HEISENBERG',
+            ATK: 4,
+            DEF: 4,
+            ability: null,
+            statRule: null,
+            imageKey: 'heisenberg',
+          },
+        ],
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-breaking-bread', definitionId: 'power-alpha-030' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+
+    await user.click(screen.getByTestId('manual-power-button-power-y-breaking-bread'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+
+    await user.click(screen.getByTestId('space-P1_2'));
+    expect(await screen.findByTestId('board-character-read-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('board-breaking-bread-confirm-top')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('board-breaking-bread-confirm-top'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('event-log')).toHaveTextContent('Breaking Bread Assembly');
+      expect(screen.queryByTestId('board-character-read-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  it('battle BREAKING BREAD opens full board targeting and only then triggers NO SPRAY window', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 7, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 6, 6, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-backline', 'P1', 4, 8, false, 'P1_2', 'P1-BACKLINE'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        characterDeck: [
+          {
+            instanceId: 'deck-bread-1',
+            definitionId: 'char-alpha-frenchtoast',
+            displayName: 'FRENCHTOAST',
+            ATK: 3,
+            DEF: 3,
+            ability: null,
+            statRule: null,
+            imageKey: 'frenchtoast',
+          },
+          {
+            instanceId: 'deck-bread-2',
+            definitionId: 'char-alpha-hank',
+            displayName: 'HANKSCHRADER',
+            ATK: 4,
+            DEF: 5,
+            ability: null,
+            statRule: null,
+            imageKey: 'hank',
+          },
+        ],
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-breaking-bread', definitionId: 'power-alpha-030' }],
+          P2: [{ instanceId: 'power-a-nospray', definitionId: 'power-alpha-020' }],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+
+    await user.click(screen.getByTestId('battle-card-tap-power-y-breaking-bread'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    expect(screen.getByTestId('battle-full-board-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('space-P1_2'));
+    expect(await screen.findByTestId('battle-breaking-bread-character-read')).toBeInTheDocument();
+    await user.click(screen.getByTestId('battle-breaking-bread-confirm'));
+
+    const reactionModal = await screen.findByTestId('battle-nospray-reaction-modal');
+    expect(reactionModal).toBeInTheDocument();
+    await user.click(screen.getByTestId('battle-nospray-use-button'));
+    expect(screen.getByTestId('battle-nospray-use-button')).toHaveTextContent('Play This Card');
+    await user.click(screen.getByTestId('battle-nospray-use-button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-nospray-reaction-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    });
+  });
+
+  it('battle REALITY STONE play opens full board targeting without crashing', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 7, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 6, 6, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-reality', definitionId: 'power-alpha-025' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-card-tap-power-y-reality'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('match-screen')).toBeInTheDocument();
+      expect(screen.getByTestId('battle-screen')).toBeInTheDocument();
+    });
+  });
+
+  it('board THE FORGE places on open space and equips landing character', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-mover', 'P1', 6, 6, false, 'P1_3', 'P1-MOVER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-guard', 'P2', 5, 5, false, 'P2_1', 'P2-GUARD'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-forge', definitionId: 'power-alpha-040' }],
+          P2: [],
+        },
+        powerCardDeck: [{ instanceId: 'power-y-pocket', definitionId: 'power-alpha-011' }],
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+
+    await user.click(screen.getByTestId('manual-power-button-power-y-forge'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+    await user.click(screen.getByTestId('action-target-P1_4'));
+
+    expect(screen.getByTestId('forge-location-P1_4')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-move'));
+
+    expect(await screen.findByTestId('forge-welcome-modal')).toBeInTheDocument();
+    await user.click(screen.getByTestId('forge-weapon-option-power-y-pocket'));
+    await user.click(screen.getByTestId('forge-confirm-weapon'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('forge-welcome-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('forge-location-P1_4')).not.toBeInTheDocument();
+      expect(screen.getByTestId('event-log')).toHaveTextContent('Forge Weapon Equipped');
+    });
+  });
+
+  it('battle weapon equip resolves after confirm and removes the weapon from hand', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-attacker', 'P1', 7, 6, false, 'P1_3', 'P1-ATTACKER'),
+        createChar('p2-defender', 'P2', 6, 6, false, 'P1_4', 'P2-DEFENDER'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_1', 'P1-KING'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-batarang', definitionId: 'power-alpha-013' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('space-P1_3'));
+    await user.click(screen.getByTestId('action-attack'));
+
+    await user.click(await screen.findByTestId('battle-reveal-P1'));
+    await user.click(screen.getByTestId('battle-card-tap-power-y-batarang'));
+    await user.click(screen.getByTestId('battle-inspector-play-button'));
+
+    await user.click(screen.getByTestId('space-P1_3'));
+    expect(await screen.findByTestId('battle-weapon-character-read')).toBeInTheDocument();
+    await user.click(screen.getByTestId('battle-weapon-confirm'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('battle-weapon-character-read')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('battle-card-tap-power-y-batarang')).not.toBeInTheDocument();
+    });
+  });
+
+  it('board REALITY STONE play opens targeting modal without crashing', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-own', 'P1', 6, 6, false, 'P1_2', 'P1-OWN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-opp', 'P2', 6, 6, false, 'P2_4', 'P2-OPP'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-reality-board', definitionId: 'power-alpha-025' }],
+          P2: [],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+    await user.click(screen.getByTestId('manual-power-button-power-y-reality-board'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+
+    expect(await screen.findByTestId('reality-stone-targeting-modal')).toBeInTheDocument();
+  });
+
+  it('Reality targeting does not reveal unrevealed hand or board character identity in selected text', async () => {
+    const user = userEvent.setup();
+    const setup = (): ReturnType<typeof initializeGameState> => {
+      const base = initializeGameState([
+        createChar('p1-own', 'P1', 6, 6, false, 'P1_2', 'P1-OWN'),
+        createChar('p1-king', 'P1', 8, 8, true, 'P1_3', 'P1-KING'),
+        createChar('p2-hidden-char', 'P2', 6, 6, false, 'P2_4', 'P2-SECRET-CHAR'),
+        createChar('p2-king', 'P2', 8, 8, true, 'P2_3', 'P2-KING'),
+      ]);
+
+      return {
+        ...base,
+        activePlayer: 'P1',
+        powerCardHands: {
+          P1: [{ instanceId: 'power-y-reality-board', definitionId: 'power-alpha-025' }],
+          P2: [{ instanceId: 'power-a-hidden', definitionId: 'power-alpha-017' }],
+        },
+      };
+    };
+
+    render(<App createGameState={setup} />);
+    await user.click(screen.getByTestId('new-game-button'));
+    await user.click(screen.getByTestId('manual-reveal-P1'));
+    await user.click(screen.getByTestId('manual-power-button-power-y-reality-board'));
+    await user.click(screen.getByTestId('board-power-card-play-button'));
+
+    expect(await screen.findByTestId('reality-stone-targeting-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('reality-target-hand-P2-power-a-hidden'));
+    expect(screen.getByTestId('reality-selected-target')).toHaveTextContent('Hidden Power Card');
+    expect(screen.getByTestId('reality-selected-target')).not.toHaveTextContent('PHONE A FRIEND');
+
+    await user.click(screen.getByTestId('reality-target-boardchar-p2-hidden-char'));
+    expect(screen.getByTestId('reality-selected-target')).toHaveTextContent('Hidden Character');
+    expect(screen.getByTestId('reality-selected-target')).not.toHaveTextContent('P2-SECRET-CHAR');
+  });
+
   it('board NO SPRAY can cancel BEHIND THE CURTAINS in main board view', async () => {
     const user = userEvent.setup();
     const setup = (): ReturnType<typeof initializeGameState> => {
@@ -1491,7 +1951,7 @@ describe('Phase 5 UI', () => {
     await user.click(screen.getByTestId('manual-reveal-P1'));
     expect(screen.getByTestId('game-mode-label')).toHaveTextContent('Mode: Player One vs Player Two');
 
-    await user.click(screen.getByTestId('manual-power-button-power-y-curtains'));
+    await user.click(await screen.findByTestId('manual-power-button-power-y-curtains'));
     await user.click(screen.getByTestId('board-power-card-play-button'));
     await user.click(screen.getByTestId('curtains-confirm'));
     await user.click(await screen.findByTestId('manual-reveal-P2'));
@@ -1509,6 +1969,6 @@ describe('Phase 5 UI', () => {
     });
 
     await user.click(await screen.findByTestId('manual-reveal-P1'));
-    expect(screen.getByTestId('manual-power-button-power-y-curtains')).toBeInTheDocument();
+    expect(screen.queryByTestId('manual-power-button-power-y-curtains')).not.toBeInTheDocument();
   });
 });

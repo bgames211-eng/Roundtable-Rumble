@@ -42,6 +42,7 @@ See also: [CARD_TAXONOMY.md](CARD_TAXONOMY.md) and [CARD_IMPLEMENTATION_MATRIX.m
 | No Spray | done | battle reaction implemented to cancel latest cancelable opponent in-battle card effect |
 | Back It Up | done | board targeting + backward relocation flow implemented |
 | Portal | done | board targeting + open-space relocation flow implemented |
+| Find It | in-progress | kitchen-only room challenge vertical slice implemented (blur/go, 15s search, success/fail routing, reveal marker); additional rooms pending |
 
 ## Requested Weapon Power Cards
 
